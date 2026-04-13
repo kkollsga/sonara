@@ -30,64 +30,62 @@ def _check_matplotlib():
 # Axis formatters
 # ============================================================
 
+if HAS_MATPLOTLIB:
 
-class TimeFormatter(mplticker.Formatter):
-    """Format time values in seconds to human-readable strings."""
+    class TimeFormatter(mplticker.Formatter):
+        """Format time values in seconds to human-readable strings."""
 
-    def __init__(self, lag=False):
-        self.lag = lag
+        def __init__(self, lag=False):
+            self.lag = lag
 
-    def __call__(self, x, pos=None):
-        sign = ""
-        if x < 0:
-            sign = "-"
-            x = -x
-        if x >= 3600:
-            s = f"{sign}{int(x // 3600)}:{int((x % 3600) // 60):02d}:{x % 60:05.2f}"
-        elif x >= 60:
-            s = f"{sign}{int(x // 60)}:{x % 60:05.2f}"
-        else:
-            s = f"{sign}{x:.2f}"
-        return s
+        def __call__(self, x, pos=None):
+            sign = ""
+            if x < 0:
+                sign = "-"
+                x = -x
+            if x >= 3600:
+                s = f"{sign}{int(x // 3600)}:{int((x % 3600) // 60):02d}:{x % 60:05.2f}"
+            elif x >= 60:
+                s = f"{sign}{int(x // 60)}:{x % 60:05.2f}"
+            else:
+                s = f"{sign}{x:.2f}"
+            return s
 
+    class NoteFormatter(mplticker.Formatter):
+        """Format Hz values as note names."""
 
-class NoteFormatter(mplticker.Formatter):
-    """Format Hz values as note names."""
+        def __init__(self, octave=True, major=True):
+            self.octave = octave
+            self.major = major
 
-    def __init__(self, octave=True, major=True):
-        self.octave = octave
-        self.major = major
+        def __call__(self, x, pos=None):
+            if x <= 0:
+                return ""
+            try:
+                from canora._canora import hz_to_note
+                return hz_to_note(float(x))
+            except Exception:
+                return f"{x:.0f}"
 
-    def __call__(self, x, pos=None):
-        if x <= 0:
+    class ChromaFormatter(mplticker.Formatter):
+        """Format chroma bin indices as note names."""
+
+        NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+
+        def __call__(self, x, pos=None):
+            idx = int(round(x)) % 12
+            return self.NOTE_NAMES[idx]
+
+    class TonnetzFormatter(mplticker.Formatter):
+        """Format tonnetz dimension indices."""
+
+        LABELS = ["5th x", "5th y", "m3rd x", "m3rd y", "M3rd x", "M3rd y"]
+
+        def __call__(self, x, pos=None):
+            idx = int(round(x))
+            if 0 <= idx < len(self.LABELS):
+                return self.LABELS[idx]
             return ""
-        try:
-            from canora._canora import hz_to_note
-            return hz_to_note(float(x))
-        except Exception:
-            return f"{x:.0f}"
-
-
-class ChromaFormatter(mplticker.Formatter):
-    """Format chroma bin indices as note names."""
-
-    NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
-
-    def __call__(self, x, pos=None):
-        idx = int(round(x)) % 12
-        return self.NOTE_NAMES[idx]
-
-
-class TonnetzFormatter(mplticker.Formatter):
-    """Format tonnetz dimension indices."""
-
-    LABELS = ["5th x", "5th y", "m3rd x", "m3rd y", "M3rd x", "M3rd y"]
-
-    def __call__(self, x, pos=None):
-        idx = int(round(x))
-        if 0 <= idx < len(self.LABELS):
-            return self.LABELS[idx]
-        return ""
 
 
 # ============================================================
