@@ -1,3 +1,4 @@
+#[cfg(feature = "accelerate")]
 extern crate blas_src;
 
 pub mod analyze;

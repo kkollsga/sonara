@@ -4,9 +4,9 @@
 
 use std::f64::consts::PI;
 
-use ndarray::{s, Array1, Array2, ArrayView1, Axis};
+use ndarray::{s, Array1, Array2, ArrayView1};
 
-use crate::core::{convert, fft, spectrum};
+use crate::core::{convert, spectrum};
 use crate::error::{CanoraError, Result};
 use crate::types::*;
 use crate::util::utils;
@@ -305,12 +305,11 @@ fn beta_inc(x: Float, a: Float, b: Float) -> Float {
     let lbeta = ln_gamma(a) + ln_gamma(b) - ln_gamma(a + b);
     let front = (x.ln() * a + (1.0 - x).ln() * b - lbeta).exp() / a;
 
-    let mut f = 1.0_f64;
     let mut c = 1.0_f64;
     let mut d = 1.0 - (a + b) * x / (a + 1.0);
     if d.abs() < 1e-30 { d = 1e-30; }
     d = 1.0 / d;
-    f = d;
+    let mut f = d;
     for m in 1..200 {
         let mf = m as Float;
         let num = mf * (b - mf) * x / ((a + 2.0 * mf - 1.0) * (a + 2.0 * mf));

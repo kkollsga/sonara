@@ -2,9 +2,9 @@
 //!
 //! Mirrors librosa.core.harmonic.
 
-use ndarray::{Array1, Array2, ArrayView1, ArrayView2};
-
-use crate::core::convert;
+#[cfg(test)]
+use ndarray::Array1;
+use ndarray::{Array2, ArrayView1, ArrayView2};
 use crate::error::{CanoraError, Result};
 use crate::types::Float;
 
@@ -23,7 +23,7 @@ pub fn salience(
     freqs: ArrayView1<Float>,
     harmonics: &[usize],
     weights: Option<&[Float]>,
-    fill_value: Float,
+    _fill_value: Float,
 ) -> Result<Array2<Float>> {
     let n_bins = s.nrows();
     let n_frames = s.ncols();
@@ -168,7 +168,6 @@ pub fn f0_harmonics(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ndarray::array;
 
     #[test]
     fn test_salience_shape() {

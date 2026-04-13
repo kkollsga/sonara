@@ -8,7 +8,7 @@ use ndarray::{s, Array1, ArrayView1};
 use crate::core::{audio, spectrum};
 use crate::decompose;
 use crate::dsp::iir;
-use crate::error::{CanoraError, Result};
+use crate::error::Result;
 use crate::feature::spectral;
 use crate::types::*;
 

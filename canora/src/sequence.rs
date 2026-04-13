@@ -336,7 +336,6 @@ pub fn transition_local(n_states: usize, width: usize) -> Array2<Float> {
 mod tests {
     use super::*;
     use approx::assert_abs_diff_eq;
-    use ndarray::array;
 
     // ---- DTW ----
 
@@ -525,7 +524,7 @@ mod tests {
         let c = Array2::from_shape_fn((n, n), |(i, j)| {
             ((i as Float) - (j as Float)).abs()
         });
-        let (d, path) = dtw(c.view(), None).unwrap();
+        let (_d, path) = dtw(c.view(), None).unwrap();
         assert!(path.len() >= n);
         assert_eq!(path[0], (0, 0));
         assert_eq!(*path.last().unwrap(), (n - 1, n - 1));

@@ -11,7 +11,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            cargo-features: ""
+          - os: macos-latest
+            cargo-features: --features accelerate
+          - os: windows-latest
+            cargo-features: ""
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
@@ -20,14 +26,16 @@ jobs:
           python-version: "3.12"
 
       - name: Rust tests
-        run: cargo test -p canora
+        run: cargo test -p canora ${{ matrix.cargo-features }}
 
       - name: Build Python bindings
+        if: matrix.os != 'windows-latest'
         run: |
           pip install maturin numpy
           maturin develop --release -m canora-python/Cargo.toml
 
       - name: Python tests
+        if: matrix.os != 'windows-latest'
         run: python tests/python/test_api.py
 
   publish:

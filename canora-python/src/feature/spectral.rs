@@ -1,3 +1,5 @@
+#![allow(non_snake_case)]
+
 use numpy::{IntoPyArray, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::prelude::*;
 

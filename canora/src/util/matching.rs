@@ -2,7 +2,9 @@
 //!
 //! Mirrors librosa.util.matching — match_intervals, match_events.
 
-use ndarray::{Array2, ArrayView2};
+#[cfg(test)]
+use ndarray::Array2;
+use ndarray::ArrayView2;
 
 use crate::error::{CanoraError, Result};
 use crate::types::Float;

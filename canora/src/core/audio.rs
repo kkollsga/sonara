@@ -7,7 +7,9 @@
 use std::f64::consts::PI;
 use std::path::Path;
 
-use ndarray::{s, Array1, Array2, ArrayView1, Axis};
+#[cfg(test)]
+use ndarray::s;
+use ndarray::{Array1, Array2, ArrayView1, Axis};
 
 use crate::error::{CanoraError, Result};
 use crate::types::{AudioBuffer, Float};
@@ -226,50 +228,37 @@ pub fn resample(
         return Ok(y.to_owned());
     }
 
-    use rubato::{FftFixedInOut, Resampler};
+    use rubato::{Fft, FixedSync, Resampler};
+    use rubato::audioadapter_buffers::direct::SequentialSliceOfVecs;
 
-    let ratio = target_sr as f64 / orig_sr as f64;
     let chunk_size = 1024;
-
-    let mut resampler = FftFixedInOut::<f64>::new(
+    let mut resampler = Fft::<f64>::new(
         orig_sr as usize,
         target_sr as usize,
         chunk_size,
+        1, // sub_chunks
         1, // mono
+        FixedSync::Input,
     )
     .map_err(|e| CanoraError::Fft(format!("resampler init: {e}")))?;
 
-    let input_frames_needed = resampler.input_frames_next();
-    let mut output = Vec::with_capacity((y.len() as f64 * ratio * 1.1) as usize);
-
+    let input_len = y.len();
     let input_vec: Vec<Float> = y.to_vec();
-    let mut pos = 0;
+    let input_data = vec![input_vec];
+    let input = SequentialSliceOfVecs::new(&input_data, 1, input_len)
+        .map_err(|e| CanoraError::Fft(format!("resampler input buffer: {e}")))?;
 
-    while pos + input_frames_needed <= input_vec.len() {
-        let chunk = vec![input_vec[pos..pos + input_frames_needed].to_vec()];
-        let result = resampler
-            .process(&chunk, None)
-            .map_err(|e| CanoraError::Fft(format!("resample: {e}")))?;
-        output.extend_from_slice(&result[0]);
-        pos += input_frames_needed;
-    }
+    let output_len = resampler.process_all_needed_output_len(input_len);
+    let mut output_data = vec![vec![0.0f64; output_len]];
+    let mut output = SequentialSliceOfVecs::new_mut(&mut output_data, 1, output_len)
+        .map_err(|e| CanoraError::Fft(format!("resampler output buffer: {e}")))?;
 
-    // Handle remaining samples by zero-padding
-    if pos < input_vec.len() {
-        let remaining = input_vec.len() - pos;
-        let mut last_chunk = vec![0.0; input_frames_needed];
-        last_chunk[..remaining].copy_from_slice(&input_vec[pos..]);
-        let chunk = vec![last_chunk];
-        let result = resampler
-            .process(&chunk, None)
-            .map_err(|e| CanoraError::Fft(format!("resample tail: {e}")))?;
-        // Only take the expected number of output samples
-        let expected_remaining = (remaining as f64 * ratio).ceil() as usize;
-        let take = expected_remaining.min(result[0].len());
-        output.extend_from_slice(&result[0][..take]);
-    }
+    let (_nbr_in, nbr_out) = resampler
+        .process_all_into_buffer(&input, &mut output, input_len, None)
+        .map_err(|e| CanoraError::Fft(format!("resample: {e}")))?;
 
-    Ok(Array1::from_vec(output))
+    output_data[0].truncate(nbr_out);
+    Ok(Array1::from_vec(output_data.into_iter().next().unwrap()))
 }
 
 /// Get the duration of an audio file in seconds.

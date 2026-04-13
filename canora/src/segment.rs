@@ -3,9 +3,9 @@
 //! Mirrors librosa.segment — recurrence_matrix, cross_similarity,
 //! recurrence_to_lag, lag_to_recurrence, path_enhance, subsegment.
 
-use ndarray::{s, Array2, ArrayView2};
+use ndarray::{Array2, ArrayView2};
 
-use crate::error::{CanoraError, Result};
+use crate::error::Result;
 use crate::types::Float;
 
 /// Compute a recurrence (self-similarity) matrix.
@@ -193,7 +193,7 @@ pub fn path_enhance(r: ArrayView2<Float>, n_filter: usize) -> Array2<Float> {
 
 /// Subdivide segments based on feature changes.
 pub fn subsegment(
-    data: ArrayView2<Float>,
+    _data: ArrayView2<Float>,
     frames: &[usize],
     n_segments: usize,
 ) -> Vec<usize> {
@@ -283,7 +283,7 @@ mod tests {
 
     #[test]
     fn test_subsegment() {
-        let data = Array2::from_shape_fn((4, 20), |(i, j)| j as Float);
+        let data = Array2::from_shape_fn((4, 20), |(_i, j)| j as Float);
         let frames = vec![0, 10, 20];
         let sub = subsegment(data.view(), &frames, 3);
         assert!(sub.len() > frames.len());

@@ -12,14 +12,15 @@
 
 use std::f64::consts::PI;
 
-use ndarray::{s, Array1, Array2, ArrayView1, ArrayView2, Axis};
+#[cfg(test)]
+use ndarray::Axis;
+use ndarray::{s, Array1, Array2, ArrayView1, ArrayView2};
 use num_complex::Complex;
 
 use crate::core::{convert, fft, spectrum};
 use crate::dsp::windows;
 use crate::error::{CanoraError, Result};
 use crate::types::*;
-use crate::util::utils;
 
 // ============================================================
 // Public API
@@ -97,7 +98,7 @@ pub fn vqt(
             continue;
         }
 
-        let n_oct_bins = bin_end - bin_start;
+        let _n_oct_bins = bin_end - bin_start;
         let oct_freqs = freqs.slice(s![bin_start..bin_end]).to_owned();
 
         // Build filterbank for this octave
@@ -434,7 +435,6 @@ fn build_cq_filterbank(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use approx::assert_abs_diff_eq;
 
     fn sine_signal(freq: Float, sr: u32, duration: Float) -> Array1<Float> {
         let n = (sr as Float * duration) as usize;

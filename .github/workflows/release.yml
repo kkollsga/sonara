@@ -45,13 +45,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-
-      - name: Build sdist
-        uses: PyO3/maturin-action@v1
+      - uses: PyO3/maturin-action@v1
         with:
           command: sdist
           args: -m canora-python/Cargo.toml --out dist
-
       - uses: actions/upload-artifact@v4
         with:
           name: sdist
@@ -66,7 +63,6 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"

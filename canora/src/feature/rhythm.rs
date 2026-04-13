@@ -2,12 +2,12 @@
 //!
 //! Mirrors librosa.feature.rhythm — tempogram, fourier_tempogram, tempo, tempogram_ratio.
 
+#[cfg(test)]
 use std::f64::consts::PI;
-
-use ndarray::{s, Array1, Array2, ArrayView1, ArrayView2};
+use ndarray::{Array1, Array2, ArrayView1, ArrayView2};
 use num_complex::Complex;
 
-use crate::core::{audio, convert, fft};
+use crate::core::{audio, fft};
 use crate::dsp::windows;
 use crate::error::{CanoraError, Result};
 use crate::onset;
@@ -184,8 +184,8 @@ pub fn tempo(
 /// Ratio of energy at different tempo multiples.
 pub fn tempogram_ratio(
     tg: ArrayView2<Float>,
-    sr: u32,
-    hop_length: usize,
+    _sr: u32,
+    _hop_length: usize,
 ) -> Result<Array2<Float>> {
     let n_lags = tg.nrows();
     let n_frames = tg.ncols();

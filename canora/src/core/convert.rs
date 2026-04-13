@@ -438,7 +438,7 @@ const SVARA_H: [&str; 12] = ["Sa", "re", "Re", "ga", "Ga", "ma", "Ma", "Pa", "dh
 const SVARA_C: [&str; 12] = ["Sa", "Ri1", "Ri2", "Ga1", "Ga2", "Ma1", "Ma2", "Pa", "Da1", "Da2", "Ni1", "Ni2"];
 
 /// Convert Hz to Hindustani svara name.
-pub fn hz_to_svara_h(freq: Float, sa: Float, abbr: bool) -> String {
+pub fn hz_to_svara_h(freq: Float, sa: Float, _abbr: bool) -> String {
     if freq <= 0.0 || sa <= 0.0 { return String::new(); }
     let midi_offset = (12.0 * (freq / sa).log2()).round() as i64;
     let idx = ((midi_offset % 12) + 12) % 12;
@@ -446,7 +446,7 @@ pub fn hz_to_svara_h(freq: Float, sa: Float, abbr: bool) -> String {
 }
 
 /// Convert Hz to Carnatic svara name.
-pub fn hz_to_svara_c(freq: Float, sa: Float, abbr: bool) -> String {
+pub fn hz_to_svara_c(freq: Float, sa: Float, _abbr: bool) -> String {
     if freq <= 0.0 || sa <= 0.0 { return String::new(); }
     let midi_offset = (12.0 * (freq / sa).log2()).round() as i64;
     let idx = ((midi_offset % 12) + 12) % 12;

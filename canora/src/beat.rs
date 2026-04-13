@@ -3,11 +3,8 @@
 //! Mirrors librosa.beat — beat_track, plp.
 //! Uses dynamic programming for beat tracking (Ellis 2007 algorithm).
 
-use std::f64::consts::PI;
-
 use ndarray::{Array1, ArrayView1};
 
-use crate::core::convert;
 use crate::error::{CanoraError, Result};
 use crate::onset;
 use crate::types::Float;

@@ -3,7 +3,7 @@
 //! Mirrors librosa.onset — onset_detect, onset_strength, onset_strength_multi, onset_backtrack.
 //! Computes spectral flux from mel spectrogram to detect note onsets.
 
-use ndarray::{s, Array1, Array2, ArrayView1, ArrayView2};
+use ndarray::{Array1, Array2, ArrayView1};
 
 use crate::core::spectrum;
 use crate::error::{CanoraError, Result};

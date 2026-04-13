@@ -7,7 +7,7 @@ use std::f64::consts::PI;
 use ndarray::{Array2, ArrayView2};
 
 use crate::core::spectrum;
-use crate::error::{CanoraError, Result};
+use crate::error::Result;
 use crate::filters;
 use crate::types::*;
 
@@ -143,7 +143,7 @@ mod tests {
 
     #[test]
     fn test_mfcc_to_mel_shape() {
-        let mfcc = Array2::from_shape_fn((20, 10), |(i, j)| (i as Float - 10.0) * 0.1);
+        let mfcc = Array2::from_shape_fn((20, 10), |(i, _j)| (i as Float - 10.0) * 0.1);
         let mel = mfcc_to_mel(mfcc.view(), 128).unwrap();
         assert_eq!(mel.nrows(), 128);
         assert_eq!(mel.ncols(), 10);

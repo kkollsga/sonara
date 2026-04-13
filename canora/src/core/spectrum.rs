@@ -10,7 +10,9 @@
 
 use std::f64::consts::PI;
 
-use ndarray::{s, Array1, Array2, ArrayView1, ArrayView2, Axis};
+#[cfg(test)]
+use ndarray::Axis;
+use ndarray::{s, Array1, Array2, ArrayView1, ArrayView2};
 use num_complex::Complex;
 use rayon::prelude::*;
 
@@ -162,7 +164,7 @@ pub fn stft_power(
     hop_length: usize,
     window: &WindowSpec,
     center: bool,
-    pad_mode: PadMode,
+    _pad_mode: PadMode,
     power: Float,
 ) -> Result<Spectrogram> {
     let win_length = n_fft;
@@ -585,7 +587,7 @@ pub fn griffinlim(
 
     // Initialize with random phase
     let mut rng_state: u64 = 42;
-    let mut angles = Array2::<ComplexFloat>::from_shape_fn((n_bins, s_mag.ncols()), |_| {
+    let angles = Array2::<ComplexFloat>::from_shape_fn((n_bins, s_mag.ncols()), |_| {
         // Simple xorshift64 PRNG
         rng_state ^= rng_state << 13;
         rng_state ^= rng_state >> 7;
@@ -733,7 +735,7 @@ pub fn iirt(
     n_filters: usize,
     fmin: Float,
 ) -> Result<Spectrogram> {
-    let sr_f = sr as Float;
+    let _sr_f = sr as Float;
     let freqs = crate::core::convert::cqt_frequencies(n_filters, fmin, 12);
     let n_frames = 1 + (y.len().saturating_sub(win_length)) / hop_length;
     let mut result = Spectrogram::zeros((n_filters, n_frames));
@@ -741,8 +743,8 @@ pub fn iirt(
     // Simple bandpass: for each filter, compute energy in a band around the target frequency
     for (fi, &freq) in freqs.iter().enumerate() {
         let bandwidth = freq * (2.0_f64.powf(1.0 / 24.0) - 1.0); // quarter-tone bandwidth
-        let f_lo = (freq - bandwidth).max(0.0);
-        let f_hi = freq + bandwidth;
+        let _f_lo = (freq - bandwidth).max(0.0);
+        let _f_hi = freq + bandwidth;
 
         // For each frame, compute energy via STFT bins in band
         // (simplified: uses magnitude spectrogram)
@@ -767,7 +769,7 @@ pub fn iirt(
 /// as a standard spectrogram matrix.
 pub fn reassigned_spectrogram(
     y: ArrayView1<Float>,
-    sr: u32,
+    _sr: u32,
     n_fft: usize,
     hop_length: usize,
 ) -> Result<Spectrogram> {

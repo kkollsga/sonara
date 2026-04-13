@@ -2,11 +2,10 @@
 //!
 //! Mirrors librosa.decompose — hpss, decompose (NMF), nn_filter.
 
-use ndarray::{s, Array2, ArrayView2};
+use ndarray::{Array2, ArrayView2};
 
-use crate::error::{CanoraError, Result};
+use crate::error::Result;
 use crate::types::*;
-use crate::util::utils;
 
 /// Harmonic-Percussive Source Separation on a spectrogram.
 ///

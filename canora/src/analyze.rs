@@ -7,7 +7,6 @@
 //! Key optimization: one FFT per frame simultaneously produces mel projection
 //! (for onset/beat), spectral centroid, and RMS — no intermediate matrices.
 
-use std::f64::consts::PI;
 use std::path::Path;
 
 use ndarray::{s, Array1, Array2};

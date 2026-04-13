@@ -10,7 +10,7 @@
 
 use std::f64::consts::PI;
 
-use ndarray::{s, Array1, Array2, ArrayView1, ArrayView2, Axis};
+use ndarray::{s, Array1, Array2, ArrayView1, ArrayView2};
 
 use crate::core::{convert, spectrum};
 use crate::error::{CanoraError, Result};
@@ -640,7 +640,6 @@ fn get_magnitude_spec(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use approx::assert_abs_diff_eq;
 
     fn sine(freq: Float, sr: Float, dur: Float) -> Array1<Float> {
         let n = (sr * dur) as usize;

@@ -3,26 +3,24 @@ members = ["canora", "canora-python"]
 resolver = "2"
 
 [workspace.dependencies]
-ndarray = { version = "0.16", features = ["blas"] }
-blas-src = { version = "0.10", features = ["accelerate"] }
-cblas-sys = "0.1"
+ndarray = "0.17"
 num-complex = "0.4"
 num-traits = "0.2"
 realfft = "3"
 rustfft = "6"
-rayon = "1.10"
+rayon = "1.11"
 thiserror = "2"
 approx = "0.5"
 symphonia = { version = "0.5", features = ["all-codecs", "all-formats"] }
 hound = "3.5"
-rubato = "0.15"
+rubato = "2"
 
 [workspace.dependencies.pyo3]
-version = "0.24"
+version = "0.28"
 features = ["abi3-py39", "extension-module"]
 
 [workspace.dependencies.numpy]
-version = "0.24"
+version = "0.28"
 
 [profile.release]
 lto = "fat"
