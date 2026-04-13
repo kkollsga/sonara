@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "canora"
-version = "0.1.0"
+version = "0.1.1"
 description = "High-performance drop-in replacement for librosa — audio analysis and music information retrieval in Rust"
 requires-python = ">=3.9"
 license = {file = "LICENSE"}
