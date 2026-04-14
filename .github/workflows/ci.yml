@@ -41,3 +41,63 @@ jobs:
         run: |
           source .venv/bin/activate
           python tests/python/test_api.py
+
+  publish:
+    needs: [test]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Get package version
+        id: version
+        run: |
+          VERSION=$(python -c "
+          import tomllib, pathlib
+          d = tomllib.loads(pathlib.Path('pyproject.toml').read_text())
+          print(d['project']['version'])
+          ")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Check if version exists on PyPI
+        id: check
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://pypi.org/pypi/sonara/${{ steps.version.outputs.version }}/json/")
+          if [ "$STATUS" = "200" ]; then
+            echo "Published: version ${{ steps.version.outputs.version }} already on PyPI"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Not published: version ${{ steps.version.outputs.version }} not found on PyPI"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build sdist
+        if: steps.check.outputs.exists == 'false'
+        uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: -m sonara-python/Cargo.toml --out dist
+
+      - name: Publish to PyPI
+        if: steps.check.outputs.exists == 'false'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+
+      - name: Tag and create GitHub release
+        if: steps.check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="v${{ steps.version.outputs.version }}"
+          git tag "$VERSION"
+          git push origin "$VERSION"
+          gh release create "$VERSION" dist/* --generate-notes
