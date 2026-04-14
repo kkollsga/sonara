@@ -8,6 +8,7 @@ mod error;
 mod feature;
 mod filters;
 mod onset;
+mod tonal;
 mod util;
 
 #[pymodule]
@@ -23,6 +24,7 @@ fn _sonara(m: &Bound<'_, PyModule>) -> PyResult<()> {
     feature::register(m)?;
     filters::register(m)?;
     onset::register(m)?;
+    tonal::register(m)?;
     util::register(m)?;
 
     // ========================================================
@@ -148,6 +150,14 @@ fn _sonara(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // --- Filters ---
     m.add_function(wrap_pyfunction!(filters::py_mel, m)?)?;
+
+    // --- Tonal ---
+    m.add_function(wrap_pyfunction!(tonal::py_hpcp, m)?)?;
+    m.add_function(wrap_pyfunction!(tonal::py_chords_from_beats, m)?)?;
+    m.add_function(wrap_pyfunction!(tonal::py_chords_from_frames, m)?)?;
+    m.add_function(wrap_pyfunction!(tonal::py_chord_descriptors, m)?)?;
+    m.add_function(wrap_pyfunction!(tonal::py_dissonance, m)?)?;
+    m.add_function(wrap_pyfunction!(tonal::py_dissonance_from_peaks, m)?)?;
 
     // --- Features ---
     m.add_function(wrap_pyfunction!(feature::spectral::py_melspectrogram, m)?)?;

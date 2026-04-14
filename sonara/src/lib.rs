@@ -14,6 +14,7 @@ pub mod onset;
 pub mod perceptual;
 pub mod segment;
 pub mod sequence;
+pub mod tonal;
 pub mod types;
 pub mod util;
 

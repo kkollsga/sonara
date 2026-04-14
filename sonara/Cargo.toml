@@ -1,6 +1,6 @@
 [package]
 name = "sonara"
-version = "0.1.0"
+version = "0.1.6"
 edition = "2021"
 description = "High-performance audio analysis library for music information retrieval"
 license = "MIT"

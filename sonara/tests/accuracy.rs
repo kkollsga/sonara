@@ -474,7 +474,7 @@ fn accuracy_perceptual_key_full_c_major() {
         (2.0 * PI * 329.63 * t).sin() +
         (2.0 * PI * 392.00 * t).sin()
     });
-    let r = sonara::analyze::analyze_signal(y.view(), sr, &sonara::analyze::playlist_accurate()).unwrap();
+    let r = sonara::analyze::analyze_signal(y.view(), sr, &sonara::analyze::playlist()).unwrap();
 
     let key = r.key.unwrap();
     // Full mode uses accurate chroma filterbank. C major (C-E-G) shares notes
@@ -535,7 +535,7 @@ fn accuracy_perceptual_acousticness_sine_vs_noise() {
 fn accuracy_perceptual_dfa_returns_value() {
     // Full mode should compute DFA-based danceability
     let y = click_train(22050, 5.0, 120.0);
-    let r = sonara::analyze::analyze_signal(y.view(), 22050, &sonara::analyze::playlist_accurate()).unwrap();
+    let r = sonara::analyze::analyze_signal(y.view(), 22050, &sonara::analyze::playlist()).unwrap();
     let d = r.danceability.unwrap();
     assert!(d >= 0.0 && d <= 1.0, "DFA danceability should be in [0,1], got {}", d);
 }

@@ -757,7 +757,7 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
 name = "sonara"
-version = "0.1.0"
+version = "0.1.6"
 dependencies = [
  "approx",
  "blas-src",
@@ -776,7 +776,7 @@ dependencies = [
 
 [[package]]
 name = "sonara-python"
-version = "0.1.0"
+version = "0.1.6"
 dependencies = [
  "ndarray",
  "num-complex",

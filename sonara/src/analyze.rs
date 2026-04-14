@@ -13,13 +13,14 @@
 //! - **Full**: same features as Playlist (currently identical, reserved for
 //!   future additions like per-frame arrays or segment-level analysis).
 //!
-//! ## Accuracy
+//! ## Algorithms
 //!
-//! The `accurate` flag trades speed for precision on select features:
-//! - **Chroma**: mel-band approximation (±1 semitone) → proper chroma filterbank
-//! - **Spectral contrast**: mel sub-bands → log-spaced frequency bands on magnitude spectrum
-//! - **Danceability**: beat heuristic → Detrended Fluctuation Analysis (Streich & Herrera 2005)
-//! - Requires storing the full power spectrogram (~2x memory for the FFT pass).
+//! All features use their most accurate algorithms by default:
+//! - **Chroma**: proper chroma filterbank (sparse projection)
+//! - **Spectral contrast**: log-spaced frequency bands with partial sort
+//! - **HPCP / chords**: spectral peak detection with harmonic weighting (Gomez 2006)
+//! - **Dissonance**: Sethares (1998) Plomp-Levelt model
+//! - All features are fused into a single FFT pass to minimize cache pressure.
 
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -56,8 +57,8 @@ pub enum AnalysisMode {
     /// flatness/contrast, MFCCs, chroma, plus perceptual features (energy,
     /// danceability, key, valence, acousticness). (~3ms per 10s track)
     Playlist,
-    /// All available features. Currently identical to Playlist; reserved for
-    /// future additions (per-frame arrays, segment analysis). (~3ms per 10s track)
+    /// All available features including expensive rhythm analysis
+    /// (tempo_curve, time_signature via metrogram).
     Full,
 }
 
@@ -84,9 +85,6 @@ impl Default for AnalysisMode {
 pub struct AnalysisConfig {
     /// Analysis depth — which feature groups to compute.
     pub mode: AnalysisMode,
-    /// Use accurate (but slower) algorithms for chroma, spectral contrast,
-    /// and danceability. Requires storing the full power spectrogram.
-    pub accurate: bool,
     /// Optional: override which features to include, regardless of mode.
     /// When `Some`, only the listed features are computed.
     /// Valid feature names (case-insensitive):
@@ -96,6 +94,9 @@ pub struct AnalysisConfig {
     ///
     /// **Spectral:**
     /// `bandwidth`, `rolloff`, `flatness`, `contrast`, `mfcc`, `chroma`
+    ///
+    /// **Tonal:**
+    /// `chords`, `dissonance`
     ///
     /// **Perceptual:**
     /// `energy`, `danceability`, `key`, `valence`, `acousticness`
@@ -110,7 +111,6 @@ impl Default for AnalysisConfig {
     fn default() -> Self {
         Self {
             mode: AnalysisMode::Compact,
-            accurate: false,
             features: None,
         }
     }
@@ -125,8 +125,13 @@ impl AnalysisConfig {
         } else {
             // Mode-based defaults
             match self.mode {
-                AnalysisMode::Compact => false, // only core (handled separately)
-                AnalysisMode::Playlist | AnalysisMode::Full => true,
+                AnalysisMode::Compact => false,
+                AnalysisMode::Playlist => {
+                    // Expensive rhythm analysis features are Full-only
+                    // (metrogram is O(n³) and costs ~445ms for a 3-min track)
+                    !matches!(name, "tempo_curve" | "time_signature")
+                }
+                AnalysisMode::Full => true,
             }
         }
     }
@@ -137,6 +142,7 @@ impl AnalysisConfig {
             // If any non-core feature is requested
             const EXTENDED_FEATURES: &[&str] = &[
                 "bandwidth", "rolloff", "flatness", "contrast", "mfcc", "chroma",
+                "chords", "dissonance",
                 "energy", "danceability", "key", "valence", "acousticness",
             ];
             EXTENDED_FEATURES.iter().any(|&f| features.contains(f))
@@ -145,19 +151,30 @@ impl AnalysisConfig {
         }
     }
 
-    /// Check if the power spectrogram needs to be stored (for accurate chroma/contrast).
-    pub fn needs_power_spec(&self) -> bool {
-        self.accurate && self.needs_extended()
-    }
 }
 
-/// Cached mel filterbank and sparse representation.
+/// Number of spectral contrast bands.
+const N_CONTRAST_BANDS: usize = 6;
+/// Number of MFCC coefficients.
+const N_MFCC: usize = 13;
+/// Number of HPCP harmonics.
+const N_HPCP_HARMONICS: usize = 4;
+/// Max spectral peaks for HPCP/dissonance.
+const MAX_PEAKS: usize = 50;
+
+/// Cached mel filterbank, sparse chroma, DCT matrix, and analysis constants.
 struct AnalysisCache {
     key: (u32, usize, usize), // (sr, n_fft, n_mels)
     sparse_mel: Vec<(usize, Vec<Float>)>,
+    sparse_chroma: Vec<(usize, Vec<Float>)>,
     freqs: Array1<Float>,
     win_padded: Array1<Float>,
-    chroma_fb: FilterBank, // (12, n_bins) — proper chroma filterbank
+    /// Pre-computed DCT-II matrix (n_mfcc, n_mels) for fast MFCC.
+    dct_matrix: Array2<Float>,
+    /// Spectral contrast band boundaries (bin indices).
+    contrast_bands: Vec<(usize, usize)>,
+    /// HPCP harmonic weights: 1/(h+1).
+    harmonic_weights: [Float; N_HPCP_HARMONICS],
 }
 
 thread_local! {
@@ -196,6 +213,12 @@ pub struct TrackAnalysis {
     pub time_signature: Option<String>,
     pub time_signature_confidence: Option<Float>,
 
+    // -- Tonal (extended or full) --
+    pub chord_sequence: Option<Vec<String>>,
+    pub chord_change_rate: Option<Float>,
+    pub predominant_chord: Option<String>,
+    pub dissonance: Option<Float>,
+
     // -- Perceptual (extended or full) --
     pub energy: Option<Float>,
     pub danceability: Option<Float>,
@@ -203,6 +226,10 @@ pub struct TrackAnalysis {
     pub key_confidence: Option<Float>,
     pub valence: Option<Float>,
     pub acousticness: Option<Float>,
+
+    // -- Embedding (future ML models) --
+    /// Learned audio embedding vector (future ONNX integration).
+    pub embedding: Option<Vec<Float>>,
 
     // -- Tier 3 placeholders (future ML models) --
     /// Requires ML model (future).
@@ -222,8 +249,11 @@ struct FrameResult {
     bandwidth: Float,
     rolloff: Float,
     flatness: Float,
-    chroma_col: Vec<Float>,       // 12 chroma bins via proper filterbank
-    power_col: Option<Vec<Float>>, // saved for accurate spectral contrast
+    chroma_col: [Float; 12],
+    // Fused tonal + contrast (only populated when extended)
+    contrast_bands: [Float; N_CONTRAST_BANDS + 1],
+    hpcp_col: [Float; 12],
+    dissonance: Float,
 }
 
 // ============================================================
@@ -243,8 +273,7 @@ pub fn analyze_signal(
     config: &AnalysisConfig,
 ) -> Result<TrackAnalysis> {
     let extended = config.needs_extended();
-    let accurate = config.accurate && extended;
-    analyze_signal_inner(y, sr, extended, accurate, config)
+    analyze_signal_inner(y, sr, extended, config)
 }
 
 /// Analyze multiple files in parallel.
@@ -260,7 +289,6 @@ fn analyze_signal_inner(
     y: ndarray::ArrayView1<Float>,
     sr: u32,
     extended: bool,
-    accurate: bool,
     config: &AnalysisConfig,
 ) -> Result<TrackAnalysis> {
     let sr_f = sr as Float;
@@ -277,16 +305,20 @@ fn analyze_signal_inner(
 
     let cache_key = (sr, n_fft, n_mels);
 
-    let (sparse_mel, freqs, win_padded, chroma_fb) = ANALYSIS_CACHE.with(|cache| {
+    let cache_data = ANALYSIS_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
         if let Some(ref c) = *cache {
             if c.key == cache_key {
-                return (c.sparse_mel.clone(), c.freqs.clone(), c.win_padded.clone(), c.chroma_fb.clone());
+                return (
+                    c.sparse_mel.clone(), c.sparse_chroma.clone(), c.freqs.clone(),
+                    c.win_padded.clone(), c.dct_matrix.clone(),
+                    c.contrast_bands.clone(), c.harmonic_weights,
+                );
             }
         }
 
         let mel_fb = filters::mel(sr_f, n_fft, n_mels, 0.0, sr_f / 2.0, false, "slaney");
-        let sparse: Vec<(usize, Vec<Float>)> = (0..n_mels)
+        let sparse_mel: Vec<(usize, Vec<Float>)> = (0..n_mels)
             .map(|m| {
                 let row = mel_fb.row(m);
                 let first = row.iter().position(|&v| v > 0.0).unwrap_or(0);
@@ -299,18 +331,59 @@ fn analyze_signal_inner(
         let win = windows::get_window(&WindowSpec::Named("hann".into()), n_fft, true)
             .expect("hann window");
         let wp = utils::pad_center(win.view(), n_fft).expect("pad_center");
+
+        // Sparse chroma filterbank
         let cfb = filters::chroma(sr_f, n_fft, 12, 0.0);
+        let sparse_chroma: Vec<(usize, Vec<Float>)> = (0..12)
+            .map(|c| {
+                let row = cfb.row(c);
+                let first = row.iter().position(|&v| v > 0.0).unwrap_or(0);
+                let last = row.iter().rposition(|&v| v > 0.0).unwrap_or(0);
+                if first > last { (0, vec![]) }
+                else { (first, row.slice(s![first..=last]).to_vec()) }
+            })
+            .collect();
+
+        // Pre-computed DCT-II matrix (n_mfcc × n_mels)
+        let dct_matrix = Array2::from_shape_fn((N_MFCC, n_mels), |(k, m)| {
+            let norm = if k == 0 { (1.0 / n_mels as Float).sqrt() } else { (2.0 / n_mels as Float).sqrt() };
+            norm * (std::f32::consts::PI * k as Float * (2 * m + 1) as Float / (2.0 * n_mels as Float)).cos()
+        });
+
+        // Spectral contrast band bin boundaries
+        let fmin: Float = 200.0;
+        let fmax = sr_f / 2.0;
+        let freqs_slice = f.as_slice().unwrap();
+        let mut band_edges = vec![fmin];
+        for i in 1..=N_CONTRAST_BANDS {
+            band_edges.push(fmin * (fmax / fmin).powf(i as Float / N_CONTRAST_BANDS as Float));
+        }
+        let contrast_bands: Vec<(usize, usize)> = (0..N_CONTRAST_BANDS)
+            .map(|b| {
+                let lo = band_edges[b];
+                let hi = band_edges[b + 1];
+                let start = freqs_slice.iter().position(|&freq| freq >= lo).unwrap_or(0);
+                let end = freqs_slice.iter().position(|&freq| freq >= hi).unwrap_or(n_bins);
+                (start, end)
+            })
+            .collect();
+
+        let harmonic_weights: [Float; N_HPCP_HARMONICS] = std::array::from_fn(|h| 1.0 / (h as Float + 1.0));
 
         *cache = Some(AnalysisCache {
             key: cache_key,
-            sparse_mel: sparse.clone(),
+            sparse_mel: sparse_mel.clone(),
+            sparse_chroma: sparse_chroma.clone(),
             freqs: f.clone(),
             win_padded: wp.clone(),
-            chroma_fb: cfb.clone(),
+            dct_matrix: dct_matrix.clone(),
+            contrast_bands: contrast_bands.clone(),
+            harmonic_weights,
         });
 
-        (sparse, f, wp, cfb)
+        (sparse_mel, sparse_chroma, f, wp, dct_matrix, contrast_bands, harmonic_weights)
     });
+    let (sparse_mel, sparse_chroma, freqs, win_padded, dct_matrix, contrast_bands, harmonic_weights) = cache_data;
 
     let pad = n_fft / 2;
     let mut y_padded = Array1::<Float>::zeros(y.len() + 2 * pad);
@@ -325,7 +398,7 @@ fn analyze_signal_inner(
     // ================================================================
     // SINGLE PASS: FFT → mel + centroid + rms + (extended features)
     // Also computes chroma via proper filterbank and stores power spectrum
-    // for accurate spectral contrast when extended features are requested.
+    // All extended features are fused into this single FFT pass.
     // ================================================================
 
     let n_frames = 1 + (n - n_fft) / hop_length;
@@ -336,14 +409,23 @@ fn analyze_signal_inner(
     let mut rolloffs = if extended { Array1::<Float>::zeros(n_frames) } else { Array1::zeros(0) };
     let mut flatnesses = if extended { Array1::<Float>::zeros(n_frames) } else { Array1::zeros(0) };
     let mut chroma_raw = if extended { Array2::<Float>::zeros((12, n_frames)) } else { Array2::zeros((0, 0)) };
-    let mut power_spec = if extended {
-        Array2::<Float>::zeros((n_bins, n_frames))
-    } else {
-        Array2::zeros((0, 0))
-    };
+    // Fused HPCP (accumulated per-frame, normalized+averaged post-loop)
+    let mut hpcp_raw = if extended { Array2::<Float>::zeros((12, n_frames)) } else { Array2::zeros((0, 0)) };
+    // Fused contrast + dissonance accumulators
+    let contrast_acc;
+    let dissonance_acc;
 
     let freqs_raw = freqs.as_slice().unwrap();
     let roll_percent: Float = 0.85;
+    let contrast_quantile: Float = 0.02;
+    let c_ref: Float = 261.6256; // C4 reference for HPCP
+
+    // Sethares (1998) dissonance model constants
+    let diss_b1: Float = 3.5144;
+    let diss_b2: Float = 5.7564;
+    let diss_d_max: Float = 0.24;
+    let diss_s1: Float = 0.0207;
+    let diss_s2: Float = 18.96;
 
     let compute_frame = |t: usize| -> FrameResult {
         let start = t * hop_length;
@@ -352,48 +434,52 @@ fn analyze_signal_inner(
         let mut fft_out = vec![num_complex::Complex::new(0.0, 0.0); n_bins];
         fft::rfft(&mut fft_in, &mut fft_out).expect("FFT failed");
 
+        // Compute power and magnitude ONCE
+        let mut power_col = vec![0.0_f32; n_bins];
+        let mut mag_col = vec![0.0_f32; n_bins];
         let mut cent_num = 0.0_f32;
         let mut cent_den = 0.0_f32;
-        let mut power_col = vec![0.0_f32; n_bins];
 
         for i in 0..n_bins {
             let pwr = fft_out[i].norm_sqr();
-            power_col[i] = pwr;
             let mag = pwr.sqrt();
+            power_col[i] = pwr;
+            mag_col[i] = mag;
             cent_num += freqs_raw[i] * mag;
             cent_den += mag;
         }
 
         let centroid = if cent_den > 0.0 { cent_num / cent_den } else { 0.0 };
 
-        // RMS from time-domain (not windowed FFT)
+        // RMS from time-domain
         let mut sum_sq = 0.0_f32;
         for i in 0..n_fft { sum_sq += y_raw[start + i] * y_raw[start + i]; }
         let rms = (sum_sq / n_fft as Float).sqrt();
 
         let (bandwidth, rolloff, flatness) = if extended {
+            // Bandwidth — reuse mag_col
             let bw = if cent_den > 0.0 {
                 let mut bw_num = 0.0_f32;
                 for i in 0..n_bins {
-                    let mag = power_col[i].sqrt();
                     let dev = freqs_raw[i] - centroid;
-                    bw_num += mag * dev * dev;
+                    bw_num += mag_col[i] * dev * dev;
                 }
                 (bw_num / cent_den).sqrt()
             } else { 0.0 };
 
-            let total_mag: Float = (0..n_bins).map(|i| power_col[i].sqrt()).sum();
-            let threshold = roll_percent * total_mag;
+            // Rolloff — reuse mag_col
+            let threshold = roll_percent * cent_den; // cent_den == sum of mag
             let mut cumsum = 0.0_f32;
             let mut ro = 0.0_f32;
             for i in 0..n_bins {
-                cumsum += power_col[i].sqrt();
+                cumsum += mag_col[i];
                 if cumsum >= threshold {
                     ro = freqs_raw[i];
                     break;
                 }
             }
 
+            // Flatness — on power_col directly
             let amin: Float = 1e-10;
             let mut log_sum = 0.0_f32;
             let mut arith_sum = 0.0_f32;
@@ -418,30 +504,138 @@ fn analyze_signal_inner(
             sum
         }).collect();
 
-        // Chroma via proper filterbank (always, for all modes that need it)
-        let chroma_col = if extended {
-            let mut cc = vec![0.0_f32; 12];
-            for c in 0..12 {
+        // Sparse chroma projection
+        let mut chroma_col = [0.0_f32; 12];
+        if extended {
+            for (c, (sb, weights)) in sparse_chroma.iter().enumerate() {
                 let mut sum = 0.0;
-                for f in 0..n_bins { sum += chroma_fb[(c, f)] * power_col[f]; }
-                cc[c] = sum;
+                for (k, &w) in weights.iter().enumerate() { sum += w * power_col[sb + k]; }
+                chroma_col[c] = sum;
             }
-            cc
-        } else {
-            vec![]
-        };
+        }
 
-        // Save power spectrum for accurate spectral contrast
-        let saved_power = if extended { Some(power_col) } else { None };
+        // --- Fused spectral contrast (inline, using mag_col) ---
+        let mut contrast_bands_out = [0.0_f32; N_CONTRAST_BANDS + 1];
+        if extended {
+            for (b, &(sb, eb)) in contrast_bands.iter().enumerate() {
+                if sb >= eb { continue; }
+                let bn = eb - sb;
+                // Collect magnitudes for this band into a small buffer
+                let mut band_vals: Vec<Float> = (sb..eb)
+                    .map(|f| mag_col[f].max(1e-10))
+                    .collect();
+                // Partial sort: O(n) instead of O(n log n)
+                let q_idx = ((bn as Float * contrast_quantile) as usize).min(bn - 1);
+                band_vals.select_nth_unstable_by(q_idx, |a, b| a.partial_cmp(b).unwrap());
+                let valley = band_vals[q_idx];
+                let peak_idx = (bn - 1).saturating_sub(q_idx);
+                band_vals.select_nth_unstable_by(peak_idx, |a, b| a.partial_cmp(b).unwrap());
+                let peak = band_vals[peak_idx];
+                contrast_bands_out[b] = peak.log10() - valley.log10();
+            }
+            let mean_mag = cent_den / n_bins as Float; // cent_den = sum of mag
+            contrast_bands_out[N_CONTRAST_BANDS] = mean_mag.max(1e-10).log10();
+        }
 
-        FrameResult { mel_col, centroid, rms, bandwidth, rolloff, flatness, chroma_col, power_col: saved_power }
+        // --- Fused HPCP + dissonance (inline, sharing peak detection) ---
+        let mut hpcp_col = [0.0_f32; 12];
+        let mut frame_diss = 0.0_f32;
+        if extended {
+            // Spectral peak detection with parabolic interpolation.
+            // Collect ALL peaks, then keep top MAX_PEAKS by magnitude
+            // (matches standalone tonal::detect_spectral_peaks behavior).
+            let mut all_peaks_freq = Vec::new();
+            let mut all_peaks_mag = Vec::new();
+
+            for i in 1..n_bins - 1 {
+                if mag_col[i] <= mag_col[i - 1] || mag_col[i] <= mag_col[i + 1] { continue; }
+                if freqs_raw[i] < 40.0 || freqs_raw[i] > 5000.0 { continue; }
+
+                // Parabolic interpolation
+                let alpha = mag_col[i - 1];
+                let beta = mag_col[i];
+                let gamma = mag_col[i + 1];
+                let denom = alpha - 2.0 * beta + gamma;
+                let (freq, mag) = if denom.abs() > 1e-10 {
+                    let p = 0.5 * (alpha - gamma) / denom;
+                    let bin_frac = i as Float + p;
+                    let f = if bin_frac >= 0.0 && (bin_frac as usize) < n_bins - 1 {
+                        let lo = bin_frac as usize;
+                        let frac = bin_frac - lo as Float;
+                        freqs_raw[lo] * (1.0 - frac) + freqs_raw[lo + 1] * frac
+                    } else {
+                        freqs_raw[i]
+                    };
+                    (f, beta - 0.25 * (alpha - gamma) * p)
+                } else {
+                    (freqs_raw[i], beta)
+                };
+
+                all_peaks_freq.push(freq);
+                all_peaks_mag.push(mag);
+            }
+
+            // Sort by magnitude descending, keep top MAX_PEAKS
+            let mut indices: Vec<usize> = (0..all_peaks_freq.len()).collect();
+            indices.sort_unstable_by(|&a, &b| all_peaks_mag[b].partial_cmp(&all_peaks_mag[a]).unwrap());
+            indices.truncate(MAX_PEAKS);
+            let n_peaks = indices.len();
+
+            let peaks_freq: Vec<Float> = indices.iter().map(|&i| all_peaks_freq[i]).collect();
+            let peaks_mag: Vec<Float> = indices.iter().map(|&i| all_peaks_mag[i]).collect();
+
+            // HPCP from peaks
+            for p in 0..n_peaks {
+                let pmag_sq = peaks_mag[p] * peaks_mag[p];
+                for h in 0..N_HPCP_HARMONICS {
+                    let freq = peaks_freq[p] / (h as Float + 1.0);
+                    if freq < 20.0 { continue; }
+                    let semitones = 12.0 * (freq / c_ref).log2();
+                    let pitch_class = ((semitones % 12.0) + 12.0) % 12.0;
+                    let center = pitch_class.round() as usize % 12;
+                    let dist = (pitch_class - center as Float).abs();
+                    if dist < 0.5 {
+                        let w = (std::f32::consts::PI * dist).cos();
+                        hpcp_col[center] += harmonic_weights[h] * pmag_sq * w;
+                    }
+                }
+            }
+
+            // Dissonance from same peaks (Sethares 1998)
+            if n_peaks >= 2 {
+                let mut diss_sum = 0.0_f32;
+                let mut weight_sum = 0.0_f32;
+                for i in 0..n_peaks {
+                    for j in (i + 1)..n_peaks {
+                        let f_min = peaks_freq[i].min(peaks_freq[j]);
+                        let f_diff = (peaks_freq[i] - peaks_freq[j]).abs();
+                        let s = diss_d_max / (diss_s1 * f_min + diss_s2);
+                        let d = (-diss_b1 * s * f_diff).exp() - (-diss_b2 * s * f_diff).exp();
+                        let d = d.max(0.0);
+                        let w = peaks_mag[i] * peaks_mag[j];
+                        diss_sum += w * d;
+                        weight_sum += w;
+                    }
+                }
+                if weight_sum > 0.0 {
+                    frame_diss = (diss_sum / weight_sum).clamp(0.0, 1.0);
+                }
+            }
+        }
+
+        FrameResult {
+            mel_col, centroid, rms, bandwidth, rolloff, flatness,
+            chroma_col, contrast_bands: contrast_bands_out,
+            hpcp_col, dissonance: frame_diss,
+        }
     };
 
-    if n_frames >= PARALLEL_THRESHOLD {
-        let frame_results: Vec<FrameResult> = (0..n_frames)
-            .into_par_iter()
-            .map(|t| compute_frame(t))
-            .collect();
+    // Scatter frame results into arrays
+    let mut scatter_results = |frame_results: Vec<FrameResult>| -> (
+        [Float; N_CONTRAST_BANDS + 1], Float,
+    ) {
+        let mut c_acc = [0.0_f32; N_CONTRAST_BANDS + 1];
+        let mut d_acc = 0.0_f32;
 
         for (t, fr) in frame_results.into_iter().enumerate() {
             centroids[t] = fr.centroid;
@@ -450,41 +644,33 @@ fn analyze_signal_inner(
                 bandwidths[t] = fr.bandwidth;
                 rolloffs[t] = fr.rolloff;
                 flatnesses[t] = fr.flatness;
-                for (c, val) in fr.chroma_col.into_iter().enumerate() {
-                    chroma_raw[(c, t)] = val;
-                }
+                for c in 0..12 { chroma_raw[(c, t)] = fr.chroma_col[c]; }
+                for b in 0..N_CONTRAST_BANDS + 1 { c_acc[b] += fr.contrast_bands[b]; }
+                for c in 0..12 { hpcp_raw[(c, t)] = fr.hpcp_col[c]; }
+                d_acc += fr.dissonance;
             }
             for (m, val) in fr.mel_col.into_iter().enumerate() {
                 mel_spec[(m, t)] = val;
             }
-            if let Some(pc) = fr.power_col {
-                for (i, val) in pc.into_iter().enumerate() {
-                    power_spec[(i, t)] = val;
-                }
-            }
         }
+        (c_acc, d_acc)
+    };
+
+    if n_frames >= PARALLEL_THRESHOLD {
+        let frame_results: Vec<FrameResult> = (0..n_frames)
+            .into_par_iter()
+            .map(|t| compute_frame(t))
+            .collect();
+        let (ca, da) = scatter_results(frame_results);
+        contrast_acc = ca;
+        dissonance_acc = da;
     } else {
-        for t in 0..n_frames {
-            let fr = compute_frame(t);
-            centroids[t] = fr.centroid;
-            rms_frames[t] = fr.rms;
-            if extended {
-                bandwidths[t] = fr.bandwidth;
-                rolloffs[t] = fr.rolloff;
-                flatnesses[t] = fr.flatness;
-                for (c, val) in fr.chroma_col.into_iter().enumerate() {
-                    chroma_raw[(c, t)] = val;
-                }
-            }
-            for (m, val) in fr.mel_col.into_iter().enumerate() {
-                mel_spec[(m, t)] = val;
-            }
-            if let Some(pc) = fr.power_col {
-                for (i, val) in pc.into_iter().enumerate() {
-                    power_spec[(i, t)] = val;
-                }
-            }
-        }
+        let frame_results: Vec<FrameResult> = (0..n_frames)
+            .map(|t| compute_frame(t))
+            .collect();
+        let (ca, da) = scatter_results(frame_results);
+        contrast_acc = ca;
+        dissonance_acc = da;
     }
 
     // ================================================================
@@ -535,21 +721,22 @@ fn analyze_signal_inner(
     let loudness_lufs = perceptual::loudness_lufs(y, sr);
 
     // ================================================================
-    // EXTENDED: MFCCs from mel spectrogram (DCT, no extra FFT)
+    // EXTENDED: MFCCs via pre-computed DCT matrix (no per-frame cos())
     // ================================================================
 
-    let n_mfcc = 13;
     let mfcc_mean = if extended {
-        let n_dct = n_mels;
-        let mut mfcc_avg = vec![0.0_f32; n_mfcc];
+        // dct_matrix is (N_MFCC, n_mels), s_db is (n_mels, n_frames)
+        // Compute MFCC mean = mean over frames of (dct_matrix @ s_db[:, t])
+        let mut mfcc_avg = vec![0.0_f32; N_MFCC];
+        let dct_raw = dct_matrix.as_slice().unwrap();
         for t in 0..n_frames {
-            for k in 0..n_mfcc {
+            for k in 0..N_MFCC {
                 let mut sum = 0.0_f32;
-                for m in 0..n_dct {
-                    sum += s_db[(m, t)] * (std::f32::consts::PI * k as Float * (2 * m + 1) as Float / (2 * n_dct) as Float).cos();
+                let row_start = k * n_mels;
+                for m in 0..n_mels {
+                    sum += dct_raw[row_start + m] * s_db[(m, t)];
                 }
-                let norm = if k == 0 { (1.0 / n_dct as Float).sqrt() } else { (2.0 / n_dct as Float).sqrt() };
-                mfcc_avg[k] += sum * norm;
+                mfcc_avg[k] += sum;
             }
         }
         for v in mfcc_avg.iter_mut() { *v /= n_frames.max(1) as Float; }
@@ -584,49 +771,11 @@ fn analyze_signal_inner(
     };
 
     // ================================================================
-    // SPECTRAL CONTRAST: mel-approximated (extended) or accurate (full)
+    // SPECTRAL CONTRAST: aggregated from fused frame loop
     // ================================================================
 
-    let n_contrast_bands = 6;
     let spectral_contrast_mean = if extended && n_frames > 0 {
-        // Always use proper log-spaced frequency bands on the magnitude spectrum
-        let fmin: Float = 200.0;
-        let fmax = sr_f / 2.0;
-        let quantile: Float = 0.02;
-
-        let mut band_edges = vec![fmin];
-        for i in 1..=n_contrast_bands {
-            band_edges.push(fmin * (fmax / fmin).powf(i as Float / n_contrast_bands as Float));
-        }
-
-        let band_bins: Vec<(usize, usize)> = (0..n_contrast_bands)
-            .map(|b| {
-                let lo = band_edges[b];
-                let hi = band_edges[b + 1];
-                let start = freqs_raw.iter().position(|&f| f >= lo).unwrap_or(0);
-                let end = freqs_raw.iter().position(|&f| f >= hi).unwrap_or(n_bins);
-                (start, end)
-            })
-            .collect();
-
-        let mut contrast_avg = vec![0.0_f32; n_contrast_bands + 1];
-
-        for t in 0..n_frames {
-            for (b, &(start_bin, end_bin)) in band_bins.iter().enumerate() {
-                if start_bin >= end_bin { continue; }
-                let mut band_vals: Vec<Float> = (start_bin..end_bin)
-                    .map(|f| power_spec[(f, t)].sqrt().max(1e-10))
-                    .collect();
-                band_vals.sort_by(|a, b| a.partial_cmp(b).unwrap());
-                let bn = band_vals.len();
-                let q_idx = ((bn as Float * quantile) as usize).min(bn - 1);
-                let valley = band_vals[q_idx];
-                let peak = band_vals[(bn - 1).saturating_sub(q_idx)];
-                contrast_avg[b] += peak.log10() - valley.log10();
-            }
-            let mean_mag: Float = (0..n_bins).map(|f| power_spec[(f, t)].sqrt()).sum::<Float>() / n_bins as Float;
-            contrast_avg[n_contrast_bands] += mean_mag.max(1e-10).log10();
-        }
+        let mut contrast_avg = contrast_acc.to_vec();
         for v in contrast_avg.iter_mut() { *v /= n_frames as Float; }
         Some(contrast_avg)
     } else {
@@ -699,6 +848,40 @@ fn analyze_signal_inner(
     };
 
     // ================================================================
+    // TONAL: chords from fused HPCP, dissonance from fused accumulator
+    // ================================================================
+
+    let wants_chords = extended && config.wants("chords");
+    let wants_diss = extended && config.wants("dissonance");
+
+    let (chord_sequence, chord_change_rate, predominant_chord, dissonance_val) =
+        if (wants_chords || wants_diss) && n_frames > 0 {
+            // L1-normalize HPCP per frame (in-place on hpcp_raw)
+            for t in 0..n_frames {
+                let sum: Float = (0..12).map(|c| hpcp_raw[(c, t)]).sum();
+                if sum > 0.0 {
+                    for c in 0..12 { hpcp_raw[(c, t)] /= sum; }
+                }
+            }
+
+            let (cs, ccr, pc) = if wants_chords {
+                let chords = crate::tonal::chords_from_beats(hpcp_raw.view(), &beats);
+                let desc = crate::tonal::chord_descriptors(&chords, duration_sec);
+                (Some(chords), Some(desc.change_rate), Some(desc.predominant_chord))
+            } else {
+                (None, None, None)
+            };
+
+            let dv = if wants_diss {
+                Some(dissonance_acc / n_frames as Float)
+            } else { None };
+
+            (cs, ccr, pc, dv)
+        } else {
+            (None, None, None, None)
+        };
+
+    // ================================================================
     // PERCEPTUAL FEATURES (from already-computed scalars, ~0 extra cost)
     // ================================================================
 
@@ -716,9 +899,7 @@ fn analyze_signal_inner(
         Some(perceptual::energy(rms_mean, centroid_mean, onset_density, bw_mean))
     } else { None };
 
-    let danceability = if wants_dance && accurate {
-        Some(perceptual::danceability_dfa(y, sr))
-    } else if wants_dance {
+    let danceability = if wants_dance {
         Some(perceptual::danceability_heuristic(bpm, &beats, onset_density))
     } else { None };
 
@@ -760,12 +941,18 @@ fn analyze_signal_inner(
         tempo_variability,
         time_signature,
         time_signature_confidence,
+        chord_sequence,
+        chord_change_rate,
+        predominant_chord,
+        dissonance: dissonance_val,
         energy,
         danceability,
         key,
         key_confidence,
         valence,
         acousticness,
+        // Embedding placeholder — future ONNX integration
+        embedding: None,
         // Tier 3 placeholders — requires ML models
         mood_happy: None,
         mood_aggressive: None,
@@ -782,27 +969,17 @@ fn analyze_signal_inner(
 
 /// Shorthand for compact mode analysis.
 pub fn compact() -> AnalysisConfig {
-    AnalysisConfig { mode: AnalysisMode::Compact, accurate: false, features: None }
+    AnalysisConfig { mode: AnalysisMode::Compact, features: None }
 }
 
 /// Shorthand for playlist mode analysis.
 pub fn playlist() -> AnalysisConfig {
-    AnalysisConfig { mode: AnalysisMode::Playlist, accurate: false, features: None }
-}
-
-/// Shorthand for playlist mode with accurate algorithms.
-pub fn playlist_accurate() -> AnalysisConfig {
-    AnalysisConfig { mode: AnalysisMode::Playlist, accurate: true, features: None }
+    AnalysisConfig { mode: AnalysisMode::Playlist, features: None }
 }
 
 /// Shorthand for full mode analysis.
 pub fn full() -> AnalysisConfig {
-    AnalysisConfig { mode: AnalysisMode::Full, accurate: false, features: None }
-}
-
-/// Shorthand for full mode with accurate algorithms.
-pub fn full_accurate() -> AnalysisConfig {
-    AnalysisConfig { mode: AnalysisMode::Full, accurate: true, features: None }
+    AnalysisConfig { mode: AnalysisMode::Full, features: None }
 }
 
 #[cfg(test)]
@@ -846,8 +1023,8 @@ mod tests {
     #[test]
     fn test_analyze_accurate_chroma() {
         let y = sine(440.0, 22050, 2.0);
-        let result = analyze_signal(y.view(), 22050, &playlist_accurate()).unwrap();
-        // Accurate chroma should map A440 to bin 9
+        let result = analyze_signal(y.view(), 22050, &playlist()).unwrap();
+        // Chroma should map A440 to bin 9
         let chroma = result.chroma_mean.unwrap();
         assert_eq!(chroma.len(), 12);
         let max_bin = chroma.iter().enumerate()
@@ -861,7 +1038,6 @@ mod tests {
         let y = sine(440.0, 22050, 2.0);
         let config = AnalysisConfig {
             mode: AnalysisMode::Compact,
-            accurate: false,
             features: Some(["energy", "key", "chroma"].iter().map(|s| s.to_string()).collect()),
         };
         let result = analyze_signal(y.view(), 22050, &config).unwrap();

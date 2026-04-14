@@ -176,9 +176,8 @@ fn beat_track_dp(local_score: ArrayView1<Float>, frames_per_beat: usize, tightne
     let mut cumscore = vec![0.0_f32; n];
     let mut backlink = vec![0usize; n];
 
-    // Forward pass
-    let score_thresh = 0.01 * local_score.iter().copied().fold(0.0_f32, Float::max);
-
+    // Forward pass — every frame gets a backlink to its best predecessor.
+    // No score threshold here; trimming happens post-hoc (Ellis 2007).
     for i in 0..n {
         // Search backwards for best predecessor
         let search_start = i.saturating_sub(2 * fpb);
@@ -198,12 +197,12 @@ fn beat_track_dp(local_score: ArrayView1<Float>, frames_per_beat: usize, tightne
             }
         }
 
-        if best_score > Float::NEG_INFINITY && (i == 0 || local_score[i] >= score_thresh) {
+        if best_score > Float::NEG_INFINITY {
             cumscore[i] = local_score[i] + best_score;
             backlink[i] = best_j;
         } else {
             cumscore[i] = local_score[i];
-            backlink[i] = i; // self-link (no predecessor)
+            backlink[i] = i; // self-link (no predecessor found yet)
         }
     }
 

@@ -2,6 +2,36 @@
 
 All notable changes to sonara are documented in this file.
 
+## [0.1.6] - 2026-04-14
+
+### Added
+
+- **Tonal analysis module** (`tonal.rs`) — HPCP, chord detection, and sensory dissonance.
+  - `hpcp()` — Harmonic Pitch Class Profile with spectral peak detection and harmonic weighting (Gomez 2006).
+  - `chords_from_beats()` / `chords_from_frames()` — chord recognition via template correlation against 24 major/minor profiles.
+  - `chord_descriptors()` — predominant chord, chord change rate, unique chord count.
+  - `dissonance()` / `dissonance_from_peaks()` — Sethares (1998) Plomp-Levelt sensory dissonance model.
+- **Playlist pipeline integration** — new `TrackAnalysis` fields: `chord_sequence`, `chord_change_rate`, `predominant_chord`, `dissonance`, `embedding` (placeholder for future ONNX).
+- **Python bindings** for all tonal functions.
+
+### Performance (9x pipeline speedup)
+
+- **Fused all post-loop features into the per-frame FFT pass** — spectral contrast, HPCP, and dissonance now compute inline during FFT processing. Eliminated the 32MB power spectrum matrix and 3 post-loop passes with cold cache misses.
+- **Pre-computed DCT matrix for MFCCs** — replaced 12.9M `cos()` calls with a cached (13, 128) coefficient matrix. ~100x faster for this stage.
+- **Compute magnitude once per frame** — `sqrt(power)` was called 4x per bin in extended mode. Now computed once and reused for centroid, bandwidth, rolloff, and contrast.
+- **Sparse chroma filterbank** — applied same sparse representation as mel, reducing 95M multiply-adds to ~5M.
+- **Partial sort for spectral contrast** — `select_nth_unstable` (O(n)) instead of full `sort` (O(n log n)) for percentile finding.
+- **Moved time_signature/tempo_curve to Full mode** — metrogram (O(n^3)) was costing 445ms; now only computed in Full mode or when explicitly requested.
+- **Result**: Playlist mode 726ms → 80ms for a 3-minute track. Per 10s track: ~4ms.
+
+### Fixed
+
+- **Beat tracking DP** — removed erroneous `score_thresh` gate in the forward pass that broke backtracking chains on real music (only 1 beat detected). Now matches the original Ellis 2007 algorithm.
+
+### Changed
+
+- **Removed `accurate` flag** — all features now always use their most accurate algorithms (proper chroma filterbank, log-spaced spectral contrast, top-N peak detection). The DFA danceability function remains available standalone as `perceptual::danceability_dfa()`.
+
 ## [0.1.5] - 2026-04-14
 
 ### Fixed

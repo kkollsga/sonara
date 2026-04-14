@@ -37,6 +37,12 @@ fn result_to_dict<'py>(py: Python<'py>, r: &rs::TrackAnalysis) -> PyResult<Bound
     if let Some(ref v) = r.time_signature { d.set_item("time_signature", v.as_str())?; }
     if let Some(v) = r.time_signature_confidence { d.set_item("time_signature_confidence", v)?; }
 
+    // Tonal (playlist/full modes)
+    if let Some(ref v) = r.chord_sequence { d.set_item("chord_sequence", v.clone())?; }
+    if let Some(v) = r.chord_change_rate { d.set_item("chord_change_rate", v)?; }
+    if let Some(ref v) = r.predominant_chord { d.set_item("predominant_chord", v.as_str())?; }
+    if let Some(v) = r.dissonance { d.set_item("dissonance", v)?; }
+
     // Perceptual (playlist/full modes)
     if let Some(v) = r.energy { d.set_item("energy", v)?; }
     if let Some(v) = r.danceability { d.set_item("danceability", v)?; }
@@ -44,6 +50,9 @@ fn result_to_dict<'py>(py: Python<'py>, r: &rs::TrackAnalysis) -> PyResult<Bound
     if let Some(v) = r.key_confidence { d.set_item("key_confidence", v)?; }
     if let Some(v) = r.valence { d.set_item("valence", v)?; }
     if let Some(v) = r.acousticness { d.set_item("acousticness", v)?; }
+
+    // Embedding (future)
+    if let Some(ref v) = r.embedding { d.set_item("embedding", v.clone())?; }
 
     // Tier 3 placeholders (only included when not None)
     if let Some(v) = r.mood_happy { d.set_item("mood_happy", v)?; }
@@ -56,57 +65,54 @@ fn result_to_dict<'py>(py: Python<'py>, r: &rs::TrackAnalysis) -> PyResult<Bound
     Ok(d)
 }
 
-fn parse_config(mode: &str, accurate: bool, features: Option<Vec<String>>) -> PyResult<rs::AnalysisConfig> {
+fn parse_config(mode: &str, features: Option<Vec<String>>) -> PyResult<rs::AnalysisConfig> {
     let mode = rs::AnalysisMode::from_str(mode).ok_or_else(|| {
         pyo3::exceptions::PyValueError::new_err(format!(
             "Invalid mode '{}'. Valid modes: 'compact', 'playlist', 'full'", mode
         ))
     })?;
     let features = features.map(|f| f.into_iter().map(|s| s.to_lowercase()).collect::<HashSet<_>>());
-    Ok(rs::AnalysisConfig { mode, accurate, features })
+    Ok(rs::AnalysisConfig { mode, features })
 }
 
 #[pyfunction]
-#[pyo3(name = "analyze_file", signature = (path, *, sr=22050, mode="compact", accurate=false, features=None))]
+#[pyo3(name = "analyze_file", signature = (path, *, sr=22050, mode="compact", features=None))]
 pub fn py_analyze_file<'py>(
     py: Python<'py>,
     path: &str,
     sr: u32,
     mode: &str,
-    accurate: bool,
     features: Option<Vec<String>>,
 ) -> PyResult<Bound<'py, PyDict>> {
-    let config = parse_config(mode, accurate, features)?;
+    let config = parse_config(mode, features)?;
     let result = rs::analyze_file(Path::new(path), sr, &config).into_pyresult()?;
     result_to_dict(py, &result)
 }
 
 #[pyfunction]
-#[pyo3(name = "analyze_signal", signature = (y, *, sr=22050, mode="compact", accurate=false, features=None))]
+#[pyo3(name = "analyze_signal", signature = (y, *, sr=22050, mode="compact", features=None))]
 pub fn py_analyze_signal<'py>(
     py: Python<'py>,
     y: PyReadonlyArray1<'py, f32>,
     sr: u32,
     mode: &str,
-    accurate: bool,
     features: Option<Vec<String>>,
 ) -> PyResult<Bound<'py, PyDict>> {
-    let config = parse_config(mode, accurate, features)?;
+    let config = parse_config(mode, features)?;
     let result = rs::analyze_signal(y.as_array(), sr, &config).into_pyresult()?;
     result_to_dict(py, &result)
 }
 
 #[pyfunction]
-#[pyo3(name = "analyze_batch", signature = (paths, *, sr=22050, mode="compact", accurate=false, features=None))]
+#[pyo3(name = "analyze_batch", signature = (paths, *, sr=22050, mode="compact", features=None))]
 pub fn py_analyze_batch<'py>(
     py: Python<'py>,
     paths: Vec<String>,
     sr: u32,
     mode: &str,
-    accurate: bool,
     features: Option<Vec<String>>,
 ) -> PyResult<Vec<Bound<'py, PyDict>>> {
-    let config = parse_config(mode, accurate, features)?;
+    let config = parse_config(mode, features)?;
     let path_refs: Vec<&Path> = paths.iter().map(|p| Path::new(p.as_str())).collect();
     let results = rs::analyze_batch(&path_refs, sr, &config);
     results
