@@ -4,6 +4,21 @@ All notable changes to sonara are documented in this file.
 
 ## [Unreleased]
 
+### Added — opt-in analysis features
+
+All of the following are strictly **opt-in** via `features=[...]` — no default mode
+(compact/playlist/full) computes them, and default-mode performance is unchanged
+(verified before/after on a 3-minute track: compact ~37 ms, playlist ~72 ms, full ~517 ms).
+
+- **Beat grid** (`features=["beatgrid"]`) — `grid_offset_sec` (first-beat anchor), `downbeats` (bar-starting beats, 4/4 by default or the detected time signature), and `grid_stability` (0-1 grid rigidity). Reuses tracked beats and onset envelope; ~0.2 ms opt-in cost.
+- **Structure & energy** (`features=["structure"]`) — `energy_curve` (+`energy_curve_hop_sec`), novelty-based `segments` (contiguous `{start_sec, end_sec, energy}`), `intro_end_sec`/`outro_start_sec` heuristics, and a 1-10 `energy_level`. ~1 ms opt-in cost on a 3-minute track.
+- **Similarity embedding** (`features=["embedding"]`) — versioned 48-dim normalized feature vector (`embedding` + `embedding_version`) built from timbre/harmony/rhythm/dynamics/tonal blocks, plus `sonara.similarity(a, b)` (weighted-Euclidean, 0-1) accepting results or raw vectors. No ML dependency; the field is designed so model-based embeddings can replace it behind the same version constant.
+- **Acoustic fingerprint** (`features=["fingerprint"]`) — gain-invariant band-energy-difference fingerprint (base64 `fingerprint` + `fingerprint_version`, ~8 subprints/sec) and `sonara.fingerprint_match(a, b)` (0-1, alignment-searched) for duplicate detection across re-encodes. ~6 ms opt-in cost per 3-minute track.
+- **Loudness/gain suite** (`features=["loudness"]`) — `true_peak_db` (4x oversampled, BS.1770-4), `replaygain_db` (gain to -18 LUFS), `loudness_curve` (short-term LUFS, 3 s/1 s), `loudness_momentary_max_db`, and `loudness_range_lu` (EBU R128 LRA). Existing `loudness_lufs`/`dynamic_range_db` unchanged.
+- **Silence offsets** (`features=["silence"]`) — `leading_silence_sec`/`trailing_silence_sec` at -60 dBFS with click-proof hysteresis, from already-computed frame RMS.
+- **Key candidates** (`features=["key_candidates"]`) — top-3 `(key, camelot, score)` list mirroring `bpm_candidates`; first entry always matches `key`.
+- **Vocal presence** (`features=["vocalness"]`) — documented 0-1 heuristic (vocal-band energy ratio, tonality, 4-8 Hz syllabic modulation via an O(n) band-pass biquad). ~1.4 ms opt-in cost.
+
 ### Added
 
 - **Optional BPM range** — `bpm_min` / `bpm_max` parameters on `analyze_file` / `analyze_signal` / `analyze_batch` (and `AnalysisConfig`). When both are set, detected tempos outside the range are deterministically doubled/halved into it (e.g. a house/techno project range of 79–192). `bpm_max` must be at least `2 * bpm_min`.

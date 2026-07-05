@@ -347,7 +347,7 @@ mod tests {
 
     fn embed_config() -> AnalysisConfig {
         let feats: HashSet<String> = ["embedding"].iter().map(|s| s.to_string()).collect();
-        AnalysisConfig { mode: AnalysisMode::Compact, features: Some(feats) }
+        AnalysisConfig { mode: AnalysisMode::Compact, features: Some(feats), ..AnalysisConfig::default() }
     }
 
     fn sine(freq: Float, sr: u32, dur: Float) -> Array1<Float> {

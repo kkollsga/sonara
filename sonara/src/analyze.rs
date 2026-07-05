@@ -1308,7 +1308,6 @@ fn analyze_signal_inner(
         vocalness,
         // --- fingerprint ---
         fingerprint,
-    })
         // --- similarity ---
         embedding_version: None,
     };
