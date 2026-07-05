@@ -137,66 +137,29 @@ impl Default for AnalysisConfig {
 impl AnalysisConfig {
     /// Check if a feature should be computed.
     fn wants(&self, name: &str) -> bool {
-        // --- similarity ---
-        // The similarity embedding is always OPT-IN: it is never produced by a
-        // bare mode (compact/playlist/full), only when "embedding" is explicitly
-        // listed in `features`. When requested, it also pulls in the underlying
-        // features it is assembled from (see EMBEDDING_DEPS).
-        if name == "embedding" {
-            return self
-                .features
-                .as_ref()
-                .map(|f| f.contains("embedding"))
-                .unwrap_or(false);
-        }
-
         if let Some(ref features) = self.features {
             // Explicit feature list — check if requested
             if features.contains(name) {
                 return true;
             }
-            // --- similarity ---: requesting "embedding" implies its dependencies
-            if features.contains("embedding") && EMBEDDING_DEPS.contains(&name) {
-                return true;
-            }
-            false
+            // Requesting "embedding" implies the features it is assembled from.
+            features.contains("embedding") && EMBEDDING_DEPS.contains(&name)
         } else {
-            // --- loudness ---
-            // Extended loudness/gain metrics ("loudness" group) are strictly
-            // opt-in: never enabled by mode defaults (performance-first), only by
-            // an explicit `features=["loudness"]`. Keep this guard above the
-            // mode match so Playlist/Full defaults don't pull it in.
+            // Opt-in-only features are never enabled by a mode's defaults —
+            // not even Full — only by an explicit `features=[...]` request
+            // (performance-first policy).
             if OPT_IN_ONLY_FEATURES.contains(&name) {
                 return false;
             }
-            // --- end loudness ---
             // Mode-based defaults
             match self.mode {
                 AnalysisMode::Compact => false,
-                AnalysisMode::Playlist => {
-                    // Expensive rhythm analysis features are Full-only
-                    // (metrogram is O(n³) and costs ~445ms for a 3-min track).
-                    // Opt-in-only features (silence, key_candidates, vocalness)
-                    // are never computed by mode — they require an explicit
-                    // `features=[...]` request (performance-first policy).
-                    !matches!(name,
-                        "tempo_curve" | "time_signature"
-                        | "silence" | "key_candidates" | "vocalness")
-                }
-                // Opt-in-only features stay off even in Full mode.
-                AnalysisMode::Full => !matches!(name, "silence" | "key_candidates" | "vocalness"),
+                // Expensive rhythm analysis features are Full-only
+                // (metrogram is O(n³) and costs ~445ms for a 3-min track).
+                AnalysisMode::Playlist => !matches!(name, "tempo_curve" | "time_signature"),
+                AnalysisMode::Full => true,
             }
         }
-    }
-
-    /// Check if an opt-in feature was *explicitly* requested.
-    ///
-    /// Unlike [`wants`], this never returns `true` from a mode default — the
-    /// feature is computed only when its name appears in an explicit `features`
-    /// list (e.g. `features=["beatgrid"]`). Used for additive features that must
-    /// stay off in the default compact/playlist/full modes for performance.
-    fn wants_optin(&self, name: &str) -> bool {
-        self.features.as_ref().is_some_and(|f| f.contains(name))
     }
 
     /// Check if extended features (anything beyond compact) are needed.
@@ -222,35 +185,22 @@ impl AnalysisConfig {
         }
     }
 
-    // --- structure ---
-    /// Whether structural segmentation / energy curve is requested.
-    ///
-    /// Strictly opt-in: it is only computed when the caller explicitly lists
-    /// `"structure"` in `features`. No mode (compact/playlist/full) turns it on
-    /// by itself, so it never adds cost to the default pipelines.
-    fn wants_structure(&self) -> bool {
-        match &self.features {
-            Some(f) => f.contains("structure"),
-            None => false,
-        }
-    }
-
-    // --- fingerprint ---
-    /// Whether to compute the acoustic fingerprint. Strictly opt-in: it is only
-    /// produced when the caller explicitly lists the `"fingerprint"` feature, so
-    /// no analysis mode ever computes it by default (performance-first policy).
-    fn wants_fingerprint(&self) -> bool {
-        self.features
-            .as_ref()
-            .is_some_and(|f| f.contains("fingerprint"))
-    }
 }
 
-// --- loudness ---
-/// Feature-group names that are only ever computed when explicitly requested via
-/// `features=[...]`, never enabled by an analysis mode's defaults.
-const OPT_IN_ONLY_FEATURES: &[&str] = &["loudness"];
-// --- end loudness ---
+/// Feature names that are only ever computed when explicitly requested via
+/// `features=[...]`, never enabled by an analysis mode's defaults — not even
+/// Full. Every new analysis feature belongs here unless it is provably free
+/// (performance-first policy).
+const OPT_IN_ONLY_FEATURES: &[&str] = &[
+    "loudness",
+    "beatgrid",
+    "structure",
+    "embedding",
+    "fingerprint",
+    "silence",
+    "key_candidates",
+    "vocalness",
+];
 // --- similarity ---
 /// Feature names the similarity embedding is assembled from. Requesting
 /// "embedding" implies each of these (see `AnalysisConfig::wants`). The spectral
@@ -1073,7 +1023,7 @@ fn analyze_signal_inner(
     // requested via features=["beatgrid"].
     // ================================================================
 
-    let (grid_offset_sec, downbeats, grid_stability) = if config.wants_optin("beatgrid") {
+    let (grid_offset_sec, downbeats, grid_stability) = if config.wants("beatgrid") {
         // Prefer the detected meter (full mode) when it was also requested;
         // otherwise assume 4/4.
         let beats_per_bar = time_signature
@@ -1160,10 +1110,10 @@ fn analyze_signal_inner(
     } else { None };
 
     // --- fingerprint ---
-    // Strictly opt-in (see AnalysisConfig::wants_fingerprint): never runs unless
+    // Strictly opt-in (see OPT_IN_ONLY_FEATURES): never runs unless
     // the caller explicitly requested the "fingerprint" feature, so default modes
     // pay exactly zero cost. Operates on its own downsampled mono copy of `y`.
-    let fingerprint = if config.wants_fingerprint() {
+    let fingerprint = if config.wants("fingerprint") {
         let fp = crate::fingerprint::compute(y, sr);
         if fp.is_empty() { None } else { Some(fp) }
     } else {
@@ -1183,7 +1133,7 @@ fn analyze_signal_inner(
     // already computed above — no extra decode or FFT pass.
     // ================================================================
     // --- structure ---
-    let structure = if extended && config.wants_structure() && n_frames > 0 {
+    let structure = if extended && config.wants("structure") && n_frames > 0 {
         let fps = sr_f / hop_length as Float;
         Some(crate::structure::analyze_structure(
             rms_frames.as_slice().unwrap(),

@@ -2,7 +2,30 @@
 
 All notable changes to sonara are documented in this file.
 
-## [Unreleased]
+## [0.2.0] - 2026-07-06
+
+### Validated on real music
+
+All new features were validated against a 9,400-track commercial library
+(60-track random sample + targeted cases): zero batch failures, BPM within
+78-186, `energy_level` spreading across the full 1-10 range, fingerprint
+separating a real library duplicate pair (0.69) and a gain-changed re-encode
+(1.00) from unrelated tracks (0.01), and similarity ranking a same-artist
+track #5 of 61 against random material.
+
+### Changed
+
+- **`analyze_batch` entries always carry `path`** — successful results now
+  include their input path (failures already did), so consumers no longer
+  need to zip results against the input list.
+- **`energy_level` recalibrated to real music** — the 1-10 mapping now
+  stretches the measured 0.25-0.60 mean-energy band of commercial libraries
+  (was 0.30-0.85, which never produced levels above 6 on real tracks).
+- **`vocalness` hardened** — a relative modulation-depth gate stops sustained
+  chords/pads (whose envelope ripple is numerical, not syllabic) from scoring
+  as vocal; per-frame flatness is now energy-weighted. Steady instrumental
+  pads score < 0.3 (previously ~0.8); regression tests cover the failure cases.
+- CI now runs all nine Python test suites (previously only `test_api.py`).
 
 ### Added — opt-in analysis features
 

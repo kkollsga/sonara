@@ -73,6 +73,7 @@ def main():
     check("valid file succeeded (no error key)", not valid_res.failed)
     check("valid file has bpm", "bpm" in valid_res)
     check("valid file has duration", valid_res.get("duration_sec", 0) > 1.5)
+    check("valid file carries its input path", valid_res.get("path") == valid_wav)
 
     # 3. Missing file → structured 'io' failure, batch not aborted.
     check("missing file failed", missing_res.failed)

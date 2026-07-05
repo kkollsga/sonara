@@ -177,9 +177,9 @@ def analyze_file(path: str, *, sr: int = 22050, mode: str = "compact", features:
 def analyze_signal(y: AudioArray, *, sr: int = 22050, mode: str = "compact", features: Optional[List[str]] = None, bpm_min: Optional[float] = None, bpm_max: Optional[float] = None) -> AnalysisResult: ...
 def analyze_batch(paths: List[str], *, sr: int = 22050, mode: str = "compact", features: Optional[List[str]] = None, bpm_min: Optional[float] = None, bpm_max: Optional[float] = None) -> List[AnalysisResult]: ...
 # analyze_batch never raises on a per-file decode/IO error. Each input path yields
-# exactly one entry in input order; a failed file's entry has keys
-# `path`, `error`, and `error_kind` (e.g. "decode", "io", "unsupported_format")
-# instead of feature fields.
+# exactly one entry in input order, and every entry carries its input `path`.
+# A failed file's entry has `path`, `error`, and `error_kind` (e.g. "decode",
+# "io", "unsupported_format") instead of feature fields.
 
 # --- beat grid ---
 # Opt-in via features=["beatgrid"]. When requested, the analyze_* result dict

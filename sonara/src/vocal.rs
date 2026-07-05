@@ -17,23 +17,31 @@
 //! frequency falls in `[VOCAL_LO_HZ, VOCAL_HI_HZ]`:
 //!
 //! - `er`    = mean(vocal-band energy) / mean(total energy)          (energy ratio)
-//! - `fl`    = mean per-frame spectral flatness within the vocal band
+//! - `fl`    = **energy-weighted** per-frame spectral flatness within the vocal
+//!             band (weighting by frame energy stops near-silent frames from
+//!             diluting the estimate)
 //! - `tonal` = clamp(1 − fl / FLATNESS_REF, 0, 1)                    (harmonicity)
 //! - `mod48` = fraction of the vocal-band energy envelope's AC power that lies in
 //!             the 4–8 Hz modulation band (syllabic rate)
+//! - `depth` = rms(AC envelope) / mean envelope — **relative** modulation depth.
+//!             `mod48` is a ratio of AC powers, so a near-constant envelope's
+//!             numerical ripple could otherwise dominate it; `mod48` only counts
+//!             when the modulation is meaningfully deep (see `DEPTH_LO/HI`).
 //! - `cv`    = std(vocal-band energy) / mean(vocal-band energy)      (temporal variance)
 //!
 //! Then, with each component scaled to `[0, 1]`:
 //!
 //! ```text
-//! core      = sqrt(tonal * mod_c)                 // AND gate: needs both
+//! mod_eff   = (mod48 / MOD_REF) * depth_gate      // syllabic AND deep
+//! core      = sqrt(tonal * mod_eff)               // AND gate: needs both
 //! vocalness = clamp(0.75*core + 0.15*er_c + 0.10*cv_c, 0, 1)
 //! ```
 //!
-//! Calibrated so pure instrumental synthetic content (kick/hats/pads) scores
-//! < 0.3, and a harmonic tone with 4–6 Hz amplitude/frequency modulation and
-//! formant-like peaks scores > 0.6. Silence and white noise score low. Treat the
-//! output as a soft hint, not ground truth.
+//! Calibrated so pure instrumental synthetic content — kicks, hats, *and
+//! sustained pads/chords with no syllabic modulation* — scores < 0.3, and a
+//! harmonic tone with 4–6 Hz amplitude/frequency modulation and formant-like
+//! peaks scores > 0.6. Silence and white noise score low. Treat the output as a
+//! soft hint, not ground truth.
 
 use ndarray::ArrayView2;
 
@@ -53,6 +61,12 @@ const ER_REF: Float = 0.5;
 const MOD_REF: Float = 0.30;
 /// Coefficient-of-variation scale for temporal variance.
 const CV_REF: Float = 1.0;
+/// Relative modulation depth (rms(AC)/mean) below which the envelope counts as
+/// constant — its 4–8 Hz "fraction" is then numerical ripple, not modulation.
+const DEPTH_LO: Float = 0.05;
+/// Depth at/above which modulation counts fully. Syllabic singing/speech
+/// typically modulates the vocal-band envelope by well over 25%.
+const DEPTH_HI: Float = 0.25;
 
 /// Compute the `vocalness` heuristic (0.0 – 1.0) from a mel power spectrogram.
 ///
@@ -86,7 +100,7 @@ pub fn vocalness(mel_spec: ArrayView2<Float>, sr: u32, hop_length: usize) -> Flo
     let mut vocal_env = vec![0.0_f32; n_frames];
     let mut total_energy = 0.0_f32;
     let mut flatness_sum = 0.0_f32;
-    let mut flatness_count = 0usize;
+    let mut flatness_weight = 0.0_f32;
 
     for t in 0..n_frames {
         let mut band_sum = 0.0_f32;
@@ -102,13 +116,14 @@ pub fn vocalness(mel_spec: ArrayView2<Float>, sr: u32, hop_length: usize) -> Flo
         }
         vocal_env[t] = band_sum;
         total_energy += frame_total;
-        // Spectral flatness within the vocal band (geo mean / arith mean).
+        // Spectral flatness within the vocal band (geo mean / arith mean),
+        // energy-weighted so near-silent frames don't dilute the estimate.
         let nb = vocal_bins.len() as Float;
         let geo = (log_sum / nb).exp();
         let arith = band_sum / nb;
         if arith > amin {
-            flatness_sum += (geo / arith).clamp(0.0, 1.0);
-            flatness_count += 1;
+            flatness_sum += (geo / arith).clamp(0.0, 1.0) * band_sum;
+            flatness_weight += band_sum;
         }
     }
 
@@ -122,8 +137,8 @@ pub fn vocalness(mel_spec: ArrayView2<Float>, sr: u32, hop_length: usize) -> Flo
     let er = mean_vocal / mean_total;
 
     // Tonality from vocal-band flatness (low flatness → tonal → vocal-like).
-    let fl = if flatness_count > 0 {
-        flatness_sum / flatness_count as Float
+    let fl = if flatness_weight > amin {
+        flatness_sum / flatness_weight
     } else {
         1.0
     };
@@ -138,9 +153,16 @@ pub fn vocalness(mel_spec: ArrayView2<Float>, sr: u32, hop_length: usize) -> Flo
     // 4–8 Hz modulation fraction of the envelope's AC power.
     let mod48 = modulation_fraction(&vocal_env, mean_vocal, sr, hop_length);
 
+    // Relative modulation depth: rms of the AC envelope over its mean. Gates
+    // `mod48`, which is a ratio of AC powers and therefore meaningless when the
+    // envelope is near-constant (a steady chord's numerical ripple can land
+    // anywhere in the spectrum, including the 4-8 Hz band).
+    let depth = (cv).min(10.0); // cv IS rms(AC)/mean by construction
+    let depth_gate = ((depth - DEPTH_LO) / (DEPTH_HI - DEPTH_LO)).clamp(0.0, 1.0);
+
     // Scale components to [0, 1].
     let er_c = (er / ER_REF).clamp(0.0, 1.0);
-    let mod_c = (mod48 / MOD_REF).clamp(0.0, 1.0);
+    let mod_c = (mod48 / MOD_REF).clamp(0.0, 1.0) * depth_gate;
     let cv_c = (cv / CV_REF).clamp(0.0, 1.0);
 
     // AND gate: vocal presence needs both harmonic content and syllabic modulation.
@@ -323,5 +345,69 @@ mod tests {
             let v = vocalness(mel.view(), 22050, 512);
             assert!(v >= 0.0 && v <= 1.0 && v.is_finite(), "v={} for {}x{}", v, nm, nf);
         }
+    }
+
+    #[test]
+    fn test_vocalness_steady_chord_low() {
+        // Regression: a sustained triad (organ-like pad, constant amplitude) is
+        // tonal but has NO syllabic modulation — its envelope AC is numerical
+        // ripple. Without the depth gate this scored ~0.8; it must be low.
+        let n_mels = 128;
+        let n_frames = 430;
+        let sr = 22050;
+        let freqs = [440.0_f32, 554.0, 659.0]; // A major triad
+        let mel = synth_mel(n_mels, n_frames, sr, &freqs, |_| 5.0, 0.02, 0.05);
+        let v = vocalness(mel.view(), sr, 512);
+        assert!(v >= 0.0 && v <= 1.0 && v.is_finite());
+        assert!(v < 0.3, "steady-chord vocalness {} should be < 0.3", v);
+    }
+
+    #[test]
+    fn test_vocalness_pulse_train_moderate_at_most() {
+        // A 2 Hz pulse train leaks harmonics into the 4-8 Hz modulation band and
+        // its bursts are broadband (high flatness). The energy-weighted flatness
+        // must keep it from reading as tonal — score stays below the vocal range.
+        let n_mels = 128;
+        let n_frames = 430;
+        let sr = 22050;
+        let fr = sr as Float / 512.0;
+        let period = (fr / 2.0) as usize; // 2 Hz
+        // Broadband bursts across the whole spectrum incl. vocal band.
+        let mut mel = ndarray::Array2::<Float>::from_elem((n_mels, n_frames), 0.02);
+        for t in 0..n_frames {
+            if t % period.max(1) < 3 {
+                for m in 0..n_mels {
+                    mel[(m, t)] += 4.0;
+                }
+            }
+        }
+        let v = vocalness(mel.view(), sr, 512);
+        assert!(v >= 0.0 && v <= 1.0 && v.is_finite());
+        assert!(v < 0.45, "broadband pulse-train vocalness {} should stay below vocal range", v);
+    }
+
+    #[test]
+    fn test_vocalness_depth_gate_monotone() {
+        // Deeper 5 Hz modulation must never score lower than shallower modulation
+        // of the same content (sanity for the depth gate).
+        let n_mels = 128;
+        let n_frames = 430;
+        let sr = 22050;
+        let fr = sr as Float / 512.0;
+        let freqs = [250.0_f32, 500.0, 1000.0, 2000.0];
+        let score = |depth: Float| {
+            let amp = move |t: usize| {
+                let ph = 2.0 * PI * 5.0 * t as Float / fr;
+                2.0 * (1.0 + depth * ph.sin())
+            };
+            let mel = synth_mel(n_mels, n_frames, sr, &freqs, amp, 0.02, 0.05);
+            vocalness(mel.view(), sr, 512)
+        };
+        let shallow = score(0.02);
+        let mid = score(0.3);
+        let deep = score(0.8);
+        assert!(shallow < 0.3, "2% depth should read as constant, got {shallow}");
+        assert!(mid <= deep + 1e-3, "depth response should be monotone: {mid} vs {deep}");
+        assert!(deep > 0.6, "80% depth harmonic modulation should be vocal-like, got {deep}");
     }
 }

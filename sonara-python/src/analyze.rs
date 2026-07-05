@@ -217,7 +217,13 @@ pub fn py_analyze_batch<'py>(
         .into_iter()
         .zip(paths.iter())
         .map(|(r, path)| match r {
-            Ok(analysis) => result_to_dict(py, &analysis),
+            Ok(analysis) => {
+                // Every batch entry carries its input path so consumers can
+                // correlate results without zipping against the input list.
+                let d = result_to_dict(py, &analysis)?;
+                d.set_item("path", path)?;
+                Ok(d)
+            }
             Err(err) => error_to_dict(py, path, &err),
         })
         .collect()

@@ -9,8 +9,6 @@
 //! Plomp-Levelt model.
 
 use ndarray::{Array2, ArrayView1, ArrayView2};
-#[cfg(test)]
-use ndarray::Array1;
 
 use crate::types::Float;
 

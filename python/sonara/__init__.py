@@ -32,7 +32,8 @@ def analyze_batch(paths, *, sr=22050, mode="compact", features=None, bpm_min=Non
     """Analyze a list of audio files in parallel; returns a `list[TrackAnalysis]`.
 
     Errors are isolated per file: the returned list has exactly one entry per
-    input path, in the same order as ``paths``. A file that fails to decode does
+    input path, in the same order as ``paths``, and every entry carries its
+    input ``path``. A file that fails to decode does
     not abort the batch — instead its entry is a failure ``TrackAnalysis`` with
     ``path``, ``error`` (human-readable, includes container/codec and cause) and
     ``error_kind`` (a short stable category such as ``"decode"``, ``"io"`` or

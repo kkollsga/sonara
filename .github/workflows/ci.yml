@@ -38,9 +38,15 @@ jobs:
 
       - name: Python tests
         if: matrix.os != 'windows-latest'
+        # test_tonal_batch.py is excluded: it depends on a large local dataset.
         run: |
           source .venv/bin/activate
-          python tests/python/test_api.py
+          for t in test_api test_batch_errors test_camelot test_beatgrid \
+                   test_structure test_similarity test_fingerprint \
+                   test_loudness test_misc_features; do
+            echo "=== $t ==="
+            python "tests/python/$t.py"
+          done
 
   publish:
     needs: [test]
