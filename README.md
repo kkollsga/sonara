@@ -281,6 +281,36 @@ All arithmetic uses f32 precision (matching native decoder format), with a paral
 - **Fast 2:1 decimation** — half-band FIR filter for 44100-to-22050 Hz instead of full sinc resampling
 - **Thread-local caches** — FFT plans, mel/chroma filterbanks, DCT matrix reused across calls
 
+## Accuracy benchmarking
+
+The benches in `sonara/benches/` guard *speed*. A separate two-layer harness guards *correctness* of tempo (and key) detection — catching octave errors (detecting ~0.5x/2x the true tempo) and near-miss drift that speed benchmarks can't see.
+
+**Layer 1 — synthetic ground truth (runs in CI, no audio files):** `sonara/tests/bpm_accuracy.rs` synthesizes deterministic signals with exactly known tempo — click trains, kick patterns, and syncopated kick+offbeat-hat patterns (the classic half/double-tempo trap) — across a BPM spread covering the problem zones (60, 63, 70, 79, 85, 92, 100, 118, 126, 128.3, 140, 150, 160, 174, 192). It runs the pipeline's tempo detector and computes accuracy @ ±0.5 BPM, accuracy @ ±2%, octave-error rate, and median/p95 absolute error, asserting **zero octave errors** and a tight median error over the guarded subset.
+
+```bash
+cargo test -p sonara --test bpm_accuracy -- --nocapture   # full metrics report
+cargo test -p sonara --test bpm_accuracy -- --ignored      # run known-failing cases
+```
+
+Tunable thresholds and the `KNOWN_FAILING` list (cases current `main` gets wrong, mirrored by `#[ignore]`d per-case tests) are grouped at the top of the file. The suite only measures — it never modifies detection logic — so it can be re-run to validate detector improvements.
+
+**Layer 2 — external labeled corpus:** `sonara/examples/accuracy_eval.rs` evaluates the detector against a real labeled dataset (e.g. tracks tagged with Mixed In Key ground truth). It reads a CSV, analyzes every file in parallel, and prints the same metrics plus a worst-offenders table (top N by error, with 0.5x/2x octave flags) and key accuracy.
+
+```bash
+cargo run --release --example accuracy_eval -- labels.csv --mode playlist
+```
+
+CSV format (header optional, auto-detected; `key_ref` optional):
+
+```text
+path,bpm_ref,key_ref
+/music/track01.mp3,128,A minor
+/music/track02.wav,174,F# major
+/music/track03.flac,90
+```
+
+Run `cargo run --example accuracy_eval -- --help` for all options (`--sr`, `--mode`, `--top`).
+
 ## API Reference
 
 sonara provides 100+ audio analysis functions:
