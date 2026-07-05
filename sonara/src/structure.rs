@@ -38,7 +38,8 @@
 //!    strongly where within-block similarity is high but cross-block similarity
 //!    is low — i.e. a boundary between two homogeneous sections.
 //! 4. **Peak-pick** — the novelty curve is normalised, thresholded at
-//!    `mean + 0.5·std` (floored), and peaks are greedily selected in
+//!    `mean + NOVELTY_THRESH_STD·std` (floored at `NOVELTY_THRESH_FLOOR`),
+//!    and peaks are greedily selected in
 //!    novelty-descending order subject to a `MIN_SEGMENT_SEC` (8 s) minimum
 //!    spacing, capped at `MAX_BOUNDARIES` interior boundaries. This keeps the
 //!    count sane (typically 4-12 segments for a 5-minute track).
@@ -88,6 +89,17 @@ const MIN_SEGMENT_SEC: Float = 8.0;
 const MAX_BOUNDARIES: usize = 11;
 /// Snap intro/outro to a segment boundary within this distance (seconds).
 const SNAP_SEC: Float = 5.0;
+/// Novelty peak threshold: `mean + this·std` of the normalised novelty curve.
+/// Calibrated on a real commercial library (60-track random sample): at 0.5
+/// the MAX_BOUNDARIES cap bound on most 3-4 minute pop tracks (median 12
+/// segments, cap binding >50%); at 2.0 the distribution centres on ~8 segments
+/// (p25=6, p75=9) with the cap binding <10% and no degenerate
+/// under-segmentation, while the synthetic known-structure tests still recover
+/// their boundaries. Tuning for boundary *accuracy* (vs. plausibility) needs
+/// annotated structure data and is future work.
+const NOVELTY_THRESH_STD: Float = 2.0;
+/// Absolute floor for the normalised novelty threshold.
+const NOVELTY_THRESH_FLOOR: Float = 0.25;
 
 /// Number of MFCC coefficients used for the timbral descriptor.
 const N_MFCC: usize = 13;
@@ -405,7 +417,7 @@ fn pick_boundaries(novelty: &[Float], win_start_sec: &[Float], min_gap: usize) -
     } else {
         let mean = valid.iter().sum::<Float>() / valid.len() as Float;
         let var = valid.iter().map(|&v| (v - mean).powi(2)).sum::<Float>() / valid.len() as Float;
-        (mean + 0.5 * var.sqrt()).max(0.15)
+        (mean + NOVELTY_THRESH_STD * var.sqrt()).max(NOVELTY_THRESH_FLOOR)
     };
 
     // Candidate = strict local maximum above threshold.

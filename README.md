@@ -287,7 +287,7 @@ is slid down its diagonal to produce a novelty curve, and adaptive peak-picking
 (min 8 s spacing) yields the cuts. Intro/outro is an honest heuristic based on
 where the energy curve crosses the midpoint between its 10th and 90th
 percentiles, snapped to a nearby boundary. `energy_level` stretches the observed
-0.30-0.85 energy band across 1-10 so real music spreads out instead of
+0.25-0.60 mean-energy band (measured over a large commercial library) across 1-10 so real music spreads out instead of
 clustering at 5-6.
 Valid feature names: `bpm`, `beats`, `onsets`, `rms`, `dynamic_range`, `centroid`, `zcr`, `onset_density`, `bandwidth`, `rolloff`, `flatness`, `contrast`, `mfcc`, `chroma`, `chords`, `dissonance`, `energy`, `danceability`, `key`, `valence`, `acousticness`, `tempo_curve`, `time_signature`, `loudness` (opt-in loudness/gain group: true peak, ReplayGain, short-term curve, momentary max, LRA)
 Valid feature names: `bpm`, `beats`, `onsets`, `rms`, `dynamic_range`, `centroid`, `zcr`, `onset_density`, `bandwidth`, `rolloff`, `flatness`, `contrast`, `mfcc`, `chroma`, `chords`, `dissonance`, `energy`, `danceability`, `key`, `valence`, `acousticness`, `tempo_curve`, `time_signature`, `silence`, `key_candidates`, `vocalness`
@@ -422,7 +422,7 @@ Compare two tracks with `sonara.similarity(a, b)` — it returns a score in `0..
 ```python
 a = sonara.analyze_file("a.mp3", features=["embedding"])
 b = sonara.analyze_file("b.mp3", features=["embedding"])
-sonara.similarity(a, b)          # e.g. 0.87
+sonara.similarity(a, b)          # e.g. 0.65 for close neighbors; ~0.5 for unrelated tracks
 sonara.similarity(a, a)          # 1.0 (identical)
 sonara.similarity(a["embedding"], b["embedding"])  # raw vectors also work
 ```

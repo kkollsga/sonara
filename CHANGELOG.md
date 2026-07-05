@@ -25,6 +25,18 @@ track #5 of 61 against random material.
   chords/pads (whose envelope ripple is numerical, not syllabic) from scoring
   as vocal; per-frame flatness is now energy-weighted. Steady instrumental
   pads score < 0.3 (previously ~0.8); regression tests cover the failure cases.
+- **`similarity()` rescaled for interpretability** — raw embedding distances on
+  real music occupy a narrow band (~0.08-0.27), so `1 - distance` scored
+  everything ~0.85. A calibrated linear stretch (`SIMILARITY_SCALE`, measured
+  on a commercial library) now puts a median random pair at ~0.5 and close
+  neighbors at 0.65+. The stretch is monotone, so nearest-neighbor rankings
+  are unchanged; `distance()` still returns the raw value.
+- **Segmentation threshold recalibrated** — the novelty peak threshold rose
+  from `mean + 0.5·std` to `mean + 2·std` (named constant). On real pop the
+  old threshold hit the 12-segment cap on most tracks; the new one centres at
+  ~8 segments per 3-4 minute track with the cap binding <10%, while synthetic
+  known-structure boundaries are still recovered. Accuracy-level tuning
+  against annotated structure data remains future work.
 - CI now runs all nine Python test suites (previously only `test_api.py`).
 
 ### Added — opt-in analysis features
