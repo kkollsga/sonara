@@ -2,7 +2,28 @@
 
 All notable changes to sonara are documented in this file.
 
-## [0.2.0] - 2026-07-06
+## [0.2.1] - 2026-07-15
+
+### Added
+
+- **Analysis provenance** — every result now carries a `provenance` block
+  (`schema_version`, effective `sample_rate`, `hop_length`, `mode`,
+  `requested_features`), so persisted results are self-describing: frame
+  indices convert to seconds as `frame * hop_length / sample_rate`, and
+  stale records are detectable via `ANALYSIS_SCHEMA_VERSION`.
+- **`chord_events`** — typed, time-spanned chords alongside `chord_sequence`:
+  merged runs as `{label, start_sec, end_sec}`, contiguous and covering the
+  track. Present whenever chords are computed.
+- **Seconds helpers** (Rust) — `TrackAnalysis::frame_to_sec`, `beats_sec`,
+  `onsets_sec`, `downbeats_sec`; `TrackAnalysis.print()` shows a Provenance
+  line.
+
+### Changed
+
+- **`segments` is now a typed `SegmentEvent` struct** in the Rust API
+  (previously a `(start_sec, end_sec, energy)` tuple). The Python dict shape
+  is unchanged. Default-path performance verified unchanged (interleaved A/B,
+  ≤0.4%).
 
 ### Validated on real music
 
