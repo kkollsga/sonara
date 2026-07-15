@@ -178,6 +178,20 @@ class TrackAnalysis(dict):
             for label, value in rows:
                 lines.append(f"    {label:<{width}}  {value}")
 
+        # --- provenance ---
+        if "provenance" in self:
+            p = self["provenance"]
+            parts = [
+                f"schema v{p['schema_version']}",
+                f"{p['sample_rate']} Hz",
+                f"hop {p['hop_length']}",
+                str(p.get("mode", "?")),
+            ]
+            if "requested_features" in p:
+                parts.append(f"features [{', '.join(p['requested_features'])}]")
+            lines.append("")
+            lines.append(f"  Provenance  {' · '.join(parts)}")
+
         # --- fingerprint ---
         if "fingerprint" in self:
             fp = self["fingerprint"]

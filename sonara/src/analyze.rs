@@ -324,7 +324,12 @@ pub struct TrackAnalysis {
     /// Strongest tempo candidates as `(bpm, score)` pairs, sorted by score
     /// descending (up to the top 5).
     pub bpm_candidates: Vec<(Float, Float)>,
+    /// Beat positions as main-pass frame indices; seconds =
+    /// `frame * provenance.hop_length / provenance.sample_rate`
+    /// (or use [`TrackAnalysis::beats_sec`]).
     pub beats: Vec<usize>,
+    /// Onset positions as main-pass frame indices (see `beats` for the
+    /// frame→seconds convention, or [`TrackAnalysis::onsets_sec`]).
     pub onset_frames: Vec<usize>,
     pub rms_mean: Float,
     pub rms_max: Float,
@@ -364,12 +369,17 @@ pub struct TrackAnalysis {
     pub chroma_mean: Option<Vec<Float>>,
 
     // -- Rhythm (extended or full) --
+    /// Local BPM per inter-beat interval (median-smoothed): value `i` covers
+    /// the span between `beats[i]` and `beats[i+1]`
+    /// (length = `beats.len() - 1`).
     pub tempo_curve: Option<Vec<Float>>,
     pub tempo_variability: Option<Float>,
     pub time_signature: Option<String>,
     pub time_signature_confidence: Option<Float>,
 
     // -- Tonal (extended or full) --
+    /// One chord label per beat-aligned window (`tonal::chord_boundaries`);
+    /// "N" = no chord. For explicit time spans use `chord_events`.
     pub chord_sequence: Option<Vec<String>>,
     /// Time-spanned chord events (merged runs of `chord_sequence`); `Some`
     /// exactly when `chord_sequence` is. See [`ChordEvent`].
