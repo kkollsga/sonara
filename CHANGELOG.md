@@ -2,6 +2,27 @@
 
 All notable changes to sonara are documented in this file.
 
+## [0.2.2] - 2026-07-16
+
+### Added
+
+- **File tag passthrough** — opt-in `features=["tags"]`: `analyze_file` /
+  `analyze_batch` now surface the ID3v2/Vorbis metadata Symphonia already
+  parses during decoding as a `tags` sub-dict (Rust: `tags: Option<TrackTags>`)
+  with `title`, `artist`, `album`, `genre`, `year`, `track_no`. No second file
+  parse needed downstream. Always absent for `analyze_signal`; the WAV fast
+  path carries no tags. Zero cost when not requested.
+- **Mood heuristics (v1)** — opt-in `features=["mood"]` populates
+  `mood_happy`, `mood_aggressive`, `mood_relaxed`, `mood_sad` in `[0, 1]`:
+  documented weighted-term heuristics over key mode, tempo, brightness,
+  energy, onset density, and dissonance. Explicitly rough hints, not an ML
+  classifier; `genre` remains reserved for a real ML tier.
+- **Instrumentalness (v1)** — opt-in `features=["instrumentalness"]`: the
+  inverse of the vocal-presence heuristic (`1 - vocalness`, clamped).
+- **Batch progress** — `analyze_batch(..., progress=callable)` calls
+  `progress(done, total)` after each file completes (completion order;
+  results stay input-ordered). Callback exceptions never abort the batch.
+
 ## [0.2.1] - 2026-07-15
 
 ### Added
