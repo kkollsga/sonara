@@ -61,7 +61,11 @@ use crate::types::Float;
 /// See the module docs for the bump rule. Exposed alongside every vector as
 /// `TrackAnalysis::embedding_version` so stored vectors can be validated before
 /// comparison.
-pub const SIMILARITY_VERSION: u32 = 1;
+///
+/// v2 (2026-07-17): the chroma input feeding embedding dims `[13..25]` changed
+/// when the chroma filterbank gained librosa-parity octave-domain weighting,
+/// so vectors built before this date are not comparable to v2 vectors.
+pub const SIMILARITY_VERSION: u32 = 2;
 
 /// Calibrated stretch for [`similarity`]: a raw [`distance`] of this magnitude
 /// (or more) maps to similarity `0.0`. Chosen as 2x the median random-pair
@@ -408,7 +412,7 @@ mod tests {
 
     #[test]
     fn test_version_exposed() {
-        assert_eq!(SIMILARITY_VERSION, 1);
+        assert_eq!(SIMILARITY_VERSION, 2);
         assert_eq!(EMBEDDING_DIM, 48);
         assert_eq!(WEIGHTS.len(), EMBEDDING_DIM);
     }

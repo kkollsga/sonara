@@ -240,7 +240,11 @@ const EMBEDDING_DEPS: &[&str] = &[
 /// new fields do NOT require a bump. Consumers persisting analysis results
 /// compare this against `AnalysisProvenance::schema_version` to detect stale
 /// records.
-pub const ANALYSIS_SCHEMA_VERSION: u32 = 1;
+///
+/// v2 (2026-07-17): chroma filterbank gained librosa-parity octave-domain
+/// Gaussian weighting, changing all chroma-derived fields (chroma, key,
+/// tonal features) at every sample rate — most visibly at sr > 22050.
+pub const ANALYSIS_SCHEMA_VERSION: u32 = 2;
 
 /// STFT hop length (samples) used by the main analysis pass. All frame-index
 /// fields on [`TrackAnalysis`] (`beats`, `onset_frames`, `downbeats`) convert
@@ -1689,10 +1693,95 @@ mod tests {
         assert_eq!(max_bin, 9, "A440 should map to chroma bin 9 (A), got {}", max_bin);
     }
 
+    /// Sum of equal-amplitude pure sines over `dur` seconds at `sr`.
+    fn chord(freqs: &[Float], sr: u32, dur: Float) -> Vec<Float> {
+        let n = (sr as Float * dur) as usize;
+        (0..n)
+            .map(|i| {
+                let t = i as Float / sr as Float;
+                freqs.iter().map(|&f| (2.0 * PI * f * t).sin()).sum::<Float>()
+                    / freqs.len() as Float
+            })
+            .collect()
+    }
+
+    /// A C-major triad progression — the authentic cadence I–IV–V–I, repeated
+    /// `reps` times, as pure sines. The tonic-triad pitch classes dominate:
+    /// C appears in 3 of 4 chords, G in 3, E in 2, while every non-tonic-triad
+    /// class (A, F, B, D) appears only once — so chroma top-3 is unambiguously
+    /// {C, E, G} and the cadence pins the key to C major.
+    fn c_major_progression(sr: u32, reps: usize) -> Array1<Float> {
+        // I: C5 E5 G5 / IV: F4 A4 C5 / V: G4 B4 D5 / I: C5 E5 G5 — voiced in the
+        // well-resolved mid register near the octave-weighting centre (~880 Hz)
+        // so a fixed 2048-pt FFT resolves each note at 48 kHz without smearing
+        // into neighbouring pitch classes.
+        let chords: [&[Float]; 4] = [
+            &[523.25, 659.26, 783.99],
+            &[349.23, 440.00, 523.25],
+            &[392.00, 493.88, 587.33],
+            &[523.25, 659.26, 783.99],
+        ];
+        let mut samples: Vec<Float> = Vec::new();
+        for _ in 0..reps {
+            for c in &chords {
+                samples.extend(chord(c, sr, 1.0));
+            }
+        }
+        Array1::from(samples)
+    }
+
+    /// THE regression test for the chroma sr-bias bug: without the librosa
+    /// octave-domain weighting in `filters::chroma`, the >11 kHz broadband band
+    /// floods chroma at 44.1k/48k and real-music tonality collapses (e.g. every
+    /// track reads as F major). A C-major progression must yield chroma top-3
+    /// {C,E,G} == bins {0,4,7} and key "C major" at every sample rate.
+    #[test]
+    fn test_chroma_key_multirate_c_major() {
+        for &sr in &[22050u32, 44100, 48000] {
+            let y = c_major_progression(sr, 3);
+            let r = analyze_signal(y.view(), sr, &feature_config(&["key", "chroma"])).unwrap();
+
+            let chroma = r.chroma_mean.clone().expect("chroma_mean populated");
+            let mut idx: Vec<usize> = (0..12).collect();
+            idx.sort_by(|&a, &b| chroma[b].partial_cmp(&chroma[a]).unwrap());
+            let top3: HashSet<usize> = idx[..3].iter().copied().collect();
+            let expected: HashSet<usize> = [0usize, 4, 7].into_iter().collect();
+            assert_eq!(
+                top3, expected,
+                "sr={sr}: chroma top-3 should be C/E/G bins {{0,4,7}}, got {top3:?} (chroma={chroma:?})"
+            );
+
+            assert_eq!(
+                r.key.clone().unwrap(),
+                "C major",
+                "sr={sr}: key should be C major, got {:?}",
+                r.key
+            );
+        }
+    }
+
+    /// Single-sine invariance: a 440 Hz tone maps to chroma bin 9 (A) at every
+    /// supported sample rate — the octave weighting must not shift a pure tone.
+    #[test]
+    fn test_chroma_single_sine_invariance_multirate() {
+        for &sr in &[22050u32, 44100, 48000] {
+            let y = sine(440.0, sr, 2.0);
+            let r = analyze_signal(y.view(), sr, &feature_config(&["chroma"])).unwrap();
+            let chroma = r.chroma_mean.expect("chroma_mean populated");
+            let max_bin = chroma
+                .iter()
+                .enumerate()
+                .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+                .unwrap()
+                .0;
+            assert_eq!(max_bin, 9, "sr={sr}: A440 should map to bin 9 (A), got {max_bin}");
+        }
+    }
+
     #[test]
     fn test_analysis_schema_version_pinned() {
         // Bump deliberately (with a changelog note), never accidentally.
-        assert_eq!(ANALYSIS_SCHEMA_VERSION, 1);
+        assert_eq!(ANALYSIS_SCHEMA_VERSION, 2);
     }
 
     #[test]

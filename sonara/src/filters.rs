@@ -104,22 +104,44 @@ pub fn chroma(
 
     let mut fb = FilterBank::zeros((n_chroma, n_bins));
 
+    // librosa `filters.chroma` soft assignment (librosa 0.10). Each FFT bin's
+    // energy is spread over pitch classes with a Gaussian over the wrapped
+    // chroma-bin distance, scaled by the bin's WIDTH in chroma units — a bass
+    // bin at 44.1k/n_fft=2048 spans ~2.7 semitones and must feed every class it
+    // covers, not just its two nearest (which biased bass-heavy real music).
+    //
+    // `frqbins[k]` = position of FFT bin k in chroma-bin units (octaves*n_chroma)
+    // relative to A. We need one bin past Nyquist (index n_bins = n_fft/2 + 1)
+    // so the last kept column has a forward difference for its bin width.
+    let ncf = n_chroma as Float;
+    // C-based row offset: librosa computes A-based weights then rolls rows by
+    // -3*(n_chroma/12) so row 0 = C. Fold that shift into the class index here
+    // (sonara's rows are C-based: A440 -> row 9, C261.63 -> row 0).
+    let roll = 3.0 * (n_chroma / 12) as Float;
+    let n_chroma2 = (ncf / 2.0).round();
+    let frqbins: Vec<Float> = (0..=n_bins)
+        .map(|k| {
+            let freq = k as Float * sr / n_fft as Float;
+            if freq <= 0.0 {
+                0.0 // DC placeholder; column 0 is left at zero below
+            } else {
+                ncf * convert::hz_to_octs(freq, tuning, n_chroma, None)
+            }
+        })
+        .collect();
+
     for j in 1..n_bins {
-        // Skip DC
-        let freq = fft_freqs[j];
-        if freq <= 0.0 {
-            continue;
+        // Skip DC (column 0 stays zero, matching sonara's convention).
+        // Bin width in chroma units, clamped to >= 1 like librosa.
+        let binwidth = (frqbins[j + 1] - frqbins[j]).max(1.0);
+        for c in 0..n_chroma {
+            // Distance of bin j to class c (C-based) in chroma units, wrapped
+            // to (-n_chroma/2, +n_chroma/2].
+            let mut d = frqbins[j] - (c as Float + roll);
+            d = (d + n_chroma2 + 10.0 * ncf).rem_euclid(ncf) - n_chroma2;
+            // Gaussian bump; the factor of 2 narrows it (librosa parity).
+            fb[(c, j)] = (-0.5 * (2.0 * d / binwidth).powi(2)).exp();
         }
-
-        // Map frequency to chroma bin (0-11 for standard 12-chroma)
-        let midi = convert::hz_to_midi(freq, None) + tuning;
-        let chroma_val = ((midi % n_chroma as Float) + n_chroma as Float) % n_chroma as Float;
-        let chroma_bin = chroma_val.floor() as usize % n_chroma;
-
-        // Fractional assignment
-        let frac = chroma_val - chroma_val.floor();
-        fb[(chroma_bin, j)] += 1.0 - frac;
-        fb[((chroma_bin + 1) % n_chroma, j)] += frac;
     }
 
     // Normalize each column
@@ -128,6 +150,23 @@ pub fn chroma(
         if col_sum > 0.0 {
             fb.column_mut(j).mapv_inplace(|v| v / col_sum);
         }
+    }
+
+    // Octave-domain weighting (librosa parity): Gaussian over octaves centred at
+    // ctroct=5.0 (~880 Hz) with octwidth=2.0, suppressing the sr-dependent high
+    // band that otherwise floods chroma with broadband energy at sr > 22050.
+    // Without this, every FFT bin up to sr/2 contributes fully and real-music
+    // chroma collapses toward a single class at 44.1k/48k.
+    let ctroct: Float = 5.0;
+    let octwidth: Float = 2.0;
+    for j in 1..n_bins {
+        let freq = fft_freqs[j];
+        if freq <= 0.0 {
+            continue;
+        }
+        let octs = convert::hz_to_octs(freq, tuning, n_chroma, None);
+        let w = (-0.5 * ((octs - ctroct) / octwidth).powi(2)).exp();
+        fb.column_mut(j).mapv_inplace(|v| v * w);
     }
 
     fb
@@ -382,13 +421,67 @@ mod tests {
     }
 
     #[test]
+    fn test_chroma_class_mapping_pins() {
+        // Pin the C-based pitch-class mapping across octaves BEFORE trusting the
+        // soft assignment: the argmax row for a pure tone at a note frequency
+        // must equal that note's chroma class (C=0 .. B=11). Uses a high n_fft
+        // so each tone resolves cleanly into one bin/class.
+        let sr = 44100.0;
+        let n_fft = 16384;
+        let fb = chroma(sr, n_fft, 12, 0.0);
+        let fft_freqs = convert::fft_frequencies(sr, n_fft);
+        // (freq, expected class): A across octaves -> 9; C -> 0; plus a spread.
+        let cases = [
+            (110.0_f32, 9),   // A2
+            (220.0, 9),       // A3
+            (440.0, 9),       // A4
+            (880.0, 9),       // A5
+            (261.63, 0),      // C4
+            (523.25, 0),      // C5
+            (329.63, 4),      // E4
+            (392.00, 7),      // G4
+            (493.88, 11),     // B4
+            (277.18, 1),      // C#4
+        ];
+        for (freq, expected) in cases {
+            // nearest FFT bin to the tone
+            let j = (freq * n_fft as Float / sr).round() as usize;
+            // sanity: bin frequency within a few Hz of the target
+            assert!((fft_freqs[j] - freq).abs() < sr / n_fft as Float);
+            let col = fb.column(j);
+            let argmax = col
+                .iter()
+                .enumerate()
+                .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+                .unwrap()
+                .0;
+            assert_eq!(
+                argmax, expected,
+                "freq {freq} Hz should map to class {expected}, got {argmax}"
+            );
+        }
+    }
+
+    #[test]
     fn test_chroma_column_sums() {
-        let fb = chroma(22050.0, 2048, 12, 0.0);
-        // Each column (except DC) should sum to approximately 1
+        // After column-normalization the filterbank multiplies each column by the
+        // librosa octave-domain Gaussian weight, so a column no longer sums to 1
+        // but to exactly that weight (in (0, 1]) — the low/mid band near ctroct
+        // stays ~1 while the sr/2 broadband band is suppressed toward 0.
+        let sr = 22050.0;
+        let n_fft = 2048;
+        let n_chroma = 12;
+        let fb = chroma(sr, n_fft, n_chroma, 0.0);
+        let fft_freqs = convert::fft_frequencies(sr, n_fft);
+        let ctroct: Float = 5.0;
+        let octwidth: Float = 2.0;
         for j in 1..fb.ncols() {
             let col_sum: Float = fb.column(j).sum();
             if col_sum > 0.0 {
-                assert_abs_diff_eq!(col_sum, 1.0, epsilon = 1e-5);
+                let octs = convert::hz_to_octs(fft_freqs[j], 0.0, n_chroma, None);
+                let w = (-0.5 * ((octs - ctroct) / octwidth).powi(2)).exp();
+                assert_abs_diff_eq!(col_sum, w, epsilon = 1e-5);
+                assert!(col_sum <= 1.0 + 1e-6);
             }
         }
     }

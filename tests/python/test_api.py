@@ -408,6 +408,42 @@ test("tags sub-dict populated (analyze_file)", _check_tags_present)
 test("tags absent without feature", _check_tags_absent_when_not_requested)
 
 # ============================================================
+# Pattern 22: Chroma/key are sample-rate invariant
+# ============================================================
+# Regression for the chroma sr-bias bug: before the librosa octave-domain
+# weighting landed in the chroma filterbank, the >11 kHz broadband band flooded
+# chroma at 44.1k/48k and tonal tracks mis-detected (e.g. as F major). A C-major
+# I-IV-V-I cadence of pure sines must detect as "C major" at every sample rate.
+print("\n--- Pattern 22: Chroma/key sr-invariance ---")
+
+
+def _c_major_progression(sr):
+    # I: C5 E5 G5 / IV: F4 A4 C5 / V: G4 B4 D5 / I: C5 E5 G5, 1s each, x3.
+    chords = [
+        [523.25, 659.26, 783.99],
+        [349.23, 440.00, 523.25],
+        [392.00, 493.88, 587.33],
+        [523.25, 659.26, 783.99],
+    ]
+    blocks = []
+    for _ in range(3):
+        for freqs in chords:
+            t = np.arange(sr) / sr
+            block = sum(np.sin(2 * np.pi * f * t) for f in freqs) / len(freqs)
+            blocks.append(block)
+    return np.concatenate(blocks).astype(np.float32)
+
+
+def _check_key_sr_invariance():
+    for sr in (22050, 44100, 48000):
+        y = _c_major_progression(sr)
+        r = sonara.analyze_signal(y, sr=sr, features=["key", "chroma"])
+        assert r.get("key") == "C major", f"sr={sr}: expected C major, got {r.get('key')!r}"
+
+
+test("analyze_signal key is C major at 22050/44100/48000", _check_key_sr_invariance)
+
+# ============================================================
 # Summary
 # ============================================================
 print(f"\n{'='*70}")
