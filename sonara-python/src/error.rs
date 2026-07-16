@@ -9,6 +9,7 @@ pub fn to_pyerr(err: SonaraError) -> PyErr {
         SonaraError::InvalidParameter { .. }
         | SonaraError::ShapeMismatch { .. }
         | SonaraError::InvalidAudio(_)
+        | SonaraError::ModelError(_)
         | SonaraError::InsufficientData { .. } => {
             exceptions::PyValueError::new_err(err.to_string())
         }
@@ -40,6 +41,8 @@ pub fn error_kind(err: &SonaraError) -> &'static str {
         SonaraError::InvalidParameter { .. }
         | SonaraError::ShapeMismatch { .. }
         | SonaraError::InvalidAudio(_) => "invalid_audio",
+        // A supplied genre model failed to load/validate or was version-mismatched.
+        SonaraError::ModelError(_) => "model",
         // Audio decoded but was too short for the requested analysis.
         SonaraError::InsufficientData { .. } => "insufficient_data",
         // Downstream numerical/DSP computation failure.

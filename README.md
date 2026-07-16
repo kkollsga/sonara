@@ -534,6 +534,52 @@ for path, score in most_similar(seed, library):
 
 The metric is a **weighted, normalized Euclidean distance** (not cosine): all dimensions are non-negative and bounded to `[0, 1]`, where cosine is biased toward 1 — Euclidean stays discriminative, and per-dimension weights let timbre, harmony and tempo dominate over incidental dimensions like absolute loudness. Because loudness contributes little, the *same* track at a different gain still scores as highly similar. `sonara.similarity()` applies a calibrated stretch (measured on a large commercial library) so scores are interpretable: an unrelated pair lands near **0.5**, close neighbors **0.65+**, identical tracks **1.0**. The stretch is monotone in the raw distance, so nearest-neighbor rankings are unaffected. The hand-crafted vector sits behind `embedding_version`, so a learned (e.g. ONNX) embedding can later replace it behind the same field and API.
 
+## Bring your own genre model
+
+sonara ships **no** genre model — genre is subjective and library-specific. Instead it exposes a **socket**: train a tiny classifier over the similarity embedding on *your* labeled library, save it as JSON, and pass its path to any `analyze_*` call. The result then carries `genre` and `genre_confidence`.
+
+The full loop — scan for embeddings, label them, train, save, classify:
+
+```python
+import sonara
+from sonara import genre
+
+# 1. Scan a labeled library for embeddings (48-dim vectors).
+files  = [...]                       # paths you already have genre labels for
+labels = [...]                       # one label per file (e.g. "rock", "techno")
+lib = sonara.analyze_batch(files, features=["embedding"])
+X = [r["embedding"] for r in lib]    # (n, 48)
+
+# 2. Train a classifier (pure numpy — no sklearn/torch). hidden=0 is softmax
+#    regression; hidden=N adds one ReLU layer. Deterministic given `seed`.
+model = genre.train(X, labels, hidden=0, epochs=300, lr=0.1, seed=0)
+model.save("genre_model.json")
+
+# 3. Classify new tracks by passing the model path.
+r = sonara.analyze_file("track.mp3", genre_model="genre_model.json")
+print(r["genre"], r["genre_confidence"])   # e.g. "techno" 0.87
+```
+
+`model.predict(x)` runs the same inference numpy-side (label + confidence) for parity with the Rust analysis. The embedding is computed internally whenever a model is set; the `embedding`/`embedding_version` fields are only added to the result if you *also* pass `features=["embedding"]`.
+
+The model is a small feed-forward net stored as JSON — **hand-writable** as well as numpy-exportable:
+
+```json
+{
+  "format_version": 1,
+  "embedding_version": 2,
+  "labels": ["rock", "electronic"],
+  "layers": [
+    {"weights": [[...], ...], "bias": [...], "activation": "relu"},
+    {"weights": [[...]],       "bias": [...], "activation": "softmax"}
+  ]
+}
+```
+
+Each layer maps `x` → `activation(W·x + b)`, with `W` stored row-major (`out_dim` rows × `in_dim` cols). The first layer's `in_dim` must equal `EMBEDDING_DIM` (48); the last layer must be `softmax` with `out_dim == len(labels)`. Supported activations: `relu`, `softmax`, `identity`.
+
+**Embedding-version note:** the model records the `embedding_version` it was trained against (defaulting to `sonara.SIMILARITY_VERSION`). Because the embedding layout is versioned, a model trained on an older layout would classify on incomparable vectors — so `analyze_*` **fails fast with a `ValueError`** when the model's `embedding_version` does not match the running build. Re-scan your library and re-train when the embedding version bumps.
+
 ## Tonal Analysis
 
 Standalone tonal functions for detailed harmonic analysis:

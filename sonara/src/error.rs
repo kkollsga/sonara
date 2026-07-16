@@ -36,6 +36,10 @@ pub enum SonaraError {
     #[error("Numerical error: {0}")]
     Numerical(String),
 
+    // ---- Model loading / inference (bring-your-own genre model) ----
+    #[error("Genre model error: {0}")]
+    ModelError(String),
+
     // ---- Feature extraction ----
     #[error("No pitch detected in signal")]
     NoPitchDetected,

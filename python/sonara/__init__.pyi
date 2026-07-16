@@ -192,9 +192,9 @@ AnalysisResult = Dict[str, Union[float, int, str, List[int], List[float], List[s
 #                             #  "end_sec": float} — merged runs of
 #                             # chord_sequence; contiguous, covering the track;
 #                             # label "N" = no chord detected in that span
-def analyze_file(path: str, *, sr: int = 22050, mode: str = "compact", features: Optional[List[str]] = None, bpm_min: Optional[float] = None, bpm_max: Optional[float] = None) -> AnalysisResult: ...
-def analyze_signal(y: AudioArray, *, sr: int = 22050, mode: str = "compact", features: Optional[List[str]] = None, bpm_min: Optional[float] = None, bpm_max: Optional[float] = None) -> AnalysisResult: ...
-def analyze_batch(paths: List[str], *, sr: int = 22050, mode: str = "compact", features: Optional[List[str]] = None, bpm_min: Optional[float] = None, bpm_max: Optional[float] = None, progress: Optional[Callable[[int, int], None]] = None) -> List[AnalysisResult]: ...
+def analyze_file(path: str, *, sr: int = 22050, mode: str = "compact", features: Optional[List[str]] = None, bpm_min: Optional[float] = None, bpm_max: Optional[float] = None, genre_model: Optional[str] = None) -> AnalysisResult: ...
+def analyze_signal(y: AudioArray, *, sr: int = 22050, mode: str = "compact", features: Optional[List[str]] = None, bpm_min: Optional[float] = None, bpm_max: Optional[float] = None, genre_model: Optional[str] = None) -> AnalysisResult: ...
+def analyze_batch(paths: List[str], *, sr: int = 22050, mode: str = "compact", features: Optional[List[str]] = None, bpm_min: Optional[float] = None, bpm_max: Optional[float] = None, progress: Optional[Callable[[int, int], None]] = None, genre_model: Optional[str] = None) -> List[AnalysisResult]: ...
 # analyze_batch never raises on a per-file decode/IO error. Each input path yields
 # exactly one entry in input order, and every entry carries its input `path`.
 # A failed file's entry has `path`, `error`, and `error_kind` (e.g. "decode",
@@ -269,6 +269,40 @@ def fingerprint_match(a: Union[str, Dict], b: Union[str, Dict]) -> float: ...
 def analyze_file(path: str, *, sr: int = 22050) -> Dict[str, Union[float, int, List[int]]]: ...
 def analyze_signal(y: AudioArray, *, sr: int = 22050) -> Dict[str, Union[float, int, List[int]]]: ...
 def analyze_batch(paths: List[str], *, sr: int = 22050, progress: Optional[Callable[[int, int], None]] = None) -> List[Dict[str, Union[float, int, List[int]]]]: ...
+
+# ============================================================
+# Bring-your-own genre model — genre_model=<path>
+# ============================================================
+# sonara ships NO genre model. Pass `genre_model=<path to a JSON model>` to any
+# analyze_* call to classify each track over sonara's similarity embedding; the
+# result dict then carries:
+#   "genre":            str    — predicted label (argmax class)
+#   "genre_confidence": float  — winning softmax probability, in (0, 1]
+# The embedding is computed internally when a model is set, but the "embedding"/
+# "embedding_version" fields are only emitted if you ALSO request
+# features=["embedding"].
+#
+# Model JSON format (hand-writable and numpy-exportable):
+#   {
+#     "format_version": 1,           # schema version this build understands
+#     "embedding_version": 2,        # MUST match sonara.SIMILARITY_VERSION at use
+#                                    # time, else analyze_* raises ValueError
+#     "labels": ["rock", "electronic", ...],
+#     "layers": [                    # feed-forward chain; last activation softmax
+#       {"weights": [[...], ...],    # row-major out_dim x in_dim (W . x)
+#        "bias": [...],              # length out_dim
+#        "activation": "relu"},      # "relu" | "softmax" | "identity"
+#       {"weights": [[...]], "bias": [...], "activation": "softmax"}
+#     ]
+#   }
+# The first layer's in_dim must equal EMBEDDING_DIM (48); the last layer must be
+# softmax with out_dim == len(labels).
+#
+# Train one with the pure-numpy `sonara.genre` module:
+#   from sonara import genre
+#   model = genre.train(X, y, hidden=0, epochs=300, lr=0.1, seed=0)  # X: (n, 48)
+#   model.save("genre_model.json"); genre.load("genre_model.json")
+#   model.predict(x)  # (label, confidence) — numpy parity with the Rust inference
 
 # ============================================================
 # Similarity & embeddings

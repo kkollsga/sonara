@@ -12,29 +12,41 @@ from sonara._sonara import (
 from sonara._sonara import fingerprint_match  # noqa: F401 — duplicate detection
 from sonara._result import TrackAnalysis
 from sonara import display  # noqa: F401
+from sonara import genre  # noqa: F401 — bring-your-own genre model trainer/loader
 
 
-def analyze_file(path, *, sr=22050, mode="compact", features=None, bpm_min=None, bpm_max=None):
+def analyze_file(path, *, sr=22050, mode="compact", features=None, bpm_min=None, bpm_max=None, genre_model=None):
     """Analyze an audio file and return a `TrackAnalysis` (dict subclass with `.print()`).
 
     ``features`` selects features explicitly (overriding ``mode``) and is the
     only way to enable the opt-in features: ``beatgrid``, ``structure``,
     ``embedding``, ``fingerprint``, ``loudness``, ``silence``,
     ``key_candidates``, ``vocalness``. See the README for the full list.
+
+    ``genre_model`` is a path to a user-trained genre model (JSON). When given,
+    the result carries ``genre`` and ``genre_confidence``. See ``sonara.genre``
+    for the trainer and the JSON format; the model's ``embedding_version`` must
+    match ``sonara.SIMILARITY_VERSION`` (else a ``ValueError`` is raised).
     """
     return TrackAnalysis(_analyze_file(
         path, sr=sr, mode=mode, features=features, bpm_min=bpm_min, bpm_max=bpm_max,
+        genre_model=genre_model,
     ))
 
 
-def analyze_signal(y, *, sr=22050, mode="compact", features=None, bpm_min=None, bpm_max=None):
-    """Analyze a signal array and return a `TrackAnalysis` (dict subclass with `.print()`)."""
+def analyze_signal(y, *, sr=22050, mode="compact", features=None, bpm_min=None, bpm_max=None, genre_model=None):
+    """Analyze a signal array and return a `TrackAnalysis` (dict subclass with `.print()`).
+
+    ``genre_model`` (path to a user-trained model JSON) adds ``genre`` and
+    ``genre_confidence`` to the result. See ``sonara.genre``.
+    """
     return TrackAnalysis(_analyze_signal(
         y, sr=sr, mode=mode, features=features, bpm_min=bpm_min, bpm_max=bpm_max,
+        genre_model=genre_model,
     ))
 
 
-def analyze_batch(paths, *, sr=22050, mode="compact", features=None, bpm_min=None, bpm_max=None, progress=None):
+def analyze_batch(paths, *, sr=22050, mode="compact", features=None, bpm_min=None, bpm_max=None, progress=None, genre_model=None):
     """Analyze a list of audio files in parallel; returns a `list[TrackAnalysis]`.
 
     Errors are isolated per file: the returned list has exactly one entry per
@@ -51,12 +63,15 @@ def analyze_batch(paths, *, sr=22050, mode="compact", features=None, bpm_min=Non
     ``total == len(paths)``. A raising/broken callback never aborts the batch —
     its exception is swallowed (per-file isolation is a contract). Passing
     ``progress=None`` (the default) runs the original zero-overhead path.
+
+    ``genre_model`` (path to a user-trained model JSON) adds ``genre`` and
+    ``genre_confidence`` to each successful entry. See ``sonara.genre``.
     """
     return [
         TrackAnalysis(r)
         for r in _analyze_batch(
             paths, sr=sr, mode=mode, features=features, bpm_min=bpm_min, bpm_max=bpm_max,
-            progress=progress,
+            progress=progress, genre_model=genre_model,
         )
     ]
 

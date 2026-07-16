@@ -133,6 +133,14 @@ pub struct AnalysisConfig {
     pub bpm_min: Option<Float>,
     /// Optional upper bound for octave-folding tempo normalization.
     pub bpm_max: Option<Float>,
+    /// Optional user-supplied genre classifier over the similarity embedding
+    /// (bring-your-own-model; sonara ships none). When `Some`, analysis computes
+    /// the embedding, runs the model, and populates `genre` + `genre_confidence`.
+    /// The model's `embedding_version` must match
+    /// [`crate::similarity::SIMILARITY_VERSION`], else analysis fails fast with a
+    /// [`SonaraError::ModelError`]. `Arc` so `Clone` (used per-file in batch)
+    /// stays cheap. See [`crate::genre`].
+    pub genre_model: Option<std::sync::Arc<crate::genre::GenreModel>>,
 }
 
 impl Default for AnalysisConfig {
@@ -142,6 +150,7 @@ impl Default for AnalysisConfig {
             features: None,
             bpm_min: None,
             bpm_max: None,
+            genre_model: None,
         }
     }
 }
@@ -149,6 +158,12 @@ impl Default for AnalysisConfig {
 impl AnalysisConfig {
     /// Check if a feature should be computed.
     fn wants(&self, name: &str) -> bool {
+        // A genre model needs the full similarity embedding, which is assembled
+        // from the tonal/perceptual features listed in EMBEDDING_DEPS — so a set
+        // model implies each of them regardless of mode or explicit feature list.
+        if self.genre_model.is_some() && EMBEDDING_DEPS.contains(&name) {
+            return true;
+        }
         if let Some(ref features) = self.features {
             // Explicit feature list — check if requested
             if features.contains(name) {
@@ -174,8 +189,22 @@ impl AnalysisConfig {
         }
     }
 
+    /// True if the similarity embedding must be computed: either it was
+    /// explicitly requested (`features=["embedding"]`) or a genre model is set
+    /// (the model classifies over the embedding). Only the explicit-request case
+    /// emits the `embedding`/`embedding_version` fields — a genre model computes
+    /// the vector without leaking it (mirrors how mood computes key silently).
+    fn wants_embedding(&self) -> bool {
+        self.wants("embedding") || self.genre_model.is_some()
+    }
+
     /// Check if extended features (anything beyond compact) are needed.
     fn needs_extended(&self) -> bool {
+        // A genre model needs the embedding, which requires the extended pass
+        // (mfcc/chroma/contrast/spectral scalars).
+        if self.genre_model.is_some() {
+            return true;
+        }
         if let Some(ref features) = self.features {
             // If any non-core feature is requested
             const EXTENDED_FEATURES: &[&str] = &[
@@ -428,8 +457,13 @@ pub struct TrackAnalysis {
     /// Inverse of the vocalness heuristic (`1 - vocalness`, clamped `[0, 1]`),
     /// **heuristic v1 (not ML)**. Opt-in via `features=["instrumentalness"]`.
     pub instrumentalness: Option<Float>,
-    /// Genre classification — requires an ML model (future). Always `None`.
+    /// Predicted genre label — populated only when a user-supplied genre model
+    /// is set (`AnalysisConfig::genre_model`); `None` otherwise. sonara ships no
+    /// model. See [`crate::genre`].
     pub genre: Option<String>,
+    /// Confidence (softmax probability, `(0, 1]`) of the predicted `genre`.
+    /// Populated only when a user-supplied genre model is set; `None` otherwise.
+    pub genre_confidence: Option<Float>,
 
     // --- beat grid ---
     // Opt-in only (request via features=["beatgrid"]); `None` in the default
@@ -609,6 +643,20 @@ fn analyze_signal_inner(
     extended: bool,
     config: &AnalysisConfig,
 ) -> Result<TrackAnalysis> {
+    // Fail fast (before any heavy DSP) if a supplied genre model was trained
+    // against a different embedding layout — classifying on a mismatched
+    // embedding is silently wrong, so refuse rather than produce a bogus label.
+    if let Some(ref model) = config.genre_model {
+        if model.embedding_version != crate::similarity::SIMILARITY_VERSION {
+            return Err(SonaraError::ModelError(format!(
+                "genre model embedding_version {} does not match this build's embedding version {}; \
+                 re-export the model against the current embedding",
+                model.embedding_version,
+                crate::similarity::SIMILARITY_VERSION
+            )));
+        }
+    }
+
     let sr_f = sr as Float;
     let n_fft = 2048;
     let hop_length = HOP_LENGTH;
@@ -1459,8 +1507,9 @@ fn analyze_signal_inner(
         mood_relaxed: mood.as_ref().map(|m| m.relaxed),
         mood_sad: mood.as_ref().map(|m| m.sad),
         instrumentalness,
-        // genre remains a future-ML placeholder.
+        // genre + genre_confidence: populated below iff a genre model is set.
         genre: None,
+        genre_confidence: None,
 
         // --- beat grid ---
         grid_offset_sec,
@@ -1495,9 +1544,23 @@ fn analyze_signal_inner(
     // and adds near-zero cost (the vector is assembled from features already
     // computed above). A future ML embedding can replace `embed` behind the same
     // version field.
-    if config.wants("embedding") {
-        result.embedding = Some(crate::similarity::embed(&result));
-        result.embedding_version = Some(crate::similarity::SIMILARITY_VERSION);
+    // Compute the embedding whenever it is needed — an explicit request OR a
+    // genre model that classifies over it.
+    if config.wants_embedding() {
+        let emb = crate::similarity::embed(&result);
+        // Run the user-supplied genre model, if any (the version match was
+        // verified up front). Populate genre + genre_confidence.
+        if let Some(ref model) = config.genre_model {
+            let (label, conf) = model.predict(&emb);
+            result.genre = Some(label);
+            result.genre_confidence = Some(conf);
+        }
+        // Only surface the embedding fields when explicitly requested — a genre
+        // model uses the vector internally without leaking it.
+        if config.wants("embedding") {
+            result.embedding = Some(emb);
+            result.embedding_version = Some(crate::similarity::SIMILARITY_VERSION);
+        }
     }
 
     Ok(result)
@@ -1947,6 +2010,7 @@ mod tests {
             features: None,
             bpm_min: Some(79.0),
             bpm_max: Some(192.0),
+            genre_model: None,
         };
         assert_eq!(config.bpm_min, Some(79.0));
         assert_eq!(config.bpm_max, Some(192.0));
@@ -2307,5 +2371,81 @@ mod tests {
         let mut dones: Vec<usize> = recorded.drain(..).map(|(d, _)| d).collect();
         dones.sort_unstable();
         assert_eq!(dones, (1..=len).collect::<Vec<_>>(), "done values are 1..=len");
+    }
+
+    // ---- genre (bring-your-own model) ----
+
+    /// A trivial 2-class model (48-dim, zero weights + bias favoring "b") at a
+    /// given embedding_version. Class "b" wins for any embedding.
+    fn genre_model_json(embedding_version: u32) -> String {
+        let zeros48 = "0,".repeat(48);
+        let zeros48 = zeros48.trim_end_matches(',');
+        format!(
+            r#"{{"format_version": 1, "embedding_version": {embedding_version},
+                "labels": ["a", "b"],
+                "layers": [{{"weights": [[{zeros48}],[{zeros48}]], "bias": [0.0, 2.0], "activation": "softmax"}}]}}"#
+        )
+    }
+
+    fn genre_config(features: Option<&[&str]>) -> AnalysisConfig {
+        let model = crate::genre::from_json_str(&genre_model_json(crate::similarity::SIMILARITY_VERSION)).unwrap();
+        AnalysisConfig {
+            mode: AnalysisMode::Compact,
+            features: features.map(|f| f.iter().map(|s| s.to_string()).collect()),
+            genre_model: Some(std::sync::Arc::new(model)),
+            ..AnalysisConfig::default()
+        }
+    }
+
+    #[test]
+    fn test_genre_model_predicts_without_leaking_embedding() {
+        let y = sine(440.0, 22050, 3.0);
+        // No feature list → embedding computed internally but NOT emitted.
+        let r = analyze_signal(y.view(), 22050, &genre_config(None)).unwrap();
+        assert_eq!(r.genre.as_deref(), Some("b"));
+        let conf = r.genre_confidence.expect("genre_confidence populated");
+        assert!(conf > 0.5 && conf <= 1.0, "confidence {conf}");
+        // Embedding fields must NOT leak when features didn't request them.
+        assert!(r.embedding.is_none(), "embedding must not be emitted");
+        assert!(r.embedding_version.is_none());
+    }
+
+    #[test]
+    fn test_genre_model_with_embedding_feature_emits_both() {
+        let y = sine(440.0, 22050, 3.0);
+        let r = analyze_signal(y.view(), 22050, &genre_config(Some(&["embedding"]))).unwrap();
+        assert_eq!(r.genre.as_deref(), Some("b"));
+        assert!(r.genre_confidence.is_some());
+        // Now the embedding fields ARE emitted (explicitly requested).
+        assert!(r.embedding.is_some(), "embedding emitted when requested");
+        assert_eq!(r.embedding_version, Some(crate::similarity::SIMILARITY_VERSION));
+    }
+
+    #[test]
+    fn test_genre_model_version_mismatch_fails_fast() {
+        let y = sine(440.0, 22050, 3.0);
+        let model = crate::genre::from_json_str(&genre_model_json(999)).unwrap();
+        let config = AnalysisConfig {
+            mode: AnalysisMode::Compact,
+            genre_model: Some(std::sync::Arc::new(model)),
+            ..AnalysisConfig::default()
+        };
+        match analyze_signal(y.view(), 22050, &config) {
+            Err(SonaraError::ModelError(msg)) => {
+                assert!(msg.contains("999"), "message should name the model version: {msg}");
+            }
+            Err(other) => panic!("expected ModelError, got {other:?}"),
+            Ok(_) => panic!("expected ModelError, got Ok"),
+        }
+    }
+
+    #[test]
+    fn test_genre_none_without_model() {
+        let y = sine(440.0, 22050, 3.0);
+        for cfg in [compact(), playlist(), full()] {
+            let r = analyze_signal(y.view(), 22050, &cfg).unwrap();
+            assert!(r.genre.is_none(), "genre None without a model");
+            assert!(r.genre_confidence.is_none());
+        }
     }
 }

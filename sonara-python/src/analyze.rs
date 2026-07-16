@@ -101,7 +101,9 @@ fn result_to_dict<'py>(py: Python<'py>, r: &rs::TrackAnalysis) -> PyResult<Bound
     if let Some(v) = r.mood_relaxed { d.set_item("mood_relaxed", v)?; }
     if let Some(v) = r.mood_sad { d.set_item("mood_sad", v)?; }
     if let Some(v) = r.instrumentalness { d.set_item("instrumentalness", v)?; }
+    // Genre: populated only when a user-supplied genre model was passed.
     if let Some(ref v) = r.genre { d.set_item("genre", v.as_str())?; }
+    if let Some(v) = r.genre_confidence { d.set_item("genre_confidence", v)?; }
 
     // --- beat grid ---
     // Opt-in (features=["beatgrid"]); keys absent by default.
@@ -171,6 +173,7 @@ fn parse_config(
     features: Option<Vec<String>>,
     bpm_min: Option<f32>,
     bpm_max: Option<f32>,
+    genre_model: Option<String>,
 ) -> PyResult<rs::AnalysisConfig> {
     let mode = rs::AnalysisMode::from_str(mode).ok_or_else(|| {
         pyo3::exceptions::PyValueError::new_err(format!(
@@ -178,11 +181,21 @@ fn parse_config(
         ))
     })?;
     let features = features.map(|f| f.into_iter().map(|s| s.to_lowercase()).collect::<HashSet<_>>());
-    Ok(rs::AnalysisConfig { mode, features, bpm_min, bpm_max })
+    // Load the bring-your-own genre model once per call (path → validated model),
+    // mapping a load/validation failure to the standard SonaraError → PyErr path.
+    // The embedding_version match is enforced later, at analysis time.
+    let genre_model = match genre_model {
+        Some(path) => Some(std::sync::Arc::new(
+            sonara::genre::load(Path::new(&path)).into_pyresult()?,
+        )),
+        None => None,
+    };
+    Ok(rs::AnalysisConfig { mode, features, bpm_min, bpm_max, genre_model })
 }
 
 #[pyfunction]
-#[pyo3(name = "analyze_file", signature = (path, *, sr=22050, mode="compact", features=None, bpm_min=None, bpm_max=None))]
+#[pyo3(name = "analyze_file", signature = (path, *, sr=22050, mode="compact", features=None, bpm_min=None, bpm_max=None, genre_model=None))]
+#[allow(clippy::too_many_arguments)]
 pub fn py_analyze_file<'py>(
     py: Python<'py>,
     path: &str,
@@ -191,14 +204,16 @@ pub fn py_analyze_file<'py>(
     features: Option<Vec<String>>,
     bpm_min: Option<f32>,
     bpm_max: Option<f32>,
+    genre_model: Option<String>,
 ) -> PyResult<Bound<'py, PyDict>> {
-    let config = parse_config(mode, features, bpm_min, bpm_max)?;
+    let config = parse_config(mode, features, bpm_min, bpm_max, genre_model)?;
     let result = rs::analyze_file(Path::new(path), sr, &config).into_pyresult()?;
     result_to_dict(py, &result)
 }
 
 #[pyfunction]
-#[pyo3(name = "analyze_signal", signature = (y, *, sr=22050, mode="compact", features=None, bpm_min=None, bpm_max=None))]
+#[pyo3(name = "analyze_signal", signature = (y, *, sr=22050, mode="compact", features=None, bpm_min=None, bpm_max=None, genre_model=None))]
+#[allow(clippy::too_many_arguments)]
 pub fn py_analyze_signal<'py>(
     py: Python<'py>,
     y: PyReadonlyArray1<'py, f32>,
@@ -207,8 +222,9 @@ pub fn py_analyze_signal<'py>(
     features: Option<Vec<String>>,
     bpm_min: Option<f32>,
     bpm_max: Option<f32>,
+    genre_model: Option<String>,
 ) -> PyResult<Bound<'py, PyDict>> {
-    let config = parse_config(mode, features, bpm_min, bpm_max)?;
+    let config = parse_config(mode, features, bpm_min, bpm_max, genre_model)?;
     let result = rs::analyze_signal(y.as_array(), sr, &config).into_pyresult()?;
     result_to_dict(py, &result)
 }
@@ -272,7 +288,8 @@ fn batch_results_to_dicts<'py>(
 /// swallowed (per-file isolation). `progress=None` (the default) takes exactly
 /// the original code path with zero overhead.
 #[pyfunction]
-#[pyo3(name = "analyze_batch", signature = (paths, *, sr=22050, mode="compact", features=None, bpm_min=None, bpm_max=None, progress=None))]
+#[pyo3(name = "analyze_batch", signature = (paths, *, sr=22050, mode="compact", features=None, bpm_min=None, bpm_max=None, progress=None, genre_model=None))]
+#[allow(clippy::too_many_arguments)]
 pub fn py_analyze_batch<'py>(
     py: Python<'py>,
     paths: Vec<String>,
@@ -282,8 +299,11 @@ pub fn py_analyze_batch<'py>(
     bpm_min: Option<f32>,
     bpm_max: Option<f32>,
     progress: Option<Bound<'py, PyAny>>,
+    genre_model: Option<String>,
 ) -> PyResult<Vec<Bound<'py, PyDict>>> {
-    let config = parse_config(mode, features, bpm_min, bpm_max)?;
+    // Load the genre model once for the whole batch (parse_config validates it);
+    // the Arc is cheaply cloned per file inside the core.
+    let config = parse_config(mode, features, bpm_min, bpm_max, genre_model)?;
     let path_refs: Vec<&Path> = paths.iter().map(|p| Path::new(p.as_str())).collect();
 
     let results = match progress {

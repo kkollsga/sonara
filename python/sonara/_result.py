@@ -139,6 +139,13 @@ class TrackAnalysis(dict):
                 f"happy {self['mood_happy']:.2f} · relaxed {self['mood_relaxed']:.2f} "
                 f"· sad {self['mood_sad']:.2f} · aggressive {self['mood_aggressive']:.2f}",
             ))
+        # --- genre (bring-your-own model) ---
+        if "genre" in self:
+            conf = self.get("genre_confidence")
+            perceptual.append((
+                "Genre",
+                f"{self['genre']}  (conf {conf:.2f})" if conf is not None else str(self["genre"]),
+            ))
         # --- similarity ---
         if "embedding" in self:
             ver = self.get("embedding_version", "?")
