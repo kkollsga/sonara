@@ -132,6 +132,13 @@ class TrackAnalysis(dict):
         # --- vocalness ---
         if "vocalness" in self:
             perceptual.append(("Vocalness", f"{self['vocalness']:.2f}"))
+        # --- mood (heuristic v1) ---
+        if "mood_happy" in self:
+            perceptual.append((
+                "Mood",
+                f"happy {self['mood_happy']:.2f} · relaxed {self['mood_relaxed']:.2f} "
+                f"· sad {self['mood_sad']:.2f} · aggressive {self['mood_aggressive']:.2f}",
+            ))
         # --- similarity ---
         if "embedding" in self:
             ver = self.get("embedding_version", "?")

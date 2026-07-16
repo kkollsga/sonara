@@ -5,8 +5,12 @@
 //!
 //! Tier 0 (standardized): LUFS integrated loudness (ITU-R BS.1770-4)
 //! Tier 1 (signal-grounded): energy, danceability, key detection
-//! Tier 2 (heuristic approximations): valence, acousticness
-//! Tier 3 (requires ML, future): mood_*, instrumentalness, genre
+//! Tier 2 (heuristic approximations): valence, acousticness, mood_*, instrumentalness
+//! Tier 3 (requires ML, future): genre
+//!
+//! `mood_*` and `instrumentalness` ship as **heuristic v1** (rough hints in the
+//! same spirit as valence/acousticness), not ML classifiers. `genre` remains a
+//! future-ML placeholder.
 
 use ndarray::ArrayView1;
 
@@ -637,6 +641,93 @@ pub fn acousticness(
 }
 
 // ============================================================
+// Tier 2: Mood (heuristic v1)
+// ============================================================
+
+/// Four rough mood affinities, each in `[0, 1]`. Heuristic v1 — NOT an ML
+/// classifier. The four scores are correlated (a happy track tends to be
+/// un-sad) but are computed independently and are **not** constrained to sum
+/// to 1.
+pub struct MoodScores {
+    /// Bright/upbeat affinity: major mode + moderate-fast tempo + brightness + danceability.
+    pub happy: Float,
+    /// Intense/harsh affinity: energy + rhythmic density + dissonance + minor nudge.
+    pub aggressive: Float,
+    /// Calm affinity: low energy + slow tempo + sparse onsets + narrow dynamics.
+    pub relaxed: Float,
+    /// Melancholic affinity: minor mode + slow tempo + darkness + low energy.
+    pub sad: Float,
+}
+
+/// Heuristic mood affinities (happy / aggressive / relaxed / sad), each `[0, 1]`.
+///
+/// **Heuristic v1, not ML.** These are rough hints derived — like [`valence`]
+/// and [`acousticness`] — from scalars the fused pipeline already produced. No
+/// extra signal processing. Perceived mood is subjective and context-dependent;
+/// treat these as coarse tags, not ground truth.
+///
+/// The two composite drivers (`energy`, `danceability_heuristic`) are recomputed
+/// internally from the same raw scalars, so a mood request does not depend on
+/// whether the caller also asked for those fields.
+///
+/// Terms (each normalized to `[0, 1]` over empirical music ranges):
+/// - `mode_major` / `mode_minor`: 1/0 for a confident major key, 0/1 for minor,
+///   0.5/0.5 when key confidence `< 0.05` (mirrors [`valence`]'s neutral term).
+///   `None` `key_result` is treated as neutral (defensive — mood is extended-gated).
+/// - `tempo` = `((bpm-60)/120)`; `slow` = `1-tempo`.
+/// - `brightness` = `((centroid-1000)/3000)`; `darkness` = `1-brightness`.
+/// - `onset` = `onset_density/8` (saturates at 8 onsets/sec); `low_onset` = `1-onset`.
+/// - `diss` = clamped `dissonance` (0 when unavailable).
+/// - `narrow_dyn` = `1 - dynamic_range_db/20` (narrow dynamics → relaxed).
+///
+/// Weighted sums (weights per score sum to 1, so each is already in `[0, 1]`;
+/// clamped defensively):
+/// - happy      = 0.35·major   + 0.25·tempo     + 0.20·brightness + 0.20·dance
+/// - aggressive = 0.35·energy  + 0.30·onset      + 0.20·diss       + 0.15·minor
+/// - relaxed    = 0.30·(1-energy) + 0.25·slow    + 0.25·low_onset  + 0.20·narrow_dyn
+/// - sad        = 0.35·minor   + 0.25·slow       + 0.20·darkness   + 0.20·(1-energy)
+#[allow(clippy::too_many_arguments)]
+pub fn mood_scores(
+    key_result: Option<&KeyResult>,
+    bpm: Float,
+    rms_mean: Float,
+    spectral_centroid_mean: Float,
+    onset_density: Float,
+    spectral_bandwidth_mean: Float,
+    beats: &[usize],
+    dissonance: Option<Float>,
+    dynamic_range_db: Float,
+) -> MoodScores {
+    // Composite drivers, recomputed from raw scalars (cheap, self-contained).
+    let energy_val = energy(rms_mean, spectral_centroid_mean, onset_density, spectral_bandwidth_mean);
+    let dance_val = danceability_heuristic(bpm, beats, onset_density);
+
+    // Mode term (neutral 0.5/0.5 at low confidence or missing key).
+    let (mode_major, mode_minor) = match key_result {
+        Some(kr) if kr.confidence >= 0.05 => {
+            if kr.mode == "major" { (1.0, 0.0) } else { (0.0, 1.0) }
+        }
+        _ => (0.5, 0.5),
+    };
+
+    let tempo = ((bpm - 60.0) / 120.0).clamp(0.0, 1.0);
+    let slow = 1.0 - tempo;
+    let brightness = ((spectral_centroid_mean - 1000.0) / 3000.0).clamp(0.0, 1.0);
+    let darkness = 1.0 - brightness;
+    let onset = (onset_density / 8.0).clamp(0.0, 1.0);
+    let low_onset = 1.0 - onset;
+    let diss = dissonance.map(|d| d.clamp(0.0, 1.0)).unwrap_or(0.0);
+    let narrow_dyn = (1.0 - (dynamic_range_db / 20.0)).clamp(0.0, 1.0);
+
+    let happy = (0.35 * mode_major + 0.25 * tempo + 0.20 * brightness + 0.20 * dance_val).clamp(0.0, 1.0);
+    let aggressive = (0.35 * energy_val + 0.30 * onset + 0.20 * diss + 0.15 * mode_minor).clamp(0.0, 1.0);
+    let relaxed = (0.30 * (1.0 - energy_val) + 0.25 * slow + 0.25 * low_onset + 0.20 * narrow_dyn).clamp(0.0, 1.0);
+    let sad = (0.35 * mode_minor + 0.25 * slow + 0.20 * darkness + 0.20 * (1.0 - energy_val)).clamp(0.0, 1.0);
+
+    MoodScores { happy, aggressive, relaxed, sad }
+}
+
+// ============================================================
 // Tests
 // ============================================================
 
@@ -737,6 +828,61 @@ mod tests {
         let minor_key = KeyResult { key: "A", mode: "minor", confidence: 0.5 };
         let v = valence(&minor_key, 70.0, 800.0);
         assert!(v < 0.5, "Minor + slow + dark should have low valence, got {}", v);
+    }
+
+    // ---- mood (heuristic v1) ----
+
+    /// A regular ~120-BPM beat grid so danceability has something to chew on.
+    fn regular_beats() -> Vec<usize> {
+        (0..16).map(|i| i * 43).collect()
+    }
+
+    #[test]
+    fn test_mood_happy_fast_bright_major() {
+        let major = KeyResult { key: "C", mode: "major", confidence: 0.5 };
+        let beats = regular_beats();
+        // fast, bright, major, high-energy
+        let m = mood_scores(Some(&major), 140.0, 0.4, 3500.0, 4.0, 2500.0, &beats, None, 8.0);
+        assert!(m.happy > 0.6, "happy {} should be > 0.6", m.happy);
+        assert!(m.happy > m.sad, "happy {} should exceed sad {}", m.happy, m.sad);
+        for v in [m.happy, m.aggressive, m.relaxed, m.sad] {
+            assert!((0.0..=1.0).contains(&v) && v.is_finite(), "out of range {}", v);
+        }
+    }
+
+    #[test]
+    fn test_mood_sad_relaxed_slow_dark_minor() {
+        let minor = KeyResult { key: "A", mode: "minor", confidence: 0.5 };
+        let beats = regular_beats();
+        // slow, dark, minor, low-energy, sparse onsets, narrow dynamics
+        let m = mood_scores(Some(&minor), 70.0, 0.05, 800.0, 1.0, 600.0, &beats, None, 5.0);
+        assert!(m.sad > 0.6, "sad {} should be > 0.6", m.sad);
+        assert!(m.sad > m.happy, "sad {} should exceed happy {}", m.sad, m.happy);
+        assert!(m.relaxed > m.aggressive, "relaxed {} should exceed aggressive {}", m.relaxed, m.aggressive);
+    }
+
+    #[test]
+    fn test_mood_aggressive_dense_dissonant() {
+        let minor = KeyResult { key: "E", mode: "minor", confidence: 0.5 };
+        let beats = regular_beats();
+        // high onset density + dissonance + loud/bright → aggressive high
+        let m = mood_scores(Some(&minor), 150.0, 0.45, 4000.0, 9.0, 3000.0, &beats, Some(0.8), 12.0);
+        assert!(m.aggressive > 0.6, "aggressive {} should be > 0.6", m.aggressive);
+        assert!(m.aggressive > m.relaxed, "aggressive {} should exceed relaxed {}", m.aggressive, m.relaxed);
+    }
+
+    #[test]
+    fn test_mood_range_on_boundaries() {
+        let beats = regular_beats();
+        // Extreme inputs and a None key must all stay within [0,1].
+        for kr in [None, Some(&KeyResult { key: "C", mode: "major", confidence: 0.0 })] {
+            let lo = mood_scores(kr, 0.0, 0.0, 0.0, 0.0, 0.0, &beats, Some(0.0), 0.0);
+            let hi = mood_scores(kr, 400.0, 2.0, 12000.0, 40.0, 9000.0, &beats, Some(2.0), 60.0);
+            for v in [lo.happy, lo.aggressive, lo.relaxed, lo.sad,
+                      hi.happy, hi.aggressive, hi.relaxed, hi.sad] {
+                assert!((0.0..=1.0).contains(&v) && v.is_finite(), "out of range {}", v);
+            }
+        }
     }
 
     #[test]

@@ -236,6 +236,14 @@ def analyze_batch(paths: List[str], *, sr: int = 22050, mode: str = "compact", f
 #   "key_candidates": List[Tuple[str, str, float]]  # top-3 (key, camelot, score); [0] == "key"
 # --- vocalness --- features=["vocalness"]
 #   "vocalness": float             # vocal-presence heuristic in [0, 1] (rough, not a classifier)
+# --- mood --- features=["mood"]
+#   "mood_happy": float            # heuristic v1, not an ML classifier — in [0, 1]
+#   "mood_aggressive": float       # heuristic v1, not an ML classifier — in [0, 1]
+#   "mood_relaxed": float          # heuristic v1, not an ML classifier — in [0, 1]
+#   "mood_sad": float              # heuristic v1, not an ML classifier — in [0, 1]
+#                                  # All four populate together; correlated but not summing to 1.
+# --- instrumentalness --- features=["instrumentalness"]
+#   "instrumentalness": float      # heuristic v1, not an ML classifier — 1 - vocalness, in [0, 1]
 # --- tags --- features=["tags"]  (analyze_file / analyze_batch only)
 #   "tags": Dict  # container/stream metadata read from the file; each key present
 #                 # only when that tag exists. Keys: "title", "artist", "album",

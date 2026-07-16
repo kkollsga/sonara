@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Tests for the opt-in extras: silence offsets, key candidates, vocalness.
+"""Tests for the opt-in extras: silence offsets, key candidates, vocalness,
+mood (heuristic v1), instrumentalness.
 
 These features are opt-in only (never enabled by any mode) and must appear in
 the result dict only when requested via `features=[...]`. Runs as a standalone
@@ -58,7 +59,11 @@ def signal_with_silence(lead=1.5, mid=3.0, trail=2.25):
 # Opt-in: absent by default in every mode
 # ------------------------------------------------------------
 
-OPTIN_KEYS = ["leading_silence_sec", "trailing_silence_sec", "key_candidates", "vocalness"]
+OPTIN_KEYS = [
+    "leading_silence_sec", "trailing_silence_sec", "key_candidates", "vocalness",
+    "mood_happy", "mood_aggressive", "mood_relaxed", "mood_sad", "instrumentalness",
+]
+MOOD_KEYS = ["mood_happy", "mood_aggressive", "mood_relaxed", "mood_sad"]
 
 
 def test_absent_by_default():
@@ -160,6 +165,44 @@ test("vocalness low for silence", test_vocalness_silence_low)
 
 
 # ------------------------------------------------------------
+# Mood (heuristic v1)
+# ------------------------------------------------------------
+
+def test_mood_present_and_in_range():
+    y = a_minor_triad()
+    r = sonara.analyze_signal(y, sr=SR, features=["mood"])
+    for k in MOOD_KEYS:
+        assert k in r, f"{k} missing when mood requested"
+        v = r[k]
+        assert 0.0 <= v <= 1.0 and np.isfinite(v), f"{k}={v} out of [0,1]"
+    # Requesting mood must not leak the key / valence fields.
+    assert "key" not in r, "mood must not leak key"
+    assert "valence" not in r, "mood must not leak valence"
+
+
+test("mood present (all four) + in [0,1] + no key/valence leak", test_mood_present_and_in_range)
+
+
+# ------------------------------------------------------------
+# Instrumentalness (heuristic v1: 1 - vocalness)
+# ------------------------------------------------------------
+
+def test_instrumentalness_present_and_inverse():
+    y = a_minor_triad()
+    r = sonara.analyze_signal(y, sr=SR, features=["instrumentalness"])
+    assert "instrumentalness" in r
+    i = r["instrumentalness"]
+    assert 0.0 <= i <= 1.0 and np.isfinite(i), f"instrumentalness {i} out of [0,1]"
+    assert "vocalness" not in r, "vocalness must stay absent when only instrumentalness requested"
+    # Both together: instrumentalness == 1 - vocalness.
+    r2 = sonara.analyze_signal(y, sr=SR, features=["vocalness", "instrumentalness"])
+    assert abs(r2["instrumentalness"] - (1.0 - r2["vocalness"])) < 1e-5
+
+
+test("instrumentalness present + [0,1] + == 1 - vocalness", test_instrumentalness_present_and_inverse)
+
+
+# ------------------------------------------------------------
 # Independence: each opt-in works alone
 # ------------------------------------------------------------
 
@@ -169,6 +212,11 @@ def test_independent_optins():
     assert "leading_silence_sec" in r_s and "key_candidates" not in r_s and "vocalness" not in r_s
     r_v = sonara.analyze_signal(y, sr=SR, features=["vocalness"])
     assert "vocalness" in r_v and "leading_silence_sec" not in r_v and "key_candidates" not in r_v
+    r_m = sonara.analyze_signal(y, sr=SR, features=["mood"])
+    assert all(k in r_m for k in MOOD_KEYS)
+    assert "vocalness" not in r_m and "instrumentalness" not in r_m and "leading_silence_sec" not in r_m
+    r_i = sonara.analyze_signal(y, sr=SR, features=["instrumentalness"])
+    assert "instrumentalness" in r_i and "vocalness" not in r_i and not any(k in r_i for k in MOOD_KEYS)
 
 
 test("opt-ins are independent (each alone)", test_independent_optins)

@@ -182,6 +182,10 @@ impl AnalysisConfig {
                 "bandwidth", "rolloff", "flatness", "contrast", "mfcc", "chroma",
                 "chords", "dissonance",
                 "energy", "danceability", "key", "valence", "acousticness",
+                // mood needs chroma/key (extended pass). instrumentalness derives
+                // from the always-computed mel_spec (via vocalness) and is NOT
+                // listed here — like silence/vocalness it needs no extended pass.
+                "mood",
                 // --- structure ---
                 "structure",
                 // key_candidates needs the chroma filterbank (extended pass).
@@ -212,6 +216,9 @@ const OPT_IN_ONLY_FEATURES: &[&str] = &[
     "silence",
     "key_candidates",
     "vocalness",
+    // Heuristic v1 (not ML): mood_* affinities and instrumentalness.
+    "mood",
+    "instrumentalness",
     // File metadata passthrough — read by analyze_file/analyze_batch only, never
     // by analyze_signal. NOT in EXTENDED_FEATURES: tags must not trigger the
     // extended DSP pass.
@@ -407,13 +414,17 @@ pub struct TrackAnalysis {
     /// Learned audio embedding vector (future ONNX integration).
     pub embedding: Option<Vec<Float>>,
 
-    // -- Tier 3 placeholders (future ML models) --
-    /// Requires ML model (future).
+    // -- Mood + instrumentalness (heuristic v1, opt-in) --
+    /// Mood affinities in `[0, 1]`, **heuristic v1 (not ML)**. Opt-in via
+    /// `features=["mood"]`; all four populate together, `None` otherwise.
     pub mood_happy: Option<Float>,
     pub mood_aggressive: Option<Float>,
     pub mood_relaxed: Option<Float>,
     pub mood_sad: Option<Float>,
+    /// Inverse of the vocalness heuristic (`1 - vocalness`, clamped `[0, 1]`),
+    /// **heuristic v1 (not ML)**. Opt-in via `features=["instrumentalness"]`.
     pub instrumentalness: Option<Float>,
+    /// Genre classification — requires an ML model (future). Always `None`.
     pub genre: Option<String>,
 
     // --- beat grid ---
@@ -1222,6 +1233,8 @@ fn analyze_signal_inner(
     let wants_key = extended && config.wants("key");
     let wants_valence = extended && (config.wants("valence") || config.wants("key"));
     let wants_acoustic = extended && config.wants("acousticness");
+    // mood (heuristic v1) is extended-gated (needs chroma/key).
+    let wants_mood = extended && config.wants("mood");
 
     let energy = if wants_energy {
         Some(perceptual::energy(rms_mean, centroid_mean, onset_density, bw_mean))
@@ -1231,8 +1244,8 @@ fn analyze_signal_inner(
         Some(perceptual::danceability_heuristic(bpm, &beats, onset_density))
     } else { None };
 
-    // Key detection requires chroma (resolved as dependency)
-    let key_result = if wants_key || wants_valence {
+    // Key detection requires chroma (resolved as dependency). mood also needs it.
+    let key_result = if wants_key || wants_valence || wants_mood {
         chroma_mean.as_ref().map(|c| perceptual::detect_key(c))
     } else { None };
 
@@ -1242,6 +1255,24 @@ fn analyze_signal_inner(
 
     let acousticness = if wants_acoustic {
         Some(perceptual::acousticness(fl_mean, ro_mean, onset_density))
+    } else { None };
+
+    // --- mood (heuristic v1) ---
+    // Extended-gated; recomputes energy/danceability internally so it does not
+    // depend on whether those fields were also requested. Only the four mood_*
+    // fields are emitted — `key`/`valence` stay `None` unless individually wanted.
+    let mood = if wants_mood {
+        Some(perceptual::mood_scores(
+            key_result.as_ref(),
+            bpm,
+            rms_mean,
+            centroid_mean,
+            onset_density,
+            bw_mean,
+            &beats,
+            dissonance_val,
+            dynamic_range_db,
+        ))
     } else { None };
 
     // --- fingerprint ---
@@ -1255,12 +1286,17 @@ fn analyze_signal_inner(
         None
     };
 
-    let key = key_result.as_ref().map(|kr| perceptual::format_key(kr));
-    let key_confidence = key_result.as_ref().map(|kr| kr.confidence);
-    let key_camelot = key_result
-        .as_ref()
-        .and_then(|kr| perceptual::camelot(kr.key, kr.mode))
-        .map(|c| c.to_string());
+    // key_result may also have been computed solely to feed mood; only surface
+    // the key fields when key/valence was actually requested (no mood leakage).
+    let emit_key = wants_key || wants_valence;
+    let key = if emit_key { key_result.as_ref().map(|kr| perceptual::format_key(kr)) } else { None };
+    let key_confidence = if emit_key { key_result.as_ref().map(|kr| kr.confidence) } else { None };
+    let key_camelot = if emit_key {
+        key_result
+            .as_ref()
+            .and_then(|kr| perceptual::camelot(kr.key, kr.mode))
+            .map(|c| c.to_string())
+    } else { None };
 
     // ================================================================
     // STRUCTURE (opt-in): energy curve + novelty segmentation
@@ -1313,10 +1349,19 @@ fn analyze_signal_inner(
         None
     };
 
-    // --- vocalness ---
-    // Derived from the always-computed mel spectrogram (no extra FFT work).
-    let vocalness = if config.wants("vocalness") {
+    // --- vocalness / instrumentalness ---
+    // Both derive from the always-computed mel spectrogram (no extra FFT work).
+    // instrumentalness (heuristic v1) is the inverse of the vocalness heuristic,
+    // so we compute vocalness whenever either is wanted, but only emit the
+    // `vocalness` field when "vocalness" itself was requested.
+    let vocalness_val = if config.wants("vocalness") || config.wants("instrumentalness") {
         Some(crate::vocal::vocalness(mel_spec.view(), sr, hop_length))
+    } else {
+        None
+    };
+    let vocalness = if config.wants("vocalness") { vocalness_val } else { None };
+    let instrumentalness = if config.wants("instrumentalness") {
+        vocalness_val.map(|v| (1.0 - v).clamp(0.0, 1.0))
     } else {
         None
     };
@@ -1377,12 +1422,13 @@ fn analyze_signal_inner(
         acousticness,
         // Embedding placeholder — future ONNX integration
         embedding: None,
-        // Tier 3 placeholders — requires ML models
-        mood_happy: None,
-        mood_aggressive: None,
-        mood_relaxed: None,
-        mood_sad: None,
-        instrumentalness: None,
+        // Mood + instrumentalness: heuristic v1 (opt-in), None unless requested.
+        mood_happy: mood.as_ref().map(|m| m.happy),
+        mood_aggressive: mood.as_ref().map(|m| m.aggressive),
+        mood_relaxed: mood.as_ref().map(|m| m.relaxed),
+        mood_sad: mood.as_ref().map(|m| m.sad),
+        instrumentalness,
+        // genre remains a future-ML placeholder.
         genre: None,
 
         // --- beat grid ---
@@ -1961,7 +2007,40 @@ mod tests {
             assert!(r.trailing_silence_sec.is_none());
             assert!(r.key_candidates.is_none(), "key_candidates must be opt-in");
             assert!(r.vocalness.is_none(), "vocalness must be opt-in");
+            assert!(r.mood_happy.is_none(), "mood must be opt-in");
+            assert!(r.mood_aggressive.is_none());
+            assert!(r.mood_relaxed.is_none());
+            assert!(r.mood_sad.is_none());
+            assert!(r.instrumentalness.is_none(), "instrumentalness must be opt-in");
         }
+    }
+
+    #[test]
+    fn test_mood_pipeline_optin_and_no_leak() {
+        let y = sine(440.0, SR, 3.0);
+        let r = analyze_signal(y.view(), SR, &feature_config(&["mood"])).unwrap();
+        for v in [r.mood_happy, r.mood_aggressive, r.mood_relaxed, r.mood_sad] {
+            let v = v.expect("mood_* must be Some when mood requested");
+            assert!((0.0..=1.0).contains(&v) && v.is_finite(), "mood out of range {}", v);
+        }
+        // Requesting mood must NOT leak the key / valence fields.
+        assert!(r.key.is_none(), "mood must not leak key");
+        assert!(r.valence.is_none(), "mood must not leak valence");
+    }
+
+    #[test]
+    fn test_instrumentalness_pipeline_and_inverse() {
+        let y = sine(440.0, SR, 3.0);
+        // instrumentalness alone: Some in range, vocalness field stays None.
+        let r = analyze_signal(y.view(), SR, &feature_config(&["instrumentalness"])).unwrap();
+        let inst = r.instrumentalness.expect("instrumentalness must be Some");
+        assert!((0.0..=1.0).contains(&inst) && inst.is_finite(), "instrumentalness {}", inst);
+        assert!(r.vocalness.is_none(), "vocalness field must stay None");
+        // Both together: instrumentalness == 1 - vocalness.
+        let r2 = analyze_signal(y.view(), SR, &feature_config(&["vocalness", "instrumentalness"])).unwrap();
+        let v = r2.vocalness.expect("vocalness Some");
+        let i = r2.instrumentalness.expect("instrumentalness Some");
+        assert!((i - (1.0 - v)).abs() < 1e-5, "inst {} should equal 1 - vocalness {}", i, v);
     }
 
     #[test]

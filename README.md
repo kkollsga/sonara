@@ -242,7 +242,7 @@ Cherry-pick specific features regardless of mode:
 r = sonara.analyze_file("track.mp3", features=["bpm", "energy", "key", "chords"])
 ```
 
-Valid feature names: `bpm`, `beats`, `onsets`, `rms`, `dynamic_range`, `centroid`, `zcr`, `onset_density`, `bandwidth`, `rolloff`, `flatness`, `contrast`, `mfcc`, `chroma`, `chords`, `dissonance`, `energy`, `danceability`, `key`, `valence`, `acousticness`, `tempo_curve`, `time_signature` — plus the **opt-in-only** features `beatgrid`, `structure`, `embedding`, `fingerprint`, `loudness`, `silence`, `key_candidates`, `vocalness`, `tags`, which are never computed by any mode and must be requested explicitly (see their sections below).
+Valid feature names: `bpm`, `beats`, `onsets`, `rms`, `dynamic_range`, `centroid`, `zcr`, `onset_density`, `bandwidth`, `rolloff`, `flatness`, `contrast`, `mfcc`, `chroma`, `chords`, `dissonance`, `energy`, `danceability`, `key`, `valence`, `acousticness`, `tempo_curve`, `time_signature` — plus the **opt-in-only** features `beatgrid`, `structure`, `embedding`, `fingerprint`, `loudness`, `silence`, `key_candidates`, `vocalness`, `mood`, `instrumentalness`, `tags`, which are never computed by any mode and must be requested explicitly (see their sections below).
 
 ### Structure & energy (opt-in)
 
@@ -351,6 +351,34 @@ is harmonic → low flatness), and the 4–8 Hz modulation energy of the vocal-b
 envelope (the syllabic rate), gating harmonicity and syllabic modulation together
 so sustained pads and percussion score low while modulated harmonic content
 scores high. Treat it as a soft hint.
+
+#### Mood — `features=["mood"]`
+
+Four rough mood affinities in `[0, 1]` — `mood_happy`, `mood_aggressive`,
+`mood_relaxed`, `mood_sad` — all populated together. These are **heuristic v1,
+not an ML classifier**: weighted blends of scalars the pipeline already computed
+(musical mode, tempo, brightness, energy, rhythmic density, dissonance,
+dynamics), in the same spirit as `valence`/`acousticness`. The four are
+correlated (a happy track tends to be un-sad) but are **not** constrained to sum
+to 1. Treat them as coarse tags, not ground truth.
+
+```python
+r = sonara.analyze_file("track.mp3", features=["mood"])
+r['mood_happy'], r['mood_aggressive'], r['mood_relaxed'], r['mood_sad']
+# e.g. (0.71, 0.30, 0.55, 0.12)
+```
+
+#### Instrumentalness — `features=["instrumentalness"]`
+
+A single **heuristic** score in `[0, 1]`, the inverse of the vocalness heuristic
+(`1 - vocalness`, clamped): higher means less vocal-like / more instrumental.
+**Heuristic v1, not an ML classifier** — a soft hint, not a trained
+speech/vocal detector.
+
+```python
+r = sonara.analyze_file("track.mp3", features=["instrumentalness"])
+r['instrumentalness']   # e.g. 0.28
+```
 
 #### File metadata tags — `features=["tags"]`
 
