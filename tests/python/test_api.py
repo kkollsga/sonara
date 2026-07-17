@@ -382,6 +382,7 @@ test("chord_events absent in compact", _check_chord_events_absent_when_not_reque
 import os
 
 _FLAC_FIXTURE = os.path.join(os.path.dirname(__file__), "..", "fixtures", "tagged.flac")
+_MP3_FIXTURE = os.path.join(os.path.dirname(__file__), "..", "fixtures", "tagged.mp3")
 
 
 def _check_tags_present():
@@ -393,10 +394,27 @@ def _check_tags_present():
     assert t["album"] == "Test Album", t
     assert t["genre"] == "Electronic", t
     assert t["year"] == 2024, t
+    # ORIGINALDATE=1969 → original_year, distinct from the file year (2024).
+    assert t["original_year"] == 1969, t
     assert t["track_no"] == 3, t
     # tags must not trigger the extended DSP pass.
     assert "mfcc_mean" not in r, "tags must not enable extended features"
     assert "energy" not in r
+
+
+def _check_original_year_mp3():
+    # ID3v2.3 TORY=1969 → original_year; file year (TYER) stays 2024.
+    t = sonara.analyze_file(_MP3_FIXTURE, features=["tags"])["tags"]
+    assert t["year"] == 2024, t
+    assert t["original_year"] == 1969, t
+
+
+def _check_original_year_type():
+    # original_year crosses the binding as an int, not a string. (The
+    # file-lacks-the-tag → key absent case is covered by the Rust mapper
+    # unit tests, since both audio fixtures here carry an original-date tag.)
+    t = sonara.analyze_file(_FLAC_FIXTURE, features=["tags"])["tags"]
+    assert isinstance(t["original_year"], int), t
 
 
 def _check_tags_absent_when_not_requested():
@@ -405,6 +423,8 @@ def _check_tags_absent_when_not_requested():
 
 
 test("tags sub-dict populated (analyze_file)", _check_tags_present)
+test("original_year passthrough (mp3 TORY)", _check_original_year_mp3)
+test("original_year is int", _check_original_year_type)
 test("tags absent without feature", _check_tags_absent_when_not_requested)
 
 # ============================================================

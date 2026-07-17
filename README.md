@@ -390,13 +390,17 @@ signal (`analyze_signal`) has no container, so it never carries tags.
 r = sonara.analyze_file("track.mp3", features=["tags"])
 r['tags']
 # {"title": "...", "artist": "...", "album": "...",
-#  "genre": "Electronic", "year": 2024, "track_no": 3}
+#  "genre": "Electronic", "year": 2024, "original_year": 1969, "track_no": 3}
 ```
 
 Keys appear only when the file actually carries that tag: `title`, `artist`,
-`album`, `genre` (strings), `year` and `track_no` (ints). `year` is derived from
-the leading 4 digits of the file's date tag; `track_no` from the leading integer
-of a `"3/12"`-style value. Tags come from **symphonia**-decoded containers
+`album`, `genre` (strings), `year`, `original_year` and `track_no` (ints).
+`year` is derived from the leading 4 digits of the file's date tag (`Date`/
+`ReleaseDate`); `original_year` from the original-release-date tags (ID3v2.4
+`TDOR`, ID3v2.3 `TORY`, `TXXX:originalyear`, Vorbis `ORIGINALDATE`) — on a
+reissue or compilation `year` is the reissue date and `original_year` the true
+original release year, so prefer `original_year` for era reasoning when present.
+`track_no` is the leading integer of a `"3/12"`-style value. Tags come from **symphonia**-decoded containers
 (FLAC/Vorbis, MP3/AAC ID3v2, MP4, …); **WAV** goes through a separate fast path
 that carries no tags, so `.wav` inputs yield no `tags` values. Note that
 `tags['genre']` is the *file's* metadata genre and is unrelated to the reserved

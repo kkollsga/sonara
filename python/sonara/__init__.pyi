@@ -250,9 +250,13 @@ def analyze_batch(paths: List[str], *, sr: int = 22050, mode: str = "compact", f
 # --- tags --- features=["tags"]  (analyze_file / analyze_batch only)
 #   "tags": Dict  # container/stream metadata read from the file; each key present
 #                 # only when that tag exists. Keys: "title", "artist", "album",
-#                 # "genre" (str), "year", "track_no" (int). Read from
-#                 # symphonia containers (FLAC/Vorbis, MP3/ID3v2, MP4, ...); WAV
-#                 # (hound fast path) carries no tags. Never set by analyze_signal.
+#                 # "genre" (str), "year", "original_year", "track_no" (int). Read
+#                 # from symphonia containers (FLAC/Vorbis, MP3/ID3v2, MP4, ...);
+#                 # WAV (hound fast path) carries no tags. Never set by
+#                 # analyze_signal.
+#                 # "year" is the file/edition date; "original_year" the original
+#                 # release year (ID3 TDOR/TORY/TXXX:originalyear, Vorbis
+#                 # ORIGINALDATE) — prefer it for era reasoning on reissues.
 #                 # NOTE: tags["genre"] is the file's metadata genre, distinct
 #                 # from the reserved top-level "genre" placeholder.
 # ============================================================

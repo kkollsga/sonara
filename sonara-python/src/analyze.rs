@@ -161,6 +161,7 @@ fn result_to_dict<'py>(py: Python<'py>, r: &rs::TrackAnalysis) -> PyResult<Bound
         if let Some(ref v) = t.album { td.set_item("album", v.as_str())?; }
         if let Some(ref v) = t.genre { td.set_item("genre", v.as_str())?; }
         if let Some(v) = t.year { td.set_item("year", v)?; }
+        if let Some(v) = t.original_year { td.set_item("original_year", v)?; }
         if let Some(v) = t.track_no { td.set_item("track_no", v)?; }
         d.set_item("tags", td)?;
     }

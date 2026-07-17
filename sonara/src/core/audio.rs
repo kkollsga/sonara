@@ -43,9 +43,20 @@ pub struct TrackTags {
     pub album: Option<String>,
     /// Genre string as stored in the file (`Genre`).
     pub genre: Option<String>,
-    /// Release year, derived from the leading 4 digits of the first parseable
-    /// `Date`/`ReleaseDate`/`OriginalDate` tag (there is no dedicated year tag).
+    /// Release year of *this* file/edition, derived from the leading 4 digits of
+    /// the first parseable `Date`/`ReleaseDate` tag (there is no dedicated year
+    /// tag). On a reissue or compilation this is the reissue date — see
+    /// [`original_year`](Self::original_year) for the original release year.
     pub year: Option<u32>,
+    /// Original release year, from the original-release-date tags: ID3v2.4
+    /// `TDOR`, ID3v2.3 `TORY`, `TXXX:originalyear`-style frames, or Vorbis
+    /// `ORIGINALDATE`/`ORIGINALYEAR` (parsed to its leading 4 digits). `None`
+    /// when the file carries no such tag — there is no fallback to `year`.
+    ///
+    /// Consumers doing era reasoning should prefer `original_year` over `year`
+    /// when it is present: on reissues/compilations `year` is the reissue date
+    /// while `original_year` is the true original release year.
+    pub original_year: Option<u32>,
     /// Track number (`TrackNumber`); the leading integer of values like
     /// `"3"` or `"3/12"`.
     pub track_no: Option<u32>,
@@ -337,33 +348,60 @@ fn load_symphonia(path: &Path, want_tags: bool) -> Result<(Vec<Float>, u32, usiz
 ///
 /// First value per field wins (so calling this on the probe metadata first,
 /// then container metadata, prefers the probe source). `year` is derived from
-/// the leading 4 digits of the first parseable `Date`/`ReleaseDate`/
-/// `OriginalDate`; `track_no` from the leading integer of `TrackNumber`.
+/// the leading 4 digits of the first parseable `Date`/`ReleaseDate` (the
+/// file/edition date); `original_year` from `OriginalDate` or a raw
+/// original-release-date key (see [`is_original_date_key`]); `track_no` from
+/// the leading integer of `TrackNumber`. The `year`/`original_year` split is
+/// deliberate: reissues carry the reissue date in `Date` and the true original
+/// date in the original-release-date tags.
 fn merge_tags(t: &mut TrackTags, tags: &[symphonia::core::meta::Tag]) {
     use symphonia::core::meta::StandardTagKey;
 
     for tag in tags {
-        let Some(std_key) = tag.std_key else { continue };
-        match std_key {
-            StandardTagKey::TrackTitle => set_str(&mut t.title, tag),
-            StandardTagKey::Artist => set_str(&mut t.artist, tag),
-            StandardTagKey::Album => set_str(&mut t.album, tag),
-            StandardTagKey::Genre => set_str(&mut t.genre, tag),
-            StandardTagKey::Date | StandardTagKey::ReleaseDate | StandardTagKey::OriginalDate => {
-                if t.year.is_none() {
-                    if let Some(y) = parse_year(&tag.value.to_string()) {
-                        t.year = Some(y);
+        // Standard-key mapping (preferred when symphonia recognized the tag).
+        if let Some(std_key) = tag.std_key {
+            match std_key {
+                StandardTagKey::TrackTitle => set_str(&mut t.title, tag),
+                StandardTagKey::Artist => set_str(&mut t.artist, tag),
+                StandardTagKey::Album => set_str(&mut t.album, tag),
+                StandardTagKey::Genre => set_str(&mut t.genre, tag),
+                StandardTagKey::Date | StandardTagKey::ReleaseDate => set_year(&mut t.year, tag),
+                StandardTagKey::OriginalDate => set_year(&mut t.original_year, tag),
+                StandardTagKey::TrackNumber => {
+                    if t.track_no.is_none() {
+                        if let Some(n) = parse_leading_u32(&tag.value.to_string()) {
+                            t.track_no = Some(n);
+                        }
                     }
                 }
+                _ => {}
             }
-            StandardTagKey::TrackNumber => {
-                if t.track_no.is_none() {
-                    if let Some(n) = parse_leading_u32(&tag.value.to_string()) {
-                        t.track_no = Some(n);
-                    }
-                }
-            }
-            _ => {}
+        }
+
+        // Raw-key fallback for original-release-date tags symphonia may not
+        // standardize (e.g. `TXXX:originalyear`, `ORIGINALYEAR`, a legacy `TORY`).
+        if t.original_year.is_none() && is_original_date_key(&tag.key) {
+            set_year(&mut t.original_year, tag);
+        }
+    }
+}
+
+/// True if a raw tag key denotes an original-release-date field that symphonia
+/// may not map to `StandardTagKey::OriginalDate`. Tolerant of an optional
+/// `TXXX:` frame prefix and of case: matches `originalyear`, `originaldate`,
+/// `tory`, and `tdor`.
+fn is_original_date_key(key: &str) -> bool {
+    let lower = key.to_ascii_lowercase();
+    let core = lower.strip_prefix("txxx:").unwrap_or(&lower);
+    matches!(core, "originalyear" | "originaldate" | "tory" | "tdor")
+}
+
+/// Set `slot` to the parsed leading-4-digit year of the tag value if not
+/// already set.
+fn set_year(slot: &mut Option<u32>, tag: &symphonia::core::meta::Tag) {
+    if slot.is_none() {
+        if let Some(y) = parse_year(&tag.value.to_string()) {
+            *slot = Some(y);
         }
     }
 }
@@ -1135,6 +1173,8 @@ mod tests {
         assert_eq!(t.album.as_deref(), Some("Test Album"));
         assert_eq!(t.genre.as_deref(), Some("Electronic"));
         assert_eq!(t.year, Some(2024));
+        // Vorbis ORIGINALDATE=1969 → original_year; year stays the file date.
+        assert_eq!(t.original_year, Some(1969));
         assert_eq!(t.track_no, Some(3));
     }
 
@@ -1152,6 +1192,9 @@ mod tests {
         assert_eq!(t.album.as_deref(), Some("Test Album"));
         assert_eq!(t.genre.as_deref(), Some("Electronic"));
         assert_eq!(t.year, Some(2024));
+        // ID3v2.3 TORY=1969 (StandardTagKey::OriginalDate) → original_year;
+        // year comes from TYER=2024 (the semantic split).
+        assert_eq!(t.original_year, Some(1969));
         assert_eq!(t.track_no, Some(3));
     }
 
@@ -1174,6 +1217,84 @@ mod tests {
         assert_eq!(parse_leading_u32("3"), Some(3));
         assert_eq!(parse_leading_u32("3/12"), Some(3));
         assert_eq!(parse_leading_u32(""), None);
+    }
+
+    #[test]
+    fn test_is_original_date_key() {
+        // Bare frame/key names, any case.
+        assert!(is_original_date_key("TORY"));
+        assert!(is_original_date_key("TDOR"));
+        assert!(is_original_date_key("ORIGINALDATE"));
+        assert!(is_original_date_key("originalyear"));
+        assert!(is_original_date_key("OriginalYear"));
+        // TXXX-prefixed user frames, prefix and desc both case-insensitive.
+        assert!(is_original_date_key("TXXX:originalyear"));
+        assert!(is_original_date_key("txxx:ORIGINALDATE"));
+        // Non-matches.
+        assert!(!is_original_date_key("date"));
+        assert!(!is_original_date_key("year"));
+        assert!(!is_original_date_key("TYER"));
+        assert!(!is_original_date_key("TXXX:comment"));
+    }
+
+    /// Build a `Tag` with a raw key + no std_key (the TXXX/unknown-key path).
+    fn raw_tag(key: &str, val: &str) -> symphonia::core::meta::Tag {
+        use symphonia::core::meta::{Tag, Value};
+        Tag::new(None, key, Value::from(val))
+    }
+
+    /// Build a `Tag` carrying a `StandardTagKey`.
+    fn std_tag(k: symphonia::core::meta::StandardTagKey, val: &str) -> symphonia::core::meta::Tag {
+        use symphonia::core::meta::{Tag, Value};
+        Tag::new(Some(k), "", Value::from(val))
+    }
+
+    #[test]
+    fn test_merge_tags_year_original_year_split() {
+        use symphonia::core::meta::StandardTagKey;
+        // Date is the (reissue) file year; OriginalDate is the original year.
+        let tags = vec![
+            std_tag(StandardTagKey::Date, "2024"),
+            std_tag(StandardTagKey::OriginalDate, "1969-08-15"),
+        ];
+        let mut t = TrackTags::default();
+        merge_tags(&mut t, &tags);
+        assert_eq!(t.year, Some(2024));
+        assert_eq!(t.original_year, Some(1969));
+    }
+
+    #[test]
+    fn test_merge_tags_original_year_raw_key() {
+        // No std_key at all: only a raw TXXX:originalyear frame.
+        let tags = vec![raw_tag("TXXX:originalyear", "1969")];
+        let mut t = TrackTags::default();
+        merge_tags(&mut t, &tags);
+        assert_eq!(t.original_year, Some(1969));
+        assert_eq!(t.year, None);
+    }
+
+    #[test]
+    fn test_merge_tags_no_original_year_is_none() {
+        use symphonia::core::meta::StandardTagKey;
+        // A file with only a plain Date tag → original_year stays None.
+        let tags = vec![std_tag(StandardTagKey::Date, "2024")];
+        let mut t = TrackTags::default();
+        merge_tags(&mut t, &tags);
+        assert_eq!(t.year, Some(2024));
+        assert_eq!(t.original_year, None);
+    }
+
+    #[test]
+    fn test_merge_tags_original_year_first_wins() {
+        use symphonia::core::meta::StandardTagKey;
+        // First parseable original-date value wins over later ones.
+        let tags = vec![
+            std_tag(StandardTagKey::OriginalDate, "1969"),
+            raw_tag("ORIGINALYEAR", "1987"),
+        ];
+        let mut t = TrackTags::default();
+        merge_tags(&mut t, &tags);
+        assert_eq!(t.original_year, Some(1969));
     }
 
     #[test]
