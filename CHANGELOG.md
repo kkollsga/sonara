@@ -2,6 +2,21 @@
 
 All notable changes to sonara are documented in this file.
 
+## [0.2.6] - 2026-07-20
+
+### Added
+- `sonara::vocal_model::bundled()`: Rust-native accessor for the validated
+  vocalness model (`sonara-vocalness-v1`). The artifact is embedded in the
+  crate at compile time (`sonara/models/vocalness_v1.json`, ~33 KB,
+  dead-stripped when unused), so in-process Rust consumers no longer depend
+  on the Python package data. Byte-identical to the Python
+  `vocalness_model="bundled"` artifact (enforced by tests in both layers).
+- `sonara.genre.train(model_id=...)` / `GenreModel(model_id=...)`: the Python
+  genre trainer can now write the optional JSON `id`, making
+  `provenance.genre_model_id` reachable for models trained the documented
+  way. Omitting it keeps the previous JSON shape and provenance (backward
+  compatible).
+
 ## [0.2.5] - 2026-07-20
 
 ### Validated on real music
