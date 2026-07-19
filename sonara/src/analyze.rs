@@ -141,6 +141,15 @@ pub struct AnalysisConfig {
     /// [`SonaraError::ModelError`]. `Arc` so `Clone` (used per-file in batch)
     /// stays cheap. See [`crate::genre`].
     pub genre_model: Option<std::sync::Arc<crate::genre::GenreModel>>,
+    /// Optional user-supplied vocal-presence classifier over the similarity
+    /// embedding. When `Some`, analysis computes the embedding, runs the model,
+    /// and **overrides** `vocalness` + `instrumentalness` with the calibrated
+    /// P(vocal) (the built-in heuristic is not consulted). The model's required
+    /// `id` is surfaced as [`AnalysisProvenance::vocalness_model_id`] and its
+    /// `embedding_version` must match [`crate::similarity::SIMILARITY_VERSION`],
+    /// else analysis fails fast with a [`SonaraError::ModelError`]. See
+    /// [`crate::vocal_model`].
+    pub vocalness_model: Option<std::sync::Arc<crate::vocal_model::VocalnessModel>>,
 }
 
 impl Default for AnalysisConfig {
@@ -151,6 +160,7 @@ impl Default for AnalysisConfig {
             bpm_min: None,
             bpm_max: None,
             genre_model: None,
+            vocalness_model: None,
         }
     }
 }
@@ -158,10 +168,11 @@ impl Default for AnalysisConfig {
 impl AnalysisConfig {
     /// Check if a feature should be computed.
     fn wants(&self, name: &str) -> bool {
-        // A genre model needs the full similarity embedding, which is assembled
-        // from the tonal/perceptual features listed in EMBEDDING_DEPS — so a set
-        // model implies each of them regardless of mode or explicit feature list.
-        if self.genre_model.is_some() && EMBEDDING_DEPS.contains(&name) {
+        // A genre or vocalness model needs the full similarity embedding, which
+        // is assembled from the tonal/perceptual features listed in
+        // EMBEDDING_DEPS — so a set model implies each of them regardless of
+        // mode or explicit feature list.
+        if self.has_embedding_model() && EMBEDDING_DEPS.contains(&name) {
             return true;
         }
         if let Some(ref features) = self.features {
@@ -189,20 +200,26 @@ impl AnalysisConfig {
         }
     }
 
+    /// True if any embedding-consuming model (genre or vocalness) is set.
+    fn has_embedding_model(&self) -> bool {
+        self.genre_model.is_some() || self.vocalness_model.is_some()
+    }
+
     /// True if the similarity embedding must be computed: either it was
-    /// explicitly requested (`features=["embedding"]`) or a genre model is set
-    /// (the model classifies over the embedding). Only the explicit-request case
-    /// emits the `embedding`/`embedding_version` fields — a genre model computes
-    /// the vector without leaking it (mirrors how mood computes key silently).
+    /// explicitly requested (`features=["embedding"]`) or an embedding model is
+    /// set (genre/vocalness classify over the embedding). Only the
+    /// explicit-request case emits the `embedding`/`embedding_version` fields —
+    /// a model computes the vector without leaking it (mirrors how mood
+    /// computes key silently).
     fn wants_embedding(&self) -> bool {
-        self.wants("embedding") || self.genre_model.is_some()
+        self.wants("embedding") || self.has_embedding_model()
     }
 
     /// Check if extended features (anything beyond compact) are needed.
     fn needs_extended(&self) -> bool {
-        // A genre model needs the embedding, which requires the extended pass
-        // (mfcc/chroma/contrast/spectral scalars).
-        if self.genre_model.is_some() {
+        // An embedding model needs the embedding, which requires the extended
+        // pass (mfcc/chroma/contrast/spectral scalars).
+        if self.has_embedding_model() {
             return true;
         }
         if let Some(ref features) = self.features {
@@ -362,6 +379,16 @@ pub struct AnalysisProvenance {
     pub mode: AnalysisMode,
     /// The explicit `features=[...]` request (sorted), if one was given.
     pub requested_features: Option<Vec<String>>,
+    /// Identity of the genre model that produced `genre`/`genre_confidence`,
+    /// when a model carrying an `id` was supplied. `None` when no genre model
+    /// ran (or the model has no `id`). Cache consumers should treat a change
+    /// in this field as invalidating stored `genre` fields.
+    pub genre_model_id: Option<String>,
+    /// Identity of the vocalness model that produced
+    /// `vocalness`/`instrumentalness`. `None` means the built-in heuristic
+    /// (schema-versioned) produced them. Cache consumers should treat a change
+    /// in this field as invalidating stored vocalness/instrumentalness scores.
+    pub vocalness_model_id: Option<String>,
 }
 
 pub use crate::core::audio::TrackTags;
@@ -701,6 +728,16 @@ fn analyze_signal_inner(
                 "genre model embedding_version {} does not match this build's embedding version {}; \
                  re-export the model against the current embedding",
                 model.embedding_version,
+                crate::similarity::SIMILARITY_VERSION
+            )));
+        }
+    }
+    if let Some(ref model) = config.vocalness_model {
+        if model.embedding_version() != crate::similarity::SIMILARITY_VERSION {
+            return Err(SonaraError::ModelError(format!(
+                "vocalness model embedding_version {} does not match this build's embedding version {}; \
+                 re-export the model against the current embedding",
+                model.embedding_version(),
                 crate::similarity::SIMILARITY_VERSION
             )));
         }
@@ -1766,6 +1803,11 @@ fn analyze_signal_inner(
                 v.sort();
                 v
             }),
+            genre_model_id: config.genre_model.as_ref().and_then(|m| m.id.clone()),
+            vocalness_model_id: config
+                .vocalness_model
+                .as_ref()
+                .map(|m| m.id().to_string()),
         },
         duration_sec,
         bpm,
@@ -1865,6 +1907,13 @@ fn analyze_signal_inner(
             let (label, conf) = model.predict(&emb);
             result.genre = Some(label);
             result.genre_confidence = Some(conf);
+        }
+        // Run the user-supplied vocalness model, if any: its calibrated
+        // P(vocal) overrides the built-in heuristic (and its inverse).
+        if let Some(ref model) = config.vocalness_model {
+            let v = model.predict_vocalness(&emb);
+            result.vocalness = Some(v);
+            result.instrumentalness = Some((1.0 - v).clamp(0.0, 1.0));
         }
         // Only surface the embedding fields when explicitly requested — a genre
         // model uses the vector internally without leaking it.
@@ -2067,6 +2116,70 @@ mod tests {
     fn test_analyze_file_default_no_tags() {
         let result = analyze_file(&fixture("tagged.flac"), 22050, &compact()).unwrap();
         assert!(result.tags.is_none(), "tags not requested → None");
+    }
+
+    fn tiny_vocalness_model(id: &str, ev: u32) -> crate::vocal_model::VocalnessModel {
+        // 48 → 2 softmax with all-zero weights: P(vocal) is exactly 0.5 for
+        // any input, which no heuristic ever emits for a pure sine — an
+        // unambiguous marker that the model produced the score.
+        let row: Vec<String> = (0..48).map(|_| "0.0".to_string()).collect();
+        let json = format!(
+            r#"{{"format_version":1,"embedding_version":{ev},"id":"{id}",
+                 "labels":["instrumental","vocal"],
+                 "layers":[{{"weights":[[{r}],[{r}]],"bias":[0.0,0.0],"activation":"softmax"}}]}}"#,
+            r = row.join(","),
+        );
+        crate::vocal_model::from_json_str(&json).unwrap()
+    }
+
+    #[test]
+    fn test_vocalness_model_overrides_and_stamps_provenance() {
+        let y = sine(440.0, 22050, 2.0);
+        let config = AnalysisConfig {
+            vocalness_model: Some(std::sync::Arc::new(tiny_vocalness_model(
+                "vocal-test-v1",
+                crate::similarity::SIMILARITY_VERSION,
+            ))),
+            ..Default::default()
+        };
+        // Setting the model must force the extended pass on its own.
+        assert!(config.needs_extended());
+        let result = analyze_signal(y.view(), 22050, &config).unwrap();
+        assert_eq!(result.vocalness, Some(0.5));
+        assert_eq!(result.instrumentalness, Some(0.5));
+        assert_eq!(
+            result.provenance.vocalness_model_id.as_deref(),
+            Some("vocal-test-v1")
+        );
+        // The embedding itself must not leak without an explicit request.
+        assert!(result.embedding.is_none());
+    }
+
+    #[test]
+    fn test_vocalness_model_version_mismatch_fails_fast() {
+        let y = sine(440.0, 22050, 2.0);
+        let config = AnalysisConfig {
+            vocalness_model: Some(std::sync::Arc::new(tiny_vocalness_model(
+                "stale",
+                crate::similarity::SIMILARITY_VERSION + 1,
+            ))),
+            ..Default::default()
+        };
+        match analyze_signal(y.view(), 22050, &config) {
+            Err(SonaraError::ModelError(msg)) => {
+                assert!(msg.contains("embedding_version"), "got: {msg}")
+            }
+            Err(e) => panic!("expected ModelError, got {e}"),
+            Ok(_) => panic!("expected fail-fast ModelError, got Ok"),
+        }
+    }
+
+    #[test]
+    fn test_no_model_leaves_provenance_ids_none() {
+        let y = sine(440.0, 22050, 2.0);
+        let result = analyze_signal(y.view(), 22050, &compact()).unwrap();
+        assert!(result.provenance.vocalness_model_id.is_none());
+        assert!(result.provenance.genre_model_id.is_none());
     }
 
     #[test]
@@ -2378,6 +2491,7 @@ mod tests {
             bpm_min: Some(79.0),
             bpm_max: Some(192.0),
             genre_model: None,
+            vocalness_model: None,
         };
         assert_eq!(config.bpm_min, Some(79.0));
         assert_eq!(config.bpm_max, Some(192.0));

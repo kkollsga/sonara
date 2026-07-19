@@ -16,6 +16,7 @@
 //! {
 //!   "format_version": 1,
 //!   "embedding_version": 2,
+//!   "id": "my-genre-model-v1",
 //!   "labels": ["rock", "electronic"],
 //!   "layers": [
 //!     {"weights": [[...],[...]], "bias": [...], "activation": "relu"},
@@ -30,6 +31,11 @@
 //! `"relu"`, `"softmax"`, `"identity"`. The first layer's `in_dim` must equal
 //! [`crate::similarity::EMBEDDING_DIM`] (48); the last layer's activation must be
 //! `"softmax"` and its `out_dim` must equal `labels.len()`.
+//!
+//! `id` is an optional model-identity string (additive in format v1). When
+//! present it is carried into
+//! [`AnalysisProvenance`](crate::analyze::AnalysisProvenance) so downstream
+//! caches can detect results produced by a different model.
 //!
 //! ## Versioning
 //!
@@ -150,6 +156,9 @@ pub struct GenreModel {
     /// The `embedding_version` the model was trained against. Compared to
     /// [`crate::similarity::SIMILARITY_VERSION`] at use time (in `analyze`).
     pub embedding_version: u32,
+    /// Optional model-identity string (`"id"` in the JSON). Carried into
+    /// analysis provenance when the model is used.
+    pub id: Option<String>,
 }
 
 impl GenreModel {
@@ -160,15 +169,7 @@ impl GenreModel {
     /// or longer vector is zero-padded / truncated to the first layer's `in_dim`
     /// so inference never panics.
     pub fn predict(&self, embedding: &[Float]) -> (String, Float) {
-        // Fit the input to the first layer's in_dim defensively.
-        let in_dim = self.layers.first().map(|l| l.in_dim()).unwrap_or(0);
-        let mut x: Vec<Float> = vec![0.0; in_dim];
-        for (slot, &v) in x.iter_mut().zip(embedding.iter()) {
-            *slot = if v.is_finite() { v } else { 0.0 };
-        }
-        for layer in &self.layers {
-            x = layer.forward(&x);
-        }
+        let x = self.predict_probs(embedding);
         // Last layer is softmax → argmax gives the predicted label.
         let (idx, &conf) = x
             .iter()
@@ -181,6 +182,22 @@ impl GenreModel {
             .cloned()
             .unwrap_or_else(|| String::from("unknown"));
         (label, conf)
+    }
+
+    /// Run the network and return the full softmax probability vector
+    /// (one entry per label). The embedding is fitted to the first layer's
+    /// `in_dim` (zero-padded / truncated, non-finite values zeroed) so
+    /// inference never panics.
+    pub fn predict_probs(&self, embedding: &[Float]) -> Vec<Float> {
+        let in_dim = self.layers.first().map(|l| l.in_dim()).unwrap_or(0);
+        let mut x: Vec<Float> = vec![0.0; in_dim];
+        for (slot, &v) in x.iter_mut().zip(embedding.iter()) {
+            *slot = if v.is_finite() { v } else { 0.0 };
+        }
+        for layer in &self.layers {
+            x = layer.forward(&x);
+        }
+        x
     }
 }
 
@@ -374,10 +391,21 @@ fn build_model(v: &json::Value) -> Result<GenreModel> {
         )));
     }
 
+    // Optional model identity (additive in format v1).
+    let id = match obj.lookup("id") {
+        Some(v) if !matches!(v, json::Value::Null) => Some(
+            v.as_str()
+                .map(str::to_string)
+                .ok_or_else(|| err("`id` must be a string when present"))?,
+        ),
+        _ => None,
+    };
+
     Ok(GenreModel {
         labels,
         layers,
         embedding_version,
+        id,
     })
 }
 
