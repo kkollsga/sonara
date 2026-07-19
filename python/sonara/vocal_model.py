@@ -42,7 +42,23 @@ from sonara._sonara import EMBEDDING_DIM as _EMBEDDING_DIM
 FORMAT_VERSION = 1
 LABELS = ["instrumental", "vocal"]  # fixed; index 1 is P(vocal)
 
-__all__ = ["VocalnessModel", "train", "load", "FORMAT_VERSION", "LABELS"]
+__all__ = ["VocalnessModel", "train", "load", "bundled_path", "FORMAT_VERSION",
+           "LABELS"]
+
+
+def bundled_path() -> str:
+    """Path to the vocalness model bundled with the package.
+
+    Trained on ~900 album-level labeled tracks; on a held-out 205-track
+    curated real-music set: AUC 0.94 vs 0.63 for the built-in heuristic,
+    clear-vocal false negatives 5% vs 53%. Pass it (or the shorthand
+    ``vocalness_model="bundled"``) to ``analyze_*``. Known limitations:
+    solo melodic instrument leads (sax/guitar) can score vocal-high, and
+    spoken narration scores low.
+    """
+    import os
+
+    return os.path.join(os.path.dirname(__file__), "models", "vocalness_v1.json")
 
 
 def _softmax_rows(m: np.ndarray) -> np.ndarray:

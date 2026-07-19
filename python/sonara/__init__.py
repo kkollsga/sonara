@@ -35,6 +35,8 @@ def analyze_file(path, *, sr=22050, mode="compact", features=None, bpm_min=None,
     (overriding the built-in heuristic), and the result's
     ``provenance.vocalness_model_id`` carries the model's required ``id``.
     """
+    if vocalness_model == "bundled":
+        vocalness_model = vocal_model.bundled_path()
     return TrackAnalysis(_analyze_file(
         path, sr=sr, mode=mode, features=features, bpm_min=bpm_min, bpm_max=bpm_max,
         genre_model=genre_model, vocalness_model=vocalness_model,
@@ -47,6 +49,8 @@ def analyze_signal(y, *, sr=22050, mode="compact", features=None, bpm_min=None, 
     ``genre_model`` (path to a user-trained model JSON) adds ``genre`` and
     ``genre_confidence`` to the result. See ``sonara.genre``.
     """
+    if vocalness_model == "bundled":
+        vocalness_model = vocal_model.bundled_path()
     return TrackAnalysis(_analyze_signal(
         y, sr=sr, mode=mode, features=features, bpm_min=bpm_min, bpm_max=bpm_max,
         genre_model=genre_model, vocalness_model=vocalness_model,
@@ -74,6 +78,8 @@ def analyze_batch(paths, *, sr=22050, mode="compact", features=None, bpm_min=Non
     ``genre_model`` (path to a user-trained model JSON) adds ``genre`` and
     ``genre_confidence`` to each successful entry. See ``sonara.genre``.
     """
+    if vocalness_model == "bundled":
+        vocalness_model = vocal_model.bundled_path()
     return [
         TrackAnalysis(r)
         for r in _analyze_batch(

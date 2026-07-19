@@ -62,7 +62,10 @@ def resolve(labels_csv, files):
         for row in csv.reader(fh):
             if not row or row[0].strip().startswith("#"):
                 continue
-            label, pattern = row[0].strip(), ",".join(row[1:]).strip()
+            # Only strip the trailing side: a deliberate leading space in a
+            # pattern (e.g. " Mother Nature's Son") excludes hyphen-joined
+            # false matches like "Narrative-Mother Nature's Son".
+            label, pattern = row[0].strip(), ",".join(row[1:]).rstrip()
             pat = pattern.lower()
             hits = [f for f, fl in lower if pat in fl][:MAX_MATCHES_PER_PATTERN]
             if not hits:
@@ -143,6 +146,13 @@ def main():
           f" ({100*fn/len(voc):.0f}%)")
     print(f"instrumental at/above {CURATION_THRESHOLD}: {fp}/{len(ins)}"
           f" ({100*fp/len(ins):.0f}%)")
+
+    if "--dump" in sys.argv:
+        print("\nmisclassified (vocal < 0.35 or instrumental >= 0.35):")
+        for p, l, _pat, v in sorted(rows, key=lambda r: r[3]):
+            if (l == "vocal" and v < CURATION_THRESHOLD) or (
+                    l == "instrumental" and v >= CURATION_THRESHOLD):
+                print(f"  {v:.3f}  {l:<12}  {os.path.basename(p)}")
 
     print("\nreported false negatives (sonagram 2026-07-18):")
     fn_scores = []
