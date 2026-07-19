@@ -224,6 +224,10 @@ class TrackAnalysis(dict):
             ]
             if "requested_features" in p:
                 parts.append(f"features [{', '.join(p['requested_features'])}]")
+            if "genre_model_id" in p:
+                parts.append(f"genre model {p['genre_model_id']}")
+            if "vocalness_model_id" in p:
+                parts.append(f"vocalness model {p['vocalness_model_id']}")
             lines.append("")
             lines.append(f"  Provenance  {' · '.join(parts)}")
 

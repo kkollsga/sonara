@@ -13,9 +13,10 @@ from sonara._sonara import fingerprint_match  # noqa: F401 — duplicate detecti
 from sonara._result import TrackAnalysis
 from sonara import display  # noqa: F401
 from sonara import genre  # noqa: F401 — bring-your-own genre model trainer/loader
+from sonara import vocal_model  # noqa: F401 — bring-your-own vocalness model trainer/loader
 
 
-def analyze_file(path, *, sr=22050, mode="compact", features=None, bpm_min=None, bpm_max=None, genre_model=None):
+def analyze_file(path, *, sr=22050, mode="compact", features=None, bpm_min=None, bpm_max=None, genre_model=None, vocalness_model=None):
     """Analyze an audio file and return a `TrackAnalysis` (dict subclass with `.print()`).
 
     ``features`` selects features explicitly (overriding ``mode``) and is the
@@ -27,14 +28,20 @@ def analyze_file(path, *, sr=22050, mode="compact", features=None, bpm_min=None,
     the result carries ``genre`` and ``genre_confidence``. See ``sonara.genre``
     for the trainer and the JSON format; the model's ``embedding_version`` must
     match ``sonara.SIMILARITY_VERSION`` (else a ``ValueError`` is raised).
+
+    ``vocalness_model`` is a path to a user-trained vocal-presence model (JSON;
+    see ``sonara.vocal_model``). When given, ``vocalness`` and
+    ``instrumentalness`` are the model's calibrated P(vocal) / its inverse
+    (overriding the built-in heuristic), and the result's
+    ``provenance.vocalness_model_id`` carries the model's required ``id``.
     """
     return TrackAnalysis(_analyze_file(
         path, sr=sr, mode=mode, features=features, bpm_min=bpm_min, bpm_max=bpm_max,
-        genre_model=genre_model,
+        genre_model=genre_model, vocalness_model=vocalness_model,
     ))
 
 
-def analyze_signal(y, *, sr=22050, mode="compact", features=None, bpm_min=None, bpm_max=None, genre_model=None):
+def analyze_signal(y, *, sr=22050, mode="compact", features=None, bpm_min=None, bpm_max=None, genre_model=None, vocalness_model=None):
     """Analyze a signal array and return a `TrackAnalysis` (dict subclass with `.print()`).
 
     ``genre_model`` (path to a user-trained model JSON) adds ``genre`` and
@@ -42,11 +49,11 @@ def analyze_signal(y, *, sr=22050, mode="compact", features=None, bpm_min=None, 
     """
     return TrackAnalysis(_analyze_signal(
         y, sr=sr, mode=mode, features=features, bpm_min=bpm_min, bpm_max=bpm_max,
-        genre_model=genre_model,
+        genre_model=genre_model, vocalness_model=vocalness_model,
     ))
 
 
-def analyze_batch(paths, *, sr=22050, mode="compact", features=None, bpm_min=None, bpm_max=None, progress=None, genre_model=None):
+def analyze_batch(paths, *, sr=22050, mode="compact", features=None, bpm_min=None, bpm_max=None, progress=None, genre_model=None, vocalness_model=None):
     """Analyze a list of audio files in parallel; returns a `list[TrackAnalysis]`.
 
     Errors are isolated per file: the returned list has exactly one entry per
@@ -71,7 +78,7 @@ def analyze_batch(paths, *, sr=22050, mode="compact", features=None, bpm_min=Non
         TrackAnalysis(r)
         for r in _analyze_batch(
             paths, sr=sr, mode=mode, features=features, bpm_min=bpm_min, bpm_max=bpm_max,
-            progress=progress, genre_model=genre_model,
+            progress=progress, genre_model=genre_model, vocalness_model=vocalness_model,
         )
     ]
 

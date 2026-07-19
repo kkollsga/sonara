@@ -43,7 +43,8 @@ jobs:
           source .venv/bin/activate
           for t in test_api test_batch_errors test_camelot test_beatgrid \
                    test_structure test_similarity test_fingerprint \
-                   test_loudness test_misc_features test_genre; do
+                   test_loudness test_misc_features test_genre \
+                   test_vocalness_model; do
             echo "=== $t ==="
             python "tests/python/$t.py"
           done
