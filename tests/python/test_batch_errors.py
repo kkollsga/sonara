@@ -57,7 +57,13 @@ def main():
     with open(fake_mp3, "w") as f:
         f.write("this is plain text, definitely not an audio bitstream\n" * 50)
 
-    paths = [valid_wav, missing, fake_mp3]
+    fixtures = os.path.join(os.path.dirname(__file__), "..", "fixtures")
+    # Mid-stream frame damage → decode must skip the bad packets and succeed.
+    corrupt_mp3 = os.path.join(fixtures, "corrupt.mp3")
+    # Every packet damaged → decode recovery must NOT mask total failure.
+    allbad_mp3 = os.path.join(fixtures, "allbad.mp3")
+
+    paths = [valid_wav, missing, fake_mp3, corrupt_mp3, allbad_mp3]
     results = sonara.analyze_batch(paths, mode="compact")
 
     print("=" * 60)
@@ -67,7 +73,7 @@ def main():
     # 1. One entry per input, in input order.
     check("one result per input path", len(results) == len(paths))
 
-    valid_res, missing_res, fake_res = results
+    valid_res, missing_res, fake_res, corrupt_res, allbad_res = results
 
     # 2. Valid file succeeded and carries real features (no error).
     check("valid file succeeded (no error key)", not valid_res.failed)
@@ -91,10 +97,22 @@ def main():
     check("fake mp3 error mentions the path",
           os.path.basename(fake_mp3) in fake_res.get("error", ""))
 
+    # 5. Damaged-mid-stream mp3 → packet-level recovery, analysis succeeds.
+    check("corrupt mp3 recovered (no error)", not corrupt_res.failed)
+    check("corrupt mp3 duration ≈ 3s",
+          2.5 <= corrupt_res.get("duration_sec", 0) <= 3.2)
+
+    # 6. Every-packet-damaged mp3 → still a structured decode failure.
+    check("all-bad mp3 failed", allbad_res.failed)
+    check("all-bad mp3 error_kind == decode",
+          allbad_res.get("error_kind") == "decode")
+    check("all-bad mp3 error mentions the path",
+          os.path.basename(allbad_mp3) in allbad_res.get("error", ""))
+
     print(f"\n  error_kinds: "
           f"{[r.get('error_kind') for r in results]}")
 
-    # 5. Progress callback: fires once per file (completion order), reporting
+    # 7. Progress callback: fires once per file (completion order), reporting
     #    a monotonic `done` count and a constant `total == len(paths)`.
     calls = []
     prog_results = sonara.analyze_batch(
@@ -110,7 +128,7 @@ def main():
     check("progress run entries all carry 'path'",
           all(r.get("path") for r in prog_results))
 
-    # 6. A raising callback must never abort the batch nor propagate.
+    # 8. A raising callback must never abort the batch nor propagate.
     def boom(d, t):
         raise ZeroDivisionError("callback intentionally broken")
 
@@ -123,7 +141,7 @@ def main():
         check("raising callback does not propagate", False)
         print(f"    unexpected exception: {e!r}")
 
-    # 7. A non-callable progress fails fast with TypeError.
+    # 9. A non-callable progress fails fast with TypeError.
     try:
         sonara.analyze_batch(paths, mode="compact", progress=42)
         check("non-callable progress raises TypeError", False)
