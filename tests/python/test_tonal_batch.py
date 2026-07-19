@@ -15,7 +15,7 @@ import sys
 import sonara
 
 DATASET = (
-    "/Volumes/EksternalHome/Downloads/Apps/"
+    "/Volumes/EksternalHome/Downloads/Music/"
     "Greatest Hits - Collection 1958-2021 _1074 ALBUMS_ MP3 Part 2 Of 2-TL"
 )
 N_TRACKS = 400
