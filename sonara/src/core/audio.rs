@@ -296,8 +296,9 @@ fn load_symphonia(
     })?;
     let n_channels = track.codec_params.channels.map(|c| c.count()).unwrap_or(1);
 
+    let codec_params = track.codec_params.clone();
     let mut decoder = symphonia::default::get_codecs()
-        .make(&track.codec_params, &DecoderOptions::default())
+        .make(&codec_params, &DecoderOptions::default())
         .map_err(|e| map_symphonia_err(path, "codec-init", codec_name, e))?;
 
     // Pre-allocate output with estimated capacity (avoid repeated growth)
@@ -310,6 +311,16 @@ fn load_symphonia(
 
     // Reuse SampleBuffer across packets (avoid per-packet allocation)
     let mut sample_buf: Option<SampleBuffer<f32>> = None;
+
+    // Packet-level decode tolerance: symphonia classifies bitstream-local
+    // defects (e.g. mpa "invalid main_data offset" or huffman overruns in
+    // MP3s with a damaged bit reservoir) as recoverable `DecodeError` — the
+    // decoder remains usable and subsequent packets can decode normally.
+    // Such packets are skipped rather than failing the whole file; every
+    // other error stays fatal. Guardrails after the loop ensure a stream
+    // where nothing decoded still surfaces its decode error.
+    let mut skipped_packets: usize = 0;
+    let mut first_decode_err: Option<SonaraError> = None;
 
     loop {
         let packet = match format.next_packet() {
@@ -326,9 +337,26 @@ fn load_symphonia(
             continue;
         }
 
-        let decoded = decoder
-            .decode(&packet)
-            .map_err(|e| map_symphonia_err(path, "decode", codec_name, e))?;
+        let decoded = match decoder.decode(&packet) {
+            Ok(d) => d,
+            Err(e @ symphonia::core::errors::Error::DecodeError(_)) => {
+                skipped_packets += 1;
+                if first_decode_err.is_none() {
+                    first_decode_err = Some(map_symphonia_err(path, "decode", codec_name, e));
+                }
+                continue;
+            }
+            Err(symphonia::core::errors::Error::ResetRequired) => {
+                // The decoder must be rebuilt (e.g. stream parameters changed
+                // mid-file); the triggering packet is lost.
+                skipped_packets += 1;
+                decoder = symphonia::default::get_codecs()
+                    .make(&codec_params, &DecoderOptions::default())
+                    .map_err(|e| map_symphonia_err(path, "codec-init", codec_name, e))?;
+                continue;
+            }
+            Err(e) => return Err(map_symphonia_err(path, "decode", codec_name, e)),
+        };
 
         let spec = *decoded.spec();
         let capacity = decoded.capacity();
@@ -342,6 +370,30 @@ fn load_symphonia(
 
         // Zero-cost: SampleBuffer<f32> produces f32, and Float = f32
         samples.extend(buf.samples().iter().copied());
+    }
+
+    // Guardrails for the tolerant path (zero cost when nothing was skipped):
+    // the recovered stream must still be genuine audio — non-empty, finite PCM.
+    if skipped_packets > 0 {
+        let ctx = |msg: String| {
+            SonaraError::Decode(format!(
+                "{} (container='{}', codec='{}', stage=decode): {}",
+                path.display(),
+                path.extension().and_then(|e| e.to_str()).unwrap_or("?"),
+                codec_name.unwrap_or("unknown"),
+                msg,
+            ))
+        };
+        if samples.is_empty() {
+            return Err(first_decode_err.unwrap_or_else(|| {
+                ctx(format!("all {skipped_packets} packets failed to decode"))
+            }));
+        }
+        if samples.iter().any(|s| !s.is_finite()) {
+            return Err(ctx(format!(
+                "non-finite samples after skipping {skipped_packets} damaged packets"
+            )));
+        }
     }
 
     Ok((samples, sr, n_channels, tags))
@@ -1213,6 +1265,65 @@ mod tests {
         // year comes from TYER=2024 (the semantic split).
         assert_eq!(t.original_year, Some(1969));
         assert_eq!(t.track_no, Some(3));
+    }
+
+    // Fixtures for decode-recovery tests (both fully synthetic):
+    // - corrupt.mp3: 3 s 440 Hz tone (64 kbps mono CBR, no Xing header) with
+    //   600 bytes zeroed at the 40% offset — several mid-stream frames
+    //   damaged (recoverable; sync resumes after the hole).
+    // - allbad.mp3: 40 hand-built MPEG1 Layer III frames whose side info
+    //   claims part2_3_length=4095 bits with main_data_begin=0 — every
+    //   packet raises a DecodeError ("huffman decode overrun"), so nothing
+    //   decodes and the guardrail must surface the first decode error.
+
+    #[test]
+    fn test_load_recovers_from_damaged_packets() {
+        let path = std::path::Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../tests/fixtures/corrupt.mp3"
+        ));
+        let (y, sr) = load(path, 22050, true, 0.0, 0.0).unwrap();
+        assert_eq!(sr, 22050);
+        // 3 s tone minus the corrupted hole (~0.1 s) and decoder priming;
+        // recovery must yield the overwhelming majority of the audio.
+        let secs = y.len() as f64 / sr as f64;
+        assert!(
+            (2.5..=3.2).contains(&secs),
+            "expected ~3s recovered, got {secs:.2}s"
+        );
+        assert!(y.iter().all(|s| s.is_finite()));
+    }
+
+    #[test]
+    fn test_load_all_packets_damaged_still_errors() {
+        let path = std::path::Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../tests/fixtures/allbad.mp3"
+        ));
+        let res = load(path, 22050, true, 0.0, 0.0);
+        match res {
+            Err(SonaraError::Decode(msg)) => {
+                assert!(msg.contains("allbad.mp3"), "path missing in: {msg}");
+                assert!(msg.contains("stage=decode"), "stage missing in: {msg}");
+            }
+            other => panic!("all-packets-damaged file must fail with Decode: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_load_fake_mp3_still_errors() {
+        let dir = std::env::temp_dir().join("sonara_fake_mp3_test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("not_audio.mp3");
+        std::fs::write(&path, "this is not an mp3 file\n".repeat(200)).unwrap();
+        let res = load(&path, 22050, true, 0.0, 0.0);
+        assert!(
+            matches!(
+                res,
+                Err(SonaraError::UnsupportedFormat(_)) | Err(SonaraError::Decode(_))
+            ),
+            "fake mp3 must still fail: {res:?}"
+        );
     }
 
     #[test]
