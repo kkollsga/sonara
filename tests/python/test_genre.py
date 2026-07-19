@@ -114,6 +114,32 @@ def _embedding_version_default():
 test("model defaults embedding_version to SIMILARITY_VERSION", _embedding_version_default)
 
 
+def _model_id_roundtrip_and_provenance():
+    with tempfile.TemporaryDirectory() as tmp:
+        # With an id: JSON carries it, load restores it, analysis stamps it.
+        m = genre.train(X, y, hidden=0, epochs=200, lr=0.5, seed=0,
+                        model_id="genre-test-v1")
+        assert m.to_dict()["id"] == "genre-test-v1"
+        path = os.path.join(tmp, "with_id.json")
+        m.save(path)
+        assert genre.load(path).id == "genre-test-v1"
+        sig = np.sin(0.12 * np.arange(44100)).astype(np.float32)
+        r = sonara.analyze_signal(sig, sr=22050, genre_model=path)
+        assert r["provenance"].get("genre_model_id") == "genre-test-v1"
+        # Without an id (backward compat): no "id" key, no provenance field.
+        m2 = genre.train(X, y, hidden=0, epochs=200, lr=0.5, seed=0)
+        assert m2.id is None and "id" not in m2.to_dict()
+        path2 = os.path.join(tmp, "no_id.json")
+        m2.save(path2)
+        assert genre.load(path2).id is None
+        r2 = sonara.analyze_signal(sig, sr=22050, genre_model=path2)
+        assert "genre_model_id" not in r2["provenance"]
+
+
+test("model_id round-trips and stamps provenance.genre_model_id",
+     _model_id_roundtrip_and_provenance)
+
+
 # ------------------------------------------------------------
 # Analyze-time parity: numpy predict == Rust analyze-time label.
 # ------------------------------------------------------------

@@ -69,10 +69,14 @@ class GenreModel:
     ``out x in`` (matching the Rust loader).
     """
 
-    def __init__(self, labels, layers, embedding_version):
+    def __init__(self, labels, layers, embedding_version, model_id=None):
         self.labels = [str(x) for x in labels]
         self.layers = layers
         self.embedding_version = int(embedding_version)
+        # Optional model identity: when set it is written as JSON "id" and
+        # surfaced by analysis as provenance.genre_model_id, letting cache
+        # consumers invalidate results produced by a different model.
+        self.id = None if model_id is None else str(model_id)
 
     # -- inference (numpy parity with the Rust `predict`) --
     def predict(self, x):
@@ -97,7 +101,7 @@ class GenreModel:
 
     # -- serialization --
     def to_dict(self):
-        return {
+        d = {
             "format_version": FORMAT_VERSION,
             "embedding_version": self.embedding_version,
             "labels": list(self.labels),
@@ -111,6 +115,9 @@ class GenreModel:
                 for layer in self.layers
             ],
         }
+        if self.id is not None:
+            d["id"] = self.id
+        return d
 
     def save(self, path):
         """Write the model as JSON to ``path`` (the format ``analyze_*`` loads)."""
@@ -134,10 +141,11 @@ def load(path) -> GenreModel:
                 "activation": str(layer["activation"]),
             }
         )
-    return GenreModel(d["labels"], layers, d["embedding_version"])
+    return GenreModel(d["labels"], layers, d["embedding_version"],
+                      model_id=d.get("id"))
 
 
-def train(X, y, *, hidden=0, epochs=300, lr=0.1, seed=0, l2=0.0, embedding_version=None) -> GenreModel:
+def train(X, y, *, hidden=0, epochs=300, lr=0.1, seed=0, l2=0.0, embedding_version=None, model_id=None) -> GenreModel:
     """Train a genre classifier over embeddings with plain numpy (no sklearn/torch).
 
     Parameters
@@ -158,6 +166,10 @@ def train(X, y, *, hidden=0, epochs=300, lr=0.1, seed=0, l2=0.0, embedding_versi
         Seeds weight initialization — training is deterministic given the inputs.
     embedding_version : int, optional
         Recorded in the model; defaults to ``sonara.SIMILARITY_VERSION``.
+    model_id : str, optional
+        Model identity written as JSON ``"id"`` and surfaced by analysis as
+        ``provenance.genre_model_id`` (cache-invalidation key). Optional for
+        backward compatibility; version it like an artifact when set.
 
     Returns
     -------
@@ -222,4 +234,4 @@ def train(X, y, *, hidden=0, epochs=300, lr=0.1, seed=0, l2=0.0, embedding_versi
             b -= lr * db
         layers = [{"W": W, "b": b, "activation": "softmax"}]
 
-    return GenreModel(labels, layers, ev)
+    return GenreModel(labels, layers, ev, model_id=model_id)
