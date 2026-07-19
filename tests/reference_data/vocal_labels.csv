@@ -1,0 +1,112 @@
+# Vocal-presence ground truth for the local real-music library.
+# label,pattern — pattern is a case-insensitive filename substring, resolved
+# by tests/python/test_vocalness_real.py against the local dataset roots
+# (max 3 matches per pattern, sorted). Only artist/title facts live here;
+# no audio is committed. Labels curated 2026-07-19.
+#
+# --- vocal: the five reported clear-vocal false negatives (sonagram 2026-07-18) ---
+vocal,Paul Anka Crazy Love
+vocal,Mother Nature's Son
+vocal,La Fleur Que Tu M'avais Jetée
+vocal,Ideale (Errico-Tosti)
+vocal,Main Shtetele Belz
+# --- vocal: opera / classical voice ---
+vocal,Nessun dorma
+vocal,La donna è mobile
+vocal,Che gelida manina
+vocal,O sole mio
+vocal,Ave Maria, D. 839
+vocal,Torna a Surriento
+vocal,Pavarotti - Caruso
+vocal,Vieni Sul Mar
+vocal,Tu, Ca Nun Chiagne
+# --- vocal: acoustic folk / singer-songwriter (the false-negative class) ---
+vocal,Scarborough Fair - Canticle
+vocal,Cat Stevens - Moonshadow
+vocal,Don McLean - Vincent
+vocal,Diamonds and Rust
+vocal,Leonard Cohen - Suzanne
+vocal,The Sounds of Silence
+vocal,Andy Williams - Moon River
+vocal,America - Ventura Highway
+vocal,Sand and Water
+vocal,Blue Moon Revisited
+# --- vocal: pop / rock / soul ---
+vocal,Hey Jude
+vocal,Beatles - Yesterday
+vocal,Aretha Franklin - Respect
+vocal,I Want To Hold Your Hand
+vocal,California Dreamin
+vocal,Dancing Queen
+vocal,Billie Jean
+vocal,Like A Rolling Stone
+vocal,Unchained Melody
+vocal,Stand By Me
+vocal,What A Wonderful World
+vocal,Hotel California
+vocal,John Lennon - Imagine
+vocal,Let It Be
+vocal,Barry Sisters
+vocal,Frank Sinatra - My Way
+# --- instrumental: orchestral / chamber classical ---
+instrumental,Vivaldi Spring (The Four Seasons)
+instrumental,Canon in D
+instrumental,Eine kleine Nachtmusik
+instrumental,Morning Mood (Peer Gynt)
+instrumental,Partita No. 3 - Prelude
+instrumental,Gymnop
+instrumental,Cavalleria rusticana (Intermezzo)
+instrumental,Brahms - Concerto In D - Adagio
+instrumental,Valse from String Serenade
+instrumental,Thais - Meditation
+instrumental,Introduction And Rondo Capriccioso
+instrumental,ADAGIO from Concierto de Aranjuez
+instrumental,GNOSSIENNE
+instrumental,RECUERDOS DE LA ALHAMBRA
+instrumental,CAVATINA from The Deer Hunter
+instrumental,From the New World
+instrumental,Swan Lake (Swan Theme)
+instrumental,Hungarian Dance No. 5
+instrumental,Nutcracker (Valse des fleurs)
+instrumental,Ravel - Bolero
+instrumental,Syrinx
+instrumental,Traumerei
+instrumental,The Lark Ascending
+instrumental,Albinoni-Giazotto - Adagio
+instrumental,Brandenburg Concerto No.3
+instrumental,Mahler - Symphony No.5 (Adagietto)
+# instrumental covers of sung songs + wordless-title traps (strong controls):
+instrumental,Royal Philharmonic Orchestra - Bohemian Rhapsody
+instrumental,Royal Philharmonic Orchestra - Love Of My Life
+instrumental,Vocalise (Rachmaninoff)
+instrumental,Kennedy, Nigel - Danny Boy
+instrumental,Fausto Papetti - Moon River
+# --- instrumental: easy listening / smooth jazz / new age ---
+instrumental,Kenny G - Songbird
+instrumental,Kenny G - Forever in love
+instrumental,Paul Mauriat - Love Is Blue
+instrumental,Lara's Theme
+instrumental,Franck Pourcel - Misty
+instrumental,Armik - Lost In Paradise
+instrumental,Armik - Mar De Suenos
+instrumental,Jim Brickman - Hero's Dream
+instrumental,Chris Spheeris & Paul Voudouris - Enchantment
+instrumental,Chris Spheeris & Paul Voudouris - Opening
+instrumental,Secret Garden - Nocturne
+instrumental,Bobby Hackett - Memories Of You
+# --- instrumental: rock / jazz / electronic instrumentals ---
+instrumental,Apache
+instrumental,Green Onions
+instrumental,Telstar
+instrumental,Albatross
+instrumental,Pipeline
+instrumental,Axel F
+instrumental,Popcorn
+instrumental,Rebel Rouser
+instrumental,Walk Don't Run
+instrumental,Take Five
+instrumental,The Entertainer
+instrumental,Oxygene
+instrumental,Peter Gunn
+instrumental,Pink Panther
+instrumental,Star Wars (Main Title)
