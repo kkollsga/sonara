@@ -194,6 +194,24 @@ def _bad_model_json_rejected():
 
 test("id-less / malformed model rejected", _bad_model_json_rejected)
 
+def _bundled_model_stable():
+    path = vocal_model.bundled_path()
+    assert os.path.exists(path), path
+    m = vocal_model.load(path)
+    assert m.id == "sonara-vocalness-v1"
+    r = sonara.analyze_signal(sig, sr=22050, vocalness_model="bundled")
+    assert r["provenance"].get("vocalness_model_id") == "sonara-vocalness-v1"
+    # Rust-crate embedded copy (sonara/models/) must match the package data
+    # copy when the repo layout is present.
+    crate_copy = os.path.join(os.path.dirname(__file__), "..", "..",
+                              "sonara", "models", "vocalness_v1.json")
+    if os.path.exists(crate_copy):
+        with open(crate_copy, "rb") as a, open(path, "rb") as b:
+            assert a.read() == b.read(), "crate and package model copies diverged"
+
+
+test("bundled model stable id + crate/package parity", _bundled_model_stable)
+
 print(f"\n{'='*70}")
 print(f"  RESULTS: {passed} PASSED, {failed} FAILED out of {passed + failed} tests")
 print(f"{'='*70}")

@@ -86,6 +86,26 @@ impl VocalnessModel {
     }
 }
 
+/// The vocalness model bundled with the crate, as JSON
+/// (`models/vocalness_v1.json`, embedded at compile time). Identical to the
+/// artifact the Python package resolves for `vocalness_model="bundled"`.
+const BUNDLED_JSON: &str = include_str!("../models/vocalness_v1.json");
+
+/// Load the vocalness model bundled with the crate (`sonara-vocalness-v1`).
+///
+/// This is the Rust-native equivalent of the Python
+/// `vocalness_model="bundled"` shorthand: the ~33 KB JSON artifact is embedded
+/// in the crate at compile time (dead-stripped when unused), so in-process
+/// consumers of the Rust core need no filesystem lookup or vendored copy.
+/// Validation numbers and known limitations are documented on the release
+/// (0.2.5 changelog: held-out AUC 0.944 vs 0.627 for the built-in heuristic).
+///
+/// Fallible by signature for API stability across future model revisions;
+/// with the shipped artifact it always succeeds (covered by tests).
+pub fn bundled() -> Result<VocalnessModel> {
+    from_json_str(BUNDLED_JSON)
+}
+
 /// Parse and validate a vocalness model from a JSON string.
 pub fn from_json_str(s: &str) -> Result<VocalnessModel> {
     VocalnessModel::validate(crate::genre::from_json_str(s)?)
@@ -166,6 +186,34 @@ mod tests {
         let p_zero = m.predict_vocalness(&[0.0; 48]);
         let p_ones = m.predict_vocalness(&[1.0; 48]);
         assert!(p_ones < p_zero);
+    }
+
+    #[test]
+    fn test_bundled_loads_with_stable_id() {
+        let m = bundled().expect("bundled model must always load");
+        assert_eq!(m.id(), "sonara-vocalness-v1");
+        assert_eq!(m.embedding_version(), crate::similarity::SIMILARITY_VERSION);
+        let p = m.predict_vocalness(&[0.0; 48]);
+        assert!(p.is_finite() && (0.0..=1.0).contains(&p));
+    }
+
+    #[test]
+    fn test_bundled_matches_python_package_artifact() {
+        // The Python wheel ships its own copy as package data; the two must
+        // stay byte-identical. Runs only in the repo layout (both files
+        // present) — exactly where a divergence could be introduced.
+        let py_copy = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../python/sonara/models/vocalness_v1.json"
+        );
+        match std::fs::read_to_string(py_copy) {
+            Ok(py_json) => assert_eq!(
+                py_json, BUNDLED_JSON,
+                "sonara/models/vocalness_v1.json and \
+                 python/sonara/models/vocalness_v1.json have diverged"
+            ),
+            Err(_) => {} // vendored-crate layout: python/ not present
+        }
     }
 
     #[test]
