@@ -2,6 +2,48 @@
 
 All notable changes to sonara are documented in this file.
 
+## [0.2.5] - 2026-07-20
+
+### Validated on real music
+
+**MP3 decode recovery** (35,898-file commercial library): a 2000-file random
+sample contained 51 MP3s (2.6%) rejected wholesale by 0.2.4 with recoverable
+packet-local errors (`invalid main_data offset`, `huffman decode overrun` —
+damaged bit reservoirs); with packet-level recovery all 51 analyze
+successfully, the representative file recovers 175.4 of 179.1 s (146 of 6862
+packets skipped), and decode time on healthy files is unchanged (2.537 s vs
+2.538 s over 25 files). **Vocalness model** (205-track curated labeled set,
+disjoint from the 908-track training pool): the built-in contrast heuristic
+scores AUC 0.63 with 53% of clearly-vocal tracks under a 0.35 curation
+threshold (pop/folk/opera false-negative cluster); the bundled model scores
+AUC 0.944 with 5% under the threshold, and the five downstream-reported false
+negatives move from ≤ 0.12 to ≥ 0.95. Known model limitations: solo melodic
+instrument leads (sax/guitar) can score vocal-high (17% of instrumental
+controls ≥ 0.35); spoken narration scores low. Default-path speed held
+(compact 1 s / 5 s / 30 s within historical envelopes; interleaved A/B
+mixed-sign).
+
+### Added
+- Vocalness model socket: `AnalysisConfig::vocalness_model` /
+  `vocalness_model=` (Python) loads a JSON MLP (genre-model format + required
+  `id`, exactly two labels, one `"vocal"`); its calibrated P(vocal) overrides
+  `vocalness` and `instrumentalness`.
+- Bundled validated model `sonara-vocalness-v1`
+  (`vocalness_model="bundled"`; ships as package data, ~33 KB).
+- `sonara.vocal_model`: pure-numpy trainer (standardization folded into the
+  first layer), `save`/`load`, `bundled_path()`.
+- `AnalysisProvenance.genre_model_id` / `.vocalness_model_id` (additive; also
+  in the Python provenance dict): model identity for downstream cache
+  invalidation. `None` means the built-in paths produced the fields.
+- Genre-model JSON format: optional `id` field (additive in format v1).
+
+### Fixed
+- MP3 decoding no longer fails an entire file on packet-local bitstream
+  damage: recoverable `DecodeError` packets are skipped (decoder rebuilt on
+  `ResetRequired`), with guardrails — non-empty all-finite PCM required, and
+  a stream where nothing decodes still surfaces its first decode error.
+  Fake/garbage MP3s still fail at probe, unchanged.
+
 ## [0.2.4] - 2026-07-17
 
 ### Validated on real music
