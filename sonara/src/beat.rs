@@ -5,7 +5,7 @@
 
 use ndarray::{Array1, ArrayView1};
 
-use crate::error::{SonaraError, Result};
+use crate::error::{Result, SonaraError};
 use crate::onset;
 use crate::types::Float;
 
@@ -33,7 +33,11 @@ pub struct TempoEstimate {
 impl TempoEstimate {
     /// Fallback estimate carrying a single tempo and no ACF candidates.
     fn fallback(tempo: Float) -> Self {
-        Self { tempo, tempo_raw: tempo, candidates: Vec::new() }
+        Self {
+            tempo,
+            tempo_raw: tempo,
+            candidates: Vec::new(),
+        }
     }
 }
 
@@ -51,7 +55,17 @@ pub fn beat_track(
     tightness: Float,
     trim: bool,
 ) -> Result<(Float, Vec<usize>)> {
-    beat_track_with_bpm_range(y, onset_envelope, sr, hop_length, start_bpm, tightness, trim, None, None)
+    beat_track_with_bpm_range(
+        y,
+        onset_envelope,
+        sr,
+        hop_length,
+        start_bpm,
+        tightness,
+        trim,
+        None,
+        None,
+    )
 }
 
 /// Track beats in an audio signal with optional octave-folding BPM range.
@@ -71,7 +85,15 @@ pub fn beat_track_with_bpm_range(
     bpm_max: Option<Float>,
 ) -> Result<(Float, Vec<usize>)> {
     let (estimate, beats) = beat_track_detailed(
-        y, onset_envelope, sr, hop_length, start_bpm, tightness, trim, bpm_min, bpm_max,
+        y,
+        onset_envelope,
+        sr,
+        hop_length,
+        start_bpm,
+        tightness,
+        trim,
+        bpm_min,
+        bpm_max,
     )?;
     Ok((estimate.tempo, beats))
 }
@@ -136,7 +158,8 @@ pub fn beat_track_detailed(
 
     // Normalize onset envelope
     let mean = oenv.iter().sum::<Float>() / oenv.len() as Float;
-    let std = (oenv.iter().map(|&v| (v - mean).powi(2)).sum::<Float>() / oenv.len() as Float).sqrt();
+    let std =
+        (oenv.iter().map(|&v| (v - mean).powi(2)).sum::<Float>() / oenv.len() as Float).sqrt();
     let oenv_norm = if std > 0.0 {
         oenv.mapv(|v| (v - mean) / (std + 1e-10))
     } else {
@@ -214,7 +237,11 @@ fn estimate_tempo(
     ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
     ranked.truncate(MAX_TEMPO_CANDIDATES);
 
-    Ok(TempoEstimate { tempo, tempo_raw, candidates: ranked })
+    Ok(TempoEstimate {
+        tempo,
+        tempo_raw,
+        candidates: ranked,
+    })
 }
 
 /// Refine a tempo from an integer ACF lag using parabolic interpolation of the
@@ -261,7 +288,9 @@ fn refine_tempo_from_acf_peak(acf: ArrayView1<Float>, lag: usize, frame_rate: Fl
 /// (2x / 1.5x) when the raw best BPM is suspiciously low. Electronic music
 /// frequently produces a strong half-tempo ACF peak; when a supported
 /// double/dotted multiple exists in the higher, danceable range we prefer it.
-fn select_preferred_tempo_candidate(candidates: &[(usize, Float, Float)]) -> Option<(usize, Float, Float)> {
+fn select_preferred_tempo_candidate(
+    candidates: &[(usize, Float, Float)],
+) -> Option<(usize, Float, Float)> {
     let best = candidates
         .iter()
         .copied()
@@ -269,15 +298,21 @@ fn select_preferred_tempo_candidate(candidates: &[(usize, Float, Float)]) -> Opt
         .max_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal))?;
 
     if best.1 < 75.0 {
-        if let Some(candidate) = best_supported_metrical_candidate(candidates, best, 115.0, 150.0, 1.80, 2.20, 0.50) {
+        if let Some(candidate) =
+            best_supported_metrical_candidate(candidates, best, 115.0, 150.0, 1.80, 2.20, 0.50)
+        {
             return Some(candidate);
         }
     } else if best.1 < 90.0 {
-        if let Some(candidate) = best_supported_metrical_candidate(candidates, best, 120.0, 145.0, 1.42, 1.62, 0.75) {
+        if let Some(candidate) =
+            best_supported_metrical_candidate(candidates, best, 120.0, 145.0, 1.42, 1.62, 0.75)
+        {
             return Some(candidate);
         }
     } else if best.1 < 95.0 && best.2 >= 4.0 {
-        if let Some(candidate) = best_supported_metrical_candidate(candidates, best, 120.0, 145.0, 1.42, 1.62, 0.85) {
+        if let Some(candidate) =
+            best_supported_metrical_candidate(candidates, best, 120.0, 145.0, 1.42, 1.62, 0.85)
+        {
             return Some(candidate);
         }
     }
@@ -389,7 +424,11 @@ fn beat_local_score(oenv: ArrayView1<Float>, frames_per_beat: usize) -> Array1<F
 ///
 /// Scoring: cumscore[i] = localscore[i] + max_j(cumscore[j] - tightness * (log(i-j) - log(fpb))^2)
 /// where j ranges over [i - 2*fpb, i - fpb/2]
-fn beat_track_dp(local_score: ArrayView1<Float>, frames_per_beat: usize, tightness: Float) -> Vec<usize> {
+fn beat_track_dp(
+    local_score: ArrayView1<Float>,
+    frames_per_beat: usize,
+    tightness: Float,
+) -> Vec<usize> {
     let n = local_score.len();
     if n == 0 {
         return vec![];
@@ -420,7 +459,11 @@ fn beat_track_dp(local_score: ArrayView1<Float>, frames_per_beat: usize, tightne
 
         for j in search_start..search_end.min(i) {
             let interval = i - j;
-            let ln_interval = if interval <= max_interval { ln_table[interval] } else { (interval as Float).ln() };
+            let ln_interval = if interval <= max_interval {
+                ln_table[interval]
+            } else {
+                (interval as Float).ln()
+            };
             let penalty = tightness * (ln_interval - log_fpb).powi(2);
             let score = cumscore[j] - penalty;
             if score > best_score {
@@ -469,13 +512,15 @@ fn trim_beats(local_score: ArrayView1<Float>, beats: &[usize]) -> Vec<usize> {
 
     let threshold = 0.01 * local_score.iter().copied().fold(0.0_f32, Float::max);
 
-    let start = beats.iter().position(|&b| {
-        b < local_score.len() && local_score[b] >= threshold
-    }).unwrap_or(0);
+    let start = beats
+        .iter()
+        .position(|&b| b < local_score.len() && local_score[b] >= threshold)
+        .unwrap_or(0);
 
-    let end = beats.iter().rposition(|&b| {
-        b < local_score.len() && local_score[b] >= threshold
-    }).unwrap_or(beats.len() - 1);
+    let end = beats
+        .iter()
+        .rposition(|&b| b < local_score.len() && local_score[b] >= threshold)
+        .unwrap_or(beats.len() - 1);
 
     beats[start..=end].to_vec()
 }
@@ -555,7 +600,11 @@ pub fn tempo_curve(
         .windows(2)
         .map(|w| {
             let dt = (w[1] as Float - w[0] as Float) * hop_f / sr_f;
-            if dt > 0.0 { 60.0 / dt } else { 0.0 }
+            if dt > 0.0 {
+                60.0 / dt
+            } else {
+                0.0
+            }
         })
         .collect();
 
@@ -588,7 +637,11 @@ pub fn tempo_variability(tempo_curve: &[Float]) -> Float {
     if mean <= 0.0 {
         return 0.0;
     }
-    let variance = tempo_curve.iter().map(|&b| (b - mean).powi(2)).sum::<Float>() / n;
+    let variance = tempo_curve
+        .iter()
+        .map(|&b| (b - mean).powi(2))
+        .sum::<Float>()
+        / n;
     variance.sqrt() / mean
 }
 
@@ -614,8 +667,12 @@ mod tests {
     #[test]
     fn test_beat_track_clicks() {
         let y = click_train(22050, 4.0, 120.0);
-        let (tempo, beats) = beat_track(Some(y.view()), None, 22050, 512, 120.0, 100.0, true).unwrap();
-        assert!(tempo > 80.0 && tempo < 180.0, "tempo {tempo} should be near 120");
+        let (tempo, beats) =
+            beat_track(Some(y.view()), None, 22050, 512, 120.0, 100.0, true).unwrap();
+        assert!(
+            tempo > 80.0 && tempo < 180.0,
+            "tempo {tempo} should be near 120"
+        );
         assert!(beats.len() >= 3, "expected >=3 beats, got {}", beats.len());
     }
 
@@ -623,7 +680,10 @@ mod tests {
     fn test_beat_track_tempo() {
         let y = click_train(22050, 4.0, 120.0);
         let (tempo, _) = beat_track(Some(y.view()), None, 22050, 512, 120.0, 100.0, true).unwrap();
-        assert!((tempo - 120.0).abs() < 30.0, "tempo {tempo} should be ~120 BPM");
+        assert!(
+            (tempo - 120.0).abs() < 30.0,
+            "tempo {tempo} should be ~120 BPM"
+        );
     }
 
     #[test]
@@ -633,7 +693,8 @@ mod tests {
             (31, 83.354332, 9.647),
             (21, 123.046875, 7.414),
             (20, 129.199219, 7.407),
-        ]).unwrap();
+        ])
+        .unwrap();
         assert_eq!(selected.0, 21);
     }
 
@@ -644,7 +705,8 @@ mod tests {
             (19, 135.999176, 8.613),
             (39, 66.256012, 7.820),
             (20, 129.199219, 6.865),
-        ]).unwrap();
+        ])
+        .unwrap();
         assert_eq!(selected.0, 19);
     }
 
@@ -655,7 +717,8 @@ mod tests {
             (20, 129.199219, 1.338),
             (19, 135.999176, 0.939),
             (39, 66.256012, 0.747),
-        ]).unwrap();
+        ])
+        .unwrap();
         assert_eq!(selected.0, 29);
     }
 
@@ -666,7 +729,8 @@ mod tests {
             (37, 69.837418, 2.145),
             (18, 143.554688, 2.144),
             (19, 135.999176, 2.082),
-        ]).unwrap();
+        ])
+        .unwrap();
         assert_eq!(selected.0, 28);
     }
 
@@ -689,14 +753,26 @@ mod tests {
 
     #[test]
     fn test_align_tempo_to_bpm_range_doubles_low_values() {
-        assert_eq!(align_tempo_to_bpm_range(63.02401, Some(79.0), Some(192.0)).unwrap(), 126.04802);
-        assert_eq!(align_tempo_to_bpm_range(66.25601, Some(79.0), Some(192.0)).unwrap(), 132.51202);
+        assert_eq!(
+            align_tempo_to_bpm_range(63.02401, Some(79.0), Some(192.0)).unwrap(),
+            126.04802
+        );
+        assert_eq!(
+            align_tempo_to_bpm_range(66.25601, Some(79.0), Some(192.0)).unwrap(),
+            132.51202
+        );
     }
 
     #[test]
     fn test_align_tempo_to_bpm_range_halves_high_values() {
-        assert!((align_tempo_to_bpm_range(250.0, Some(79.0), Some(192.0)).unwrap() - 125.0).abs() < 1e-6);
-        assert!((align_tempo_to_bpm_range(401.0, Some(79.0), Some(192.0)).unwrap() - 100.25).abs() < 1e-6);
+        assert!(
+            (align_tempo_to_bpm_range(250.0, Some(79.0), Some(192.0)).unwrap() - 125.0).abs()
+                < 1e-6
+        );
+        assert!(
+            (align_tempo_to_bpm_range(401.0, Some(79.0), Some(192.0)).unwrap() - 100.25).abs()
+                < 1e-6
+        );
     }
 
     #[test]
@@ -711,9 +787,17 @@ mod tests {
     #[test]
     fn test_beat_track_flat_onset_envelope_falls_back_without_beats() {
         let env = Array1::<Float>::zeros(128);
-        let (tempo, beats) = beat_track(None, Some(env.view()), 22050, 512, 120.0, 100.0, true).unwrap();
-        assert!((tempo - 120.0).abs() < 1e-6, "flat onset envelope should fall back to start BPM, got {tempo}");
-        assert!(beats.is_empty(), "flat onset envelope should not produce beats, got {}", beats.len());
+        let (tempo, beats) =
+            beat_track(None, Some(env.view()), 22050, 512, 120.0, 100.0, true).unwrap();
+        assert!(
+            (tempo - 120.0).abs() < 1e-6,
+            "flat onset envelope should fall back to start BPM, got {tempo}"
+        );
+        assert!(
+            beats.is_empty(),
+            "flat onset envelope should not produce beats, got {}",
+            beats.len()
+        );
     }
 
     #[test]
@@ -743,7 +827,10 @@ mod tests {
             assert!((bpm - 120.0).abs() < 5.0, "expected ~120 BPM, got {bpm}");
         }
         let var = tempo_variability(&curve);
-        assert!(var < 0.01, "steady tempo should have low variability, got {var}");
+        assert!(
+            var < 0.01,
+            "steady tempo should have low variability, got {var}"
+        );
     }
 
     #[test]

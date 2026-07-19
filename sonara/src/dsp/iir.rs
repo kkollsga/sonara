@@ -5,7 +5,7 @@
 
 use ndarray::{Array1, ArrayView1};
 
-use crate::error::{SonaraError, Result};
+use crate::error::{Result, SonaraError};
 use crate::types::Float;
 
 /// Apply an IIR/FIR filter using Direct Form II Transposed.
@@ -52,8 +52,16 @@ pub fn lfilter(
 
         // Update state (Direct Form II Transposed)
         for j in 0..order - 1 {
-            let b_j = if j + 1 < b_norm.len() { b_norm[j + 1] } else { 0.0 };
-            let a_j = if j + 1 < a_norm.len() { a_norm[j + 1] } else { 0.0 };
+            let b_j = if j + 1 < b_norm.len() {
+                b_norm[j + 1]
+            } else {
+                0.0
+            };
+            let a_j = if j + 1 < a_norm.len() {
+                a_norm[j + 1]
+            } else {
+                0.0
+            };
             state[j] = b_j * x[i] - a_j * y[i] + state[j + 1];
         }
         state[order - 1] = 0.0;
@@ -120,10 +128,7 @@ pub fn filtfilt(
 ) -> Result<Array1<Float>> {
     let n = x.len();
     if n < 3 {
-        return Err(SonaraError::InsufficientData {
-            needed: 3,
-            got: n,
-        });
+        return Err(SonaraError::InsufficientData { needed: 3, got: n });
     }
 
     // Pad length: 3 * max(len(a), len(b))
@@ -173,10 +178,7 @@ pub fn filtfilt(
 ///
 /// - `sos`: Second-order sections, shape (n_sections, 6). Each row is [b0, b1, b2, a0, a1, a2].
 /// - `x`: Input signal
-pub fn sosfiltfilt(
-    sos: &[&[Float; 6]],
-    x: ArrayView1<Float>,
-) -> Result<Array1<Float>> {
+pub fn sosfiltfilt(sos: &[&[Float; 6]], x: ArrayView1<Float>) -> Result<Array1<Float>> {
     let mut result = x.to_owned();
 
     // Apply each section as filtfilt
@@ -266,8 +268,10 @@ mod tests {
             .max_by(|&a, &b| y[a].partial_cmp(&y[b]).unwrap())
             .unwrap();
         // Peaks should be within 1 sample of each other (zero phase)
-        assert!((input_peak as i64 - output_peak as i64).unsigned_abs() <= 1,
-            "filtfilt should be zero-phase: input peak at {input_peak}, output at {output_peak}");
+        assert!(
+            (input_peak as i64 - output_peak as i64).unsigned_abs() <= 1,
+            "filtfilt should be zero-phase: input peak at {input_peak}, output at {output_peak}"
+        );
     }
 
     #[test]
@@ -284,10 +288,14 @@ mod tests {
         assert_eq!(double.len(), x.len());
 
         // Double filtering attenuates high frequencies more
-        let diff_single: Float = single.windows(2).into_iter()
+        let diff_single: Float = single
+            .windows(2)
+            .into_iter()
             .map(|w| (w[1] - w[0]).abs())
             .sum::<Float>();
-        let diff_double: Float = double.windows(2).into_iter()
+        let diff_double: Float = double
+            .windows(2)
+            .into_iter()
             .map(|w| (w[1] - w[0]).abs())
             .sum::<Float>();
         assert!(diff_double < diff_single, "filtfilt should be smoother");

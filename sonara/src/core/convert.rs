@@ -201,19 +201,26 @@ pub fn note_to_midi(note: &str) -> crate::Result<Float> {
     }
 
     let note_map: std::collections::HashMap<&str, i32> = [
-        ("C", 0), ("D", 2), ("E", 4), ("F", 5), ("G", 7), ("A", 9), ("B", 11),
+        ("C", 0),
+        ("D", 2),
+        ("E", 4),
+        ("F", 5),
+        ("G", 7),
+        ("A", 9),
+        ("B", 11),
     ]
     .into_iter()
     .collect();
 
     let bytes = note.as_bytes();
     let base_note = (bytes[0] as char).to_uppercase().to_string();
-    let base_pitch = *note_map.get(base_note.as_str()).ok_or_else(|| {
-        crate::SonaraError::InvalidParameter {
-            param: "note",
-            reason: format!("invalid note name: '{note}'"),
-        }
-    })?;
+    let base_pitch =
+        *note_map
+            .get(base_note.as_str())
+            .ok_or_else(|| crate::SonaraError::InvalidParameter {
+                param: "note",
+                reason: format!("invalid note name: '{note}'"),
+            })?;
 
     // Parse accidentals and octave
     let mut offset = 0i32;
@@ -234,12 +241,12 @@ pub fn note_to_midi(note: &str) -> crate::Result<Float> {
 
     // Remaining should be the octave number
     let octave_str = &note[idx..];
-    let octave: i32 = octave_str.parse().map_err(|_| {
-        crate::SonaraError::InvalidParameter {
+    let octave: i32 = octave_str
+        .parse()
+        .map_err(|_| crate::SonaraError::InvalidParameter {
             param: "note",
             reason: format!("invalid octave in note: '{note}'"),
-        }
-    })?;
+        })?;
 
     Ok((12 * (octave + 1) + base_pitch + offset) as Float)
 }
@@ -251,7 +258,12 @@ pub fn note_to_midi(note: &str) -> crate::Result<Float> {
 /// Convert Hz to octave number (relative to A4 by default).
 ///
 /// Set `a4_freq` to use a non-standard concert pitch. Defaults to A4 = 440 Hz.
-pub fn hz_to_octs(freq: Float, tuning: Float, bins_per_octave: usize, a4_freq: Option<Float>) -> Float {
+pub fn hz_to_octs(
+    freq: Float,
+    tuning: Float,
+    bins_per_octave: usize,
+    a4_freq: Option<Float>,
+) -> Float {
     let a4 = a4_freq.unwrap_or(A4_HZ);
     let a4_tuned = a4 * 2.0_f32.powf(tuning / bins_per_octave as Float);
     (freq / (a4_tuned / 16.0)).log2()
@@ -260,7 +272,12 @@ pub fn hz_to_octs(freq: Float, tuning: Float, bins_per_octave: usize, a4_freq: O
 /// Convert octave number to Hz.
 ///
 /// Set `a4_freq` to use a non-standard concert pitch. Defaults to A4 = 440 Hz.
-pub fn octs_to_hz(octs: Float, tuning: Float, bins_per_octave: usize, a4_freq: Option<Float>) -> Float {
+pub fn octs_to_hz(
+    octs: Float,
+    tuning: Float,
+    bins_per_octave: usize,
+    a4_freq: Option<Float>,
+) -> Float {
     let a4 = a4_freq.unwrap_or(A4_HZ);
     let a4_tuned = a4 * 2.0_f32.powf(tuning / bins_per_octave as Float);
     (a4_tuned / 16.0) * 2.0_f32.powf(octs)
@@ -351,9 +368,8 @@ pub fn a_weighting(freq: Float) -> Float {
 pub fn b_weighting(freq: Float) -> Float {
     let f2 = freq * freq;
     let num = 12194.0_f32.powi(2) * f2 * freq;
-    let denom = (f2 + 20.6_f32.powi(2))
-        * (f2 + 158.5_f32.powi(2)).sqrt()
-        * (f2 + 12194.0_f32.powi(2));
+    let denom =
+        (f2 + 20.6_f32.powi(2)) * (f2 + 158.5_f32.powi(2)).sqrt() * (f2 + 12194.0_f32.powi(2));
     if denom == 0.0 {
         return Float::NEG_INFINITY;
     }
@@ -394,10 +410,7 @@ pub fn z_weighting(_freq: Float) -> Float {
 }
 
 /// Apply a frequency weighting function to an array of frequencies.
-pub fn frequency_weighting(
-    freqs: ArrayView1<Float>,
-    kind: &str,
-) -> crate::Result<Array1<Float>> {
+pub fn frequency_weighting(freqs: ArrayView1<Float>, kind: &str) -> crate::Result<Array1<Float>> {
     let weight_fn: fn(Float) -> Float = match kind.to_uppercase().as_str() {
         "A" => a_weighting,
         "B" => b_weighting,
@@ -438,9 +451,7 @@ pub fn samples_like(n_frames: usize, hop_length: usize) -> Array1<usize> {
 
 /// Generate time values matching the frames of a spectrogram-like array.
 pub fn times_like(n_frames: usize, sr: Float, hop_length: usize) -> Array1<Float> {
-    Array1::from_shape_fn(n_frames, |i| {
-        i as Float * hop_length as Float / sr
-    })
+    Array1::from_shape_fn(n_frames, |i| i as Float * hop_length as Float / sr)
 }
 
 // ============================================================
@@ -451,12 +462,18 @@ pub fn times_like(n_frames: usize, sr: Float, hop_length: usize) -> Array1<Float
 // Svara conversions (Hindustani / Carnatic)
 // ============================================================
 
-const SVARA_H: [&str; 12] = ["Sa", "re", "Re", "ga", "Ga", "ma", "Ma", "Pa", "dha", "Dha", "ni", "Ni"];
-const SVARA_C: [&str; 12] = ["Sa", "Ri1", "Ri2", "Ga1", "Ga2", "Ma1", "Ma2", "Pa", "Da1", "Da2", "Ni1", "Ni2"];
+const SVARA_H: [&str; 12] = [
+    "Sa", "re", "Re", "ga", "Ga", "ma", "Ma", "Pa", "dha", "Dha", "ni", "Ni",
+];
+const SVARA_C: [&str; 12] = [
+    "Sa", "Ri1", "Ri2", "Ga1", "Ga2", "Ma1", "Ma2", "Pa", "Da1", "Da2", "Ni1", "Ni2",
+];
 
 /// Convert Hz to Hindustani svara name.
 pub fn hz_to_svara_h(freq: Float, sa: Float, _abbr: bool) -> String {
-    if freq <= 0.0 || sa <= 0.0 { return String::new(); }
+    if freq <= 0.0 || sa <= 0.0 {
+        return String::new();
+    }
     let midi_offset = (12.0 * (freq / sa).log2()).round() as i64;
     let idx = ((midi_offset % 12) + 12) % 12;
     SVARA_H[idx as usize].to_string()
@@ -464,7 +481,9 @@ pub fn hz_to_svara_h(freq: Float, sa: Float, _abbr: bool) -> String {
 
 /// Convert Hz to Carnatic svara name.
 pub fn hz_to_svara_c(freq: Float, sa: Float, _abbr: bool) -> String {
-    if freq <= 0.0 || sa <= 0.0 { return String::new(); }
+    if freq <= 0.0 || sa <= 0.0 {
+        return String::new();
+    }
     let midi_offset = (12.0 * (freq / sa).log2()).round() as i64;
     let idx = ((midi_offset % 12) + 12) % 12;
     SVARA_C[idx as usize].to_string()
@@ -496,19 +515,33 @@ pub fn note_to_svara_c(note: &str, sa: &str, abbr: bool) -> crate::Result<String
 
 /// Convert Hz to FJS (Functional Just System) notation.
 pub fn hz_to_fjs(freq: Float, ref_freq: Float) -> String {
-    if freq <= 0.0 || ref_freq <= 0.0 { return String::new(); }
+    if freq <= 0.0 || ref_freq <= 0.0 {
+        return String::new();
+    }
     let ratio = freq / ref_freq;
     // Fold to [1, 2)
     let mut r = ratio;
-    while r >= 2.0 { r /= 2.0; }
-    while r < 1.0 { r *= 2.0; }
+    while r >= 2.0 {
+        r /= 2.0;
+    }
+    while r < 1.0 {
+        r *= 2.0;
+    }
 
     // Common just intonation intervals
     let known: [(Float, &str); 12] = [
-        (1.0, "P1"), (16.0/15.0, "m2"), (9.0/8.0, "M2"), (6.0/5.0, "m3"),
-        (5.0/4.0, "M3"), (4.0/3.0, "P4"), (45.0/32.0, "A4"),
-        (3.0/2.0, "P5"), (8.0/5.0, "m6"), (5.0/3.0, "M6"),
-        (9.0/5.0, "m7"), (15.0/8.0, "M7"),
+        (1.0, "P1"),
+        (16.0 / 15.0, "m2"),
+        (9.0 / 8.0, "M2"),
+        (6.0 / 5.0, "m3"),
+        (5.0 / 4.0, "M3"),
+        (4.0 / 3.0, "P4"),
+        (45.0 / 32.0, "A4"),
+        (3.0 / 2.0, "P5"),
+        (8.0 / 5.0, "m6"),
+        (5.0 / 3.0, "M6"),
+        (9.0 / 5.0, "m7"),
+        (15.0 / 8.0, "M7"),
     ];
 
     for &(r_known, name) in &known {
@@ -531,7 +564,11 @@ mod tests {
     fn test_hz_to_mel_htk() {
         // 440 Hz → 549.64 mel (HTK)
         let mel = hz_to_mel(440.0, true);
-        assert_abs_diff_eq!(mel, 2595.0 * (1.0 + 440.0_f32 / 700.0).log10(), epsilon = 1e-4);
+        assert_abs_diff_eq!(
+            mel,
+            2595.0 * (1.0 + 440.0_f32 / 700.0).log10(),
+            epsilon = 1e-4
+        );
     }
 
     #[test]
@@ -670,7 +707,10 @@ mod tests {
     fn test_a_weighting_1khz() {
         // A-weighting at 1kHz ≈ 0 dB (reference point)
         let w = a_weighting(1000.0);
-        assert!(w.abs() < 1.0, "A-weighting at 1kHz should be ~0 dB, got {w}");
+        assert!(
+            w.abs() < 1.0,
+            "A-weighting at 1kHz should be ~0 dB, got {w}"
+        );
     }
 
     #[test]

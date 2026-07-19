@@ -14,7 +14,7 @@ use std::sync::Arc;
 use num_complex::Complex;
 use realfft::{ComplexToReal, RealFftPlanner, RealToComplex};
 
-use crate::error::{SonaraError, Result};
+use crate::error::{Result, SonaraError};
 use crate::types::Float;
 
 /// Maximum memory block size for chunked FFT processing (in bytes).

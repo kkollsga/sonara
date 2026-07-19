@@ -24,8 +24,10 @@ fn main() {
     let mut ok_count = 0usize;
     let mut err_count = 0usize;
 
-    println!("{:<5} {:>6} {:>7} {:>7} {:>5} {:>5} {:>5} {:>5} {:>12} {:>6}  {}",
-        "#", "BPM", "LUFS", "Energy", "Dance", "Val", "Acou", "DynRg", "Key", "Dur", "File");
+    println!(
+        "{:<5} {:>6} {:>7} {:>7} {:>5} {:>5} {:>5} {:>5} {:>12} {:>6}  {}",
+        "#", "BPM", "LUFS", "Energy", "Dance", "Val", "Acou", "DynRg", "Key", "Dur", "File"
+    );
     println!("{}", "-".repeat(110));
 
     for (i, result) in results.iter().enumerate() {
@@ -63,8 +65,14 @@ fn main() {
     }
 
     println!("\n{}", "=".repeat(110));
-    println!("Results: {} OK, {} errors out of {} files", ok_count, err_count, paths.len());
-    println!("Total time: {:.2}s ({:.1}ms per file, {:.0} files/sec)",
+    println!(
+        "Results: {} OK, {} errors out of {} files",
+        ok_count,
+        err_count,
+        paths.len()
+    );
+    println!(
+        "Total time: {:.2}s ({:.1}ms per file, {:.0} files/sec)",
         elapsed.as_secs_f64(),
         elapsed.as_secs_f64() * 1000.0 / paths.len() as f64,
         paths.len() as f64 / elapsed.as_secs_f64(),
@@ -72,35 +80,90 @@ fn main() {
 
     // Print feature statistics
     if ok_count > 0 {
-        let ok_results: Vec<&analyze::TrackAnalysis> = results.iter()
-            .filter_map(|r| r.as_ref().ok())
-            .collect();
+        let ok_results: Vec<&analyze::TrackAnalysis> =
+            results.iter().filter_map(|r| r.as_ref().ok()).collect();
 
         println!("\nFeature Statistics (n={}):", ok_count);
-        println!("  BPM:          min={:.0}  avg={:.0}  max={:.0}",
-            ok_results.iter().map(|r| r.bpm).fold(f32::INFINITY, f32::min),
+        println!(
+            "  BPM:          min={:.0}  avg={:.0}  max={:.0}",
+            ok_results
+                .iter()
+                .map(|r| r.bpm)
+                .fold(f32::INFINITY, f32::min),
             ok_results.iter().map(|r| r.bpm).sum::<f32>() / ok_count as f32,
-            ok_results.iter().map(|r| r.bpm).fold(f32::NEG_INFINITY, f32::max));
-        println!("  LUFS:         min={:.1}  avg={:.1}  max={:.1}",
-            ok_results.iter().map(|r| r.loudness_lufs).fold(f32::INFINITY, f32::min),
+            ok_results
+                .iter()
+                .map(|r| r.bpm)
+                .fold(f32::NEG_INFINITY, f32::max)
+        );
+        println!(
+            "  LUFS:         min={:.1}  avg={:.1}  max={:.1}",
+            ok_results
+                .iter()
+                .map(|r| r.loudness_lufs)
+                .fold(f32::INFINITY, f32::min),
             ok_results.iter().map(|r| r.loudness_lufs).sum::<f32>() / ok_count as f32,
-            ok_results.iter().map(|r| r.loudness_lufs).fold(f32::NEG_INFINITY, f32::max));
-        println!("  Energy:       min={:.2}  avg={:.2}  max={:.2}",
-            ok_results.iter().filter_map(|r| r.energy).fold(f32::INFINITY, f32::min),
+            ok_results
+                .iter()
+                .map(|r| r.loudness_lufs)
+                .fold(f32::NEG_INFINITY, f32::max)
+        );
+        println!(
+            "  Energy:       min={:.2}  avg={:.2}  max={:.2}",
+            ok_results
+                .iter()
+                .filter_map(|r| r.energy)
+                .fold(f32::INFINITY, f32::min),
             ok_results.iter().filter_map(|r| r.energy).sum::<f32>() / ok_count as f32,
-            ok_results.iter().filter_map(|r| r.energy).fold(f32::NEG_INFINITY, f32::max));
-        println!("  Danceability: min={:.2}  avg={:.2}  max={:.2}",
-            ok_results.iter().filter_map(|r| r.danceability).fold(f32::INFINITY, f32::min),
-            ok_results.iter().filter_map(|r| r.danceability).sum::<f32>() / ok_count as f32,
-            ok_results.iter().filter_map(|r| r.danceability).fold(f32::NEG_INFINITY, f32::max));
-        println!("  Valence:      min={:.2}  avg={:.2}  max={:.2}",
-            ok_results.iter().filter_map(|r| r.valence).fold(f32::INFINITY, f32::min),
+            ok_results
+                .iter()
+                .filter_map(|r| r.energy)
+                .fold(f32::NEG_INFINITY, f32::max)
+        );
+        println!(
+            "  Danceability: min={:.2}  avg={:.2}  max={:.2}",
+            ok_results
+                .iter()
+                .filter_map(|r| r.danceability)
+                .fold(f32::INFINITY, f32::min),
+            ok_results
+                .iter()
+                .filter_map(|r| r.danceability)
+                .sum::<f32>()
+                / ok_count as f32,
+            ok_results
+                .iter()
+                .filter_map(|r| r.danceability)
+                .fold(f32::NEG_INFINITY, f32::max)
+        );
+        println!(
+            "  Valence:      min={:.2}  avg={:.2}  max={:.2}",
+            ok_results
+                .iter()
+                .filter_map(|r| r.valence)
+                .fold(f32::INFINITY, f32::min),
             ok_results.iter().filter_map(|r| r.valence).sum::<f32>() / ok_count as f32,
-            ok_results.iter().filter_map(|r| r.valence).fold(f32::NEG_INFINITY, f32::max));
-        println!("  Acousticness: min={:.2}  avg={:.2}  max={:.2}",
-            ok_results.iter().filter_map(|r| r.acousticness).fold(f32::INFINITY, f32::min),
-            ok_results.iter().filter_map(|r| r.acousticness).sum::<f32>() / ok_count as f32,
-            ok_results.iter().filter_map(|r| r.acousticness).fold(f32::NEG_INFINITY, f32::max));
+            ok_results
+                .iter()
+                .filter_map(|r| r.valence)
+                .fold(f32::NEG_INFINITY, f32::max)
+        );
+        println!(
+            "  Acousticness: min={:.2}  avg={:.2}  max={:.2}",
+            ok_results
+                .iter()
+                .filter_map(|r| r.acousticness)
+                .fold(f32::INFINITY, f32::min),
+            ok_results
+                .iter()
+                .filter_map(|r| r.acousticness)
+                .sum::<f32>()
+                / ok_count as f32,
+            ok_results
+                .iter()
+                .filter_map(|r| r.acousticness)
+                .fold(f32::NEG_INFINITY, f32::max)
+        );
 
         // Key distribution
         let mut key_counts = std::collections::HashMap::new();

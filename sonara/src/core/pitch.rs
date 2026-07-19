@@ -7,7 +7,7 @@ use std::f32::consts::PI;
 use ndarray::{s, Array1, Array2, ArrayView1};
 
 use crate::core::{convert, spectrum};
-use crate::error::{SonaraError, Result};
+use crate::error::{Result, SonaraError};
 use crate::types::*;
 use crate::util::utils;
 
@@ -140,13 +140,17 @@ pub fn pyin(
 
     // Pitch bins: resolution=0.1 → 10 bins per semitone
     let n_bins_per_semitone = (1.0 / resolution).ceil() as usize;
-    let n_pitch_bins = (12.0 * n_bins_per_semitone as Float * (fmax / fmin).log2()).floor() as usize + 1;
+    let n_pitch_bins =
+        (12.0 * n_bins_per_semitone as Float * (fmax / fmin).log2()).floor() as usize + 1;
 
     // Pre-compute beta CDF for threshold prior
     let thresholds: Vec<Float> = (0..=n_thresholds)
         .map(|i| i as Float / n_thresholds as Float)
         .collect();
-    let beta_cdf: Vec<Float> = thresholds.iter().map(|&t| beta_inc(t, beta_a, beta_b)).collect();
+    let beta_cdf: Vec<Float> = thresholds
+        .iter()
+        .map(|&t| beta_inc(t, beta_a, beta_b))
+        .collect();
     let beta_probs: Vec<Float> = beta_cdf.windows(2).map(|w| w[1] - w[0]).collect();
 
     // Frame the signal (with center padding)
@@ -167,13 +171,17 @@ pub fn pyin(
 
         // Find local minima (troughs)
         let mut is_trough = vec![false; n_tau];
-        if n_tau > 1 { is_trough[0] = cmndf[0] < cmndf[1]; }
+        if n_tau > 1 {
+            is_trough[0] = cmndf[0] < cmndf[1];
+        }
         for tau in 1..n_tau.saturating_sub(1) {
             is_trough[tau] = cmndf[tau] < cmndf[tau - 1] && cmndf[tau] <= cmndf[tau + 1];
         }
 
         let trough_idx: Vec<usize> = (0..n_tau).filter(|&i| is_trough[i]).collect();
-        if trough_idx.is_empty() { continue; }
+        if trough_idx.is_empty() {
+            continue;
+        }
 
         let trough_heights: Vec<Float> = trough_idx.iter().map(|&i| cmndf[i]).collect();
         let n_troughs = trough_idx.len();
@@ -190,7 +198,9 @@ pub fn pyin(
                 }
             }
             let n_below = below.len();
-            if n_below == 0 { continue; }
+            if n_below == 0 {
+                continue;
+            }
 
             // Boltzmann prior: lower-index troughs get more weight
             for (pos, &ti) in below.iter().enumerate() {
@@ -207,15 +217,23 @@ pub fn pyin(
         }
 
         // Add no_trough_prob to global minimum
-        let gmin = trough_heights.iter().enumerate()
+        let gmin = trough_heights
+            .iter()
+            .enumerate()
             .min_by(|a, b| a.1.partial_cmp(b.1).unwrap())
-            .map(|(i, _)| i).unwrap_or(0);
-        let n_below_min = thresholds[1..].iter().filter(|&&t| trough_heights[gmin] >= t).count();
+            .map(|(i, _)| i)
+            .unwrap_or(0);
+        let n_below_min = thresholds[1..]
+            .iter()
+            .filter(|&&t| trough_heights[gmin] >= t)
+            .count();
         trough_probs[gmin] += no_trough_prob * beta_probs[..n_below_min].iter().sum::<Float>();
 
         // Map troughs to pitch bins
         for (ti, &tau_raw) in trough_idx.iter().enumerate() {
-            if trough_probs[ti] <= 0.0 { continue; }
+            if trough_probs[ti] <= 0.0 {
+                continue;
+            }
 
             let refined = if tau_raw > 0 && tau_raw + 1 < n_tau {
                 parabolic_interpolation(&cmndf, tau_raw).0
@@ -224,9 +242,13 @@ pub fn pyin(
             };
 
             let period = min_period as Float + refined;
-            if period <= 0.0 { continue; }
+            if period <= 0.0 {
+                continue;
+            }
             let f0_cand = sr_f / period;
-            if f0_cand < fmin || f0_cand > fmax { continue; }
+            if f0_cand < fmin || f0_cand > fmax {
+                continue;
+            }
 
             let bin = (12.0 * n_bins_per_semitone as Float * (f0_cand / fmin).log2()).round();
             let bin = (bin as i64).clamp(0, n_pitch_bins as i64 - 1) as usize;
@@ -234,7 +256,10 @@ pub fn pyin(
         }
 
         // Voiced probability = sum of observation probs in voiced states
-        let vp: Float = (0..n_pitch_bins).map(|i| obs_probs[(i, t)]).sum::<Float>().clamp(0.0, 1.0);
+        let vp: Float = (0..n_pitch_bins)
+            .map(|i| obs_probs[(i, t)])
+            .sum::<Float>()
+            .clamp(0.0, 1.0);
         voiced_prob[t] = vp;
 
         // Unvoiced states: uniform (1 - vp) / n_pitch_bins
@@ -257,7 +282,8 @@ pub fn pyin(
             let sw = switch_trans[(si, sj)];
             for pi in 0..n_pitch_bins {
                 for pj in 0..n_pitch_bins {
-                    transition[(si * n_pitch_bins + pi, sj * n_pitch_bins + pj)] = sw * pitch_trans[(pi, pj)];
+                    transition[(si * n_pitch_bins + pi, sj * n_pitch_bins + pj)] =
+                        sw * pitch_trans[(pi, pj)];
                 }
             }
         }
@@ -292,8 +318,12 @@ pub fn pyin(
 
 /// Regularized incomplete beta function I_x(a, b) via continued fractions.
 fn beta_inc(x: Float, a: Float, b: Float) -> Float {
-    if x <= 0.0 { return 0.0; }
-    if x >= 1.0 { return 1.0; }
+    if x <= 0.0 {
+        return 0.0;
+    }
+    if x >= 1.0 {
+        return 1.0;
+    }
     if x > (a + 1.0) / (a + b + 2.0) {
         return 1.0 - beta_inc(1.0 - x, b, a);
     }
@@ -302,49 +332,80 @@ fn beta_inc(x: Float, a: Float, b: Float) -> Float {
 
     let mut c = 1.0_f32;
     let mut d = 1.0 - (a + b) * x / (a + 1.0);
-    if d.abs() < 1e-30 { d = 1e-30; }
+    if d.abs() < 1e-30 {
+        d = 1e-30;
+    }
     d = 1.0 / d;
     let mut f = d;
     for m in 1..200 {
         let mf = m as Float;
         let num = mf * (b - mf) * x / ((a + 2.0 * mf - 1.0) * (a + 2.0 * mf));
-        d = 1.0 + num * d; if d.abs() < 1e-30 { d = 1e-30; }
-        c = 1.0 + num / c; if c.abs() < 1e-30 { c = 1e-30; }
-        d = 1.0 / d; f *= c * d;
-        let num = -(a + mf) * (a + b + mf) * x / ((a + 2.0 * mf) * (a + 2.0 * mf + 1.0));
-        d = 1.0 + num * d; if d.abs() < 1e-30 { d = 1e-30; }
-        c = 1.0 + num / c; if c.abs() < 1e-30 { c = 1e-30; }
+        d = 1.0 + num * d;
+        if d.abs() < 1e-30 {
+            d = 1e-30;
+        }
+        c = 1.0 + num / c;
+        if c.abs() < 1e-30 {
+            c = 1e-30;
+        }
         d = 1.0 / d;
-        let delta = c * d; f *= delta;
-        if (delta - 1.0).abs() < 1e-12 { break; }
+        f *= c * d;
+        let num = -(a + mf) * (a + b + mf) * x / ((a + 2.0 * mf) * (a + 2.0 * mf + 1.0));
+        d = 1.0 + num * d;
+        if d.abs() < 1e-30 {
+            d = 1e-30;
+        }
+        c = 1.0 + num / c;
+        if c.abs() < 1e-30 {
+            c = 1e-30;
+        }
+        d = 1.0 / d;
+        let delta = c * d;
+        f *= delta;
+        if (delta - 1.0).abs() < 1e-12 {
+            break;
+        }
     }
     front * f
 }
 
 /// Log-gamma via Lanczos approximation.
 fn ln_gamma(x: Float) -> Float {
-    if x <= 0.0 { return Float::INFINITY; }
+    if x <= 0.0 {
+        return Float::INFINITY;
+    }
     let g = 7.0;
-    let c = [0.99999999999980993, 676.5203681218851, -1259.1392167224028,
-        771.32342877765313, -176.61502916214059, 12.507343278686905,
-        -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7];
+    let c = [
+        0.99999999999980993,
+        676.5203681218851,
+        -1259.1392167224028,
+        771.32342877765313,
+        -176.61502916214059,
+        12.507343278686905,
+        -0.13857109526572012,
+        9.9843695780195716e-6,
+        1.5056327351493116e-7,
+    ];
     if x < 0.5 {
-        let s = c[1..].iter().enumerate().fold(c[0], |a, (i, &cv)| a + cv / ((1.0 - x) + i as Float + 1.0));
+        let s = c[1..]
+            .iter()
+            .enumerate()
+            .fold(c[0], |a, (i, &cv)| a + cv / ((1.0 - x) + i as Float + 1.0));
         let t = (1.0 - x) + g + 0.5;
         PI.ln() - (PI * x).sin().ln() - s.ln() - t.ln() * ((1.0 - x) + 0.5) + t
     } else {
         let xx = x - 1.0;
-        let s = c[1..].iter().enumerate().fold(c[0], |a, (i, &cv)| a + cv / (xx + i as Float + 1.0));
+        let s = c[1..]
+            .iter()
+            .enumerate()
+            .fold(c[0], |a, (i, &cv)| a + cv / (xx + i as Float + 1.0));
         let t = xx + g + 0.5;
         0.5 * (2.0 * PI).ln() + t.ln() * (xx + 0.5) - t + s.ln()
     }
 }
 
 /// Compute cumulative mean normalized difference function.
-fn cumulative_mean_normalized_difference(
-    frame: ArrayView1<Float>,
-    tau_max: usize,
-) -> Vec<Float> {
+fn cumulative_mean_normalized_difference(frame: ArrayView1<Float>, tau_max: usize) -> Vec<Float> {
     let n = frame.len();
     let w = tau_max + 1;
 
@@ -421,7 +482,11 @@ pub fn estimate_tuning(
         Some(y) => {
             let (pitches, _mags) = piptrack(y, sr, n_fft, None)?;
             // Flatten pitches, take non-zero values
-            pitches.iter().copied().filter(|&p| p > 0.0).collect::<Vec<_>>()
+            pitches
+                .iter()
+                .copied()
+                .filter(|&p| p > 0.0)
+                .collect::<Vec<_>>()
         }
         None => {
             return Ok(0.0);
@@ -480,9 +545,7 @@ pub fn piptrack(
     hop_length: Option<usize>,
 ) -> Result<(Array2<Float>, Array2<Float>)> {
     let window = WindowSpec::Named("hann".into());
-    let s = spectrum::stft(
-        y, n_fft, hop_length, None, &window, true, PadMode::Constant,
-    )?;
+    let s = spectrum::stft(y, n_fft, hop_length, None, &window, true, PadMode::Constant)?;
 
     let n_bins = s.nrows();
     let n_frames = s.ncols();
@@ -530,9 +593,7 @@ mod tests {
 
     fn sine_signal(freq: Float, sr: u32, duration_secs: Float) -> Array1<Float> {
         let n = (sr as Float * duration_secs) as usize;
-        Array1::from_shape_fn(n, |i| {
-            (2.0 * PI * freq * i as Float / sr as Float).sin()
-        })
+        Array1::from_shape_fn(n, |i| (2.0 * PI * freq * i as Float / sr as Float).sin())
     }
 
     #[test]
@@ -543,12 +604,16 @@ mod tests {
         assert!(f0.len() > 0);
 
         // Find frames where we got a valid estimate
-        let valid: Vec<Float> = f0.iter()
+        let valid: Vec<Float> = f0
+            .iter()
             .copied()
             .filter(|v| !v.is_nan() && *v > 0.0)
             .collect();
 
-        assert!(!valid.is_empty(), "YIN should detect at least some f0 values");
+        assert!(
+            !valid.is_empty(),
+            "YIN should detect at least some f0 values"
+        );
 
         // Median should be near 440 Hz
         let mut sorted = valid.clone();
@@ -581,10 +646,14 @@ mod tests {
         assert!(f0.len() > 0);
         // Voiced probability should have some non-zero values for a pure tone
         let max_prob = voiced_prob.iter().copied().fold(0.0_f32, Float::max);
-        assert!(max_prob > 0.0, "some voiced probability should be non-zero for a pure tone");
+        assert!(
+            max_prob > 0.0,
+            "some voiced probability should be non-zero for a pure tone"
+        );
 
         // Voiced f0 values should be near 440
-        let valid_f0: Vec<Float> = f0.iter()
+        let valid_f0: Vec<Float> = f0
+            .iter()
             .zip(voiced.iter())
             .filter(|(_, &v)| v)
             .map(|(&f, _)| f)
@@ -594,12 +663,14 @@ mod tests {
         if !valid_f0.is_empty() {
             // Check that at least some estimates are close to 440 Hz
             // (our simplified pyin may pick harmonics for some frames)
-            let close_to_440: usize = valid_f0.iter()
+            let close_to_440: usize = valid_f0
+                .iter()
                 .filter(|&&f| (f - 440.0).abs() < 50.0)
                 .count();
             assert!(
                 close_to_440 > 0 || valid_f0.len() > 0,
-                "pyin should find some pitch estimates, got {} voiced frames", valid_f0.len()
+                "pyin should find some pitch estimates, got {} voiced frames",
+                valid_f0.len()
             );
         }
     }
@@ -611,7 +682,11 @@ mod tests {
 
         // Voiced probability should be high for a clean sine
         let mid = voiced_prob.len() / 2;
-        assert!(voiced_prob[mid] > 0.3, "voiced prob at center: {}", voiced_prob[mid]);
+        assert!(
+            voiced_prob[mid] > 0.3,
+            "voiced prob at center: {}",
+            voiced_prob[mid]
+        );
     }
 
     #[test]

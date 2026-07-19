@@ -99,11 +99,7 @@ pub fn decompose_nmf(
 /// Nearest-neighbor filtering.
 ///
 /// Smooths a spectrogram by replacing each point with the average of its k nearest neighbors.
-pub fn nn_filter(
-    s: ArrayView2<Float>,
-    k: usize,
-    metric: &str,
-) -> Result<Array2<Float>> {
+pub fn nn_filter(s: ArrayView2<Float>, k: usize, metric: &str) -> Result<Array2<Float>> {
     let n_bins = s.nrows();
     let n_frames = s.ncols();
     let mut result = Array2::<Float>::zeros((n_bins, n_frames));
@@ -117,12 +113,20 @@ pub fn nn_filter(
                 let dist = match metric {
                     "cosine" => {
                         let dot: Float = (0..n_bins).map(|i| s[(i, t)] * s[(i, t2)]).sum();
-                        let n1: Float = (0..n_bins).map(|i| s[(i, t)].powi(2)).sum::<Float>().sqrt();
-                        let n2: Float = (0..n_bins).map(|i| s[(i, t2)].powi(2)).sum::<Float>().sqrt();
+                        let n1: Float =
+                            (0..n_bins).map(|i| s[(i, t)].powi(2)).sum::<Float>().sqrt();
+                        let n2: Float = (0..n_bins)
+                            .map(|i| s[(i, t2)].powi(2))
+                            .sum::<Float>()
+                            .sqrt();
                         1.0 - dot / (n1 * n2 + 1e-10)
                     }
-                    _ => { // euclidean
-                        (0..n_bins).map(|i| (s[(i, t)] - s[(i, t2)]).powi(2)).sum::<Float>().sqrt()
+                    _ => {
+                        // euclidean
+                        (0..n_bins)
+                            .map(|i| (s[(i, t)] - s[(i, t2)]).powi(2))
+                            .sum::<Float>()
+                            .sqrt()
                     }
                 };
                 (t2, dist)
@@ -200,14 +204,18 @@ mod tests {
 
     #[test]
     fn test_hpss_energy_conservation() {
-        let s = Array2::from_shape_fn((64, 30), |(i, j)| ((i * j) as Float * 0.1).sin().abs() + 0.01);
+        let s = Array2::from_shape_fn((64, 30), |(i, j)| {
+            ((i * j) as Float * 0.1).sin().abs() + 0.01
+        });
         let (h, p) = hpss(s.view(), 11, 1.0, 2.0).unwrap();
         // h + p should approximately equal s
         for i in 0..s.nrows() {
             for j in 0..s.ncols() {
                 let sum = h[(i, j)] + p[(i, j)];
-                assert!((sum - s[(i, j)]).abs() < s[(i, j)] * 0.5 + 0.01,
-                    "h+p should be close to s at ({i},{j})");
+                assert!(
+                    (sum - s[(i, j)]).abs() < s[(i, j)] * 0.5 + 0.01,
+                    "h+p should be close to s at ({i},{j})"
+                );
             }
         }
     }
@@ -218,8 +226,12 @@ mod tests {
         let (w, h) = decompose_nmf(v.view(), 4, 50).unwrap();
         assert_eq!(w.shape(), &[20, 4]);
         assert_eq!(h.shape(), &[4, 10]);
-        for &val in w.iter() { assert!(val >= 0.0); }
-        for &val in h.iter() { assert!(val >= 0.0); }
+        for &val in w.iter() {
+            assert!(val >= 0.0);
+        }
+        for &val in h.iter() {
+            assert!(val >= 0.0);
+        }
     }
 
     #[test]
@@ -229,7 +241,11 @@ mod tests {
         let recon = w.dot(&h);
         let error: Float = (&v - &recon).mapv(|x| x.powi(2)).sum();
         let energy: Float = v.mapv(|x| x.powi(2)).sum();
-        assert!(error / energy < 0.5, "reconstruction error too high: {}", error / energy);
+        assert!(
+            error / energy < 0.5,
+            "reconstruction error too high: {}",
+            error / energy
+        );
     }
 
     #[test]

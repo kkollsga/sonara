@@ -270,7 +270,11 @@ pub fn analyze_structure(
             continue;
         }
         let me = segment_mean_energy(&energy_curve, &win_start_sec, start, end, mean_energy);
-        segments.push(SegmentEvent { start_sec: start, end_sec: end, energy: me });
+        segments.push(SegmentEvent {
+            start_sec: start,
+            end_sec: end,
+            energy: me,
+        });
     }
     if segments.is_empty() {
         segments.push(SegmentEvent {
@@ -281,8 +285,13 @@ pub fn analyze_structure(
     }
 
     // ---- Intro / outro heuristic ----
-    let (intro_end_sec, outro_start_sec) =
-        intro_outro(&energy_curve, &win_start_sec, &segments, duration_sec, hop_sec);
+    let (intro_end_sec, outro_start_sec) = intro_outro(
+        &energy_curve,
+        &win_start_sec,
+        &segments,
+        duration_sec,
+        hop_sec,
+    );
 
     StructureResult {
         energy_curve,
@@ -450,7 +459,10 @@ fn pick_boundaries(novelty: &[Float], win_start_sec: &[Float], min_gap: usize) -
         if chosen.len() >= MAX_BOUNDARIES {
             break;
         }
-        if chosen.iter().all(|&s| (s as isize - c as isize).unsigned_abs() >= min_gap) {
+        if chosen
+            .iter()
+            .all(|&s| (s as isize - c as isize).unsigned_abs() >= min_gap)
+        {
             chosen.push(c);
         }
     }
@@ -596,7 +608,11 @@ mod tests {
                     cent.push(500.0);
                     bw.push(400.0);
                     // low-frequency, narrowband spectrum
-                    mel_cols.push((0..n_mels).map(|m| if m < 2 { -20.0 } else { -70.0 }).collect());
+                    mel_cols.push(
+                        (0..n_mels)
+                            .map(|m| if m < 2 { -20.0 } else { -70.0 })
+                            .collect(),
+                    );
                     if frame % 40 == 0 {
                         onsets.push(frame);
                     }
@@ -623,12 +639,28 @@ mod tests {
                 .cos()
         });
         let dur = n_frames as Float / fps;
-        Synth { rms, cent, bw, s_db, dct, onsets, fps, dur }
+        Synth {
+            rms,
+            cent,
+            bw,
+            s_db,
+            dct,
+            onsets,
+            fps,
+            dur,
+        }
     }
 
     fn run(s: &Synth) -> StructureResult {
         analyze_structure(
-            &s.rms, &s.cent, &s.bw, s.s_db.view(), s.dct.view(), &s.onsets, s.fps, s.dur,
+            &s.rms,
+            &s.cent,
+            &s.bw,
+            s.s_db.view(),
+            s.dct.view(),
+            &s.onsets,
+            s.fps,
+            s.dur,
         )
     }
 
@@ -666,7 +698,12 @@ mod tests {
         let early = r.energy_curve[n / 10];
         let mid = r.energy_curve[n / 2];
         let late = r.energy_curve[n - n / 10 - 1];
-        assert!(mid > early + 0.2, "mid {} should exceed early {}", mid, early);
+        assert!(
+            mid > early + 0.2,
+            "mid {} should exceed early {}",
+            mid,
+            early
+        );
         assert!(mid > late + 0.2, "mid {} should exceed late {}", mid, late);
     }
 
@@ -692,13 +729,19 @@ mod tests {
     fn test_segments_cover_and_order() {
         let s = synth_low_high_low();
         let r = run(&s);
-        assert!(r.segments.first().unwrap().start_sec.abs() < 1e-3, "first must start at 0");
+        assert!(
+            r.segments.first().unwrap().start_sec.abs() < 1e-3,
+            "first must start at 0"
+        );
         assert!(
             (r.segments.last().unwrap().end_sec - s.dur).abs() < 1e-2,
             "last must end at duration"
         );
         for w in r.segments.windows(2) {
-            assert!((w[0].end_sec - w[1].start_sec).abs() < 1e-3, "segments must be contiguous");
+            assert!(
+                (w[0].end_sec - w[1].start_sec).abs() < 1e-3,
+                "segments must be contiguous"
+            );
             assert!(w[0].end_sec > w[0].start_sec, "segments must be ordered");
         }
     }
@@ -771,9 +814,7 @@ mod tests {
         let cent = vec![1000.0_f32; n_frames];
         let bw = vec![800.0_f32; n_frames];
         let s_db = Array2::<Float>::from_elem((n_mels, n_frames), -30.0);
-        let dct = Array2::from_shape_fn((N_MFCC, n_mels), |(k, m)| {
-            0.1 * (k + m) as Float
-        });
+        let dct = Array2::from_shape_fn((N_MFCC, n_mels), |(k, m)| 0.1 * (k + m) as Float);
         let dur = n_frames as Float / fps;
         let r = analyze_structure(&rms, &cent, &bw, s_db.view(), dct.view(), &[], fps, dur);
         assert!(!r.energy_curve.is_empty());
@@ -790,9 +831,7 @@ mod tests {
         let cent = vec![0.0_f32; n_frames];
         let bw = vec![0.0_f32; n_frames];
         let s_db = Array2::<Float>::from_elem((n_mels, n_frames), -80.0);
-        let dct = Array2::from_shape_fn((N_MFCC, n_mels), |(k, m)| {
-            0.1 * (k + m) as Float
-        });
+        let dct = Array2::from_shape_fn((N_MFCC, n_mels), |(k, m)| 0.1 * (k + m) as Float);
         let dur = n_frames as Float / fps;
         let r = analyze_structure(&rms, &cent, &bw, s_db.view(), dct.view(), &[], fps, dur);
         assert!(r.segments.len() <= 1);

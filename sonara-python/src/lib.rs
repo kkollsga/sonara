@@ -73,7 +73,10 @@ fn _sonara(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(core::convert::py_mel_frequencies, m)?)?;
     m.add_function(wrap_pyfunction!(core::convert::py_cqt_frequencies, m)?)?;
     m.add_function(wrap_pyfunction!(core::convert::py_tempo_frequencies, m)?)?;
-    m.add_function(wrap_pyfunction!(core::convert::py_fourier_tempo_frequencies, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        core::convert::py_fourier_tempo_frequencies,
+        m
+    )?)?;
     m.add_function(wrap_pyfunction!(core::convert::py_frames_to_samples, m)?)?;
     m.add_function(wrap_pyfunction!(core::convert::py_frames_to_time, m)?)?;
     m.add_function(wrap_pyfunction!(core::convert::py_samples_to_frames, m)?)?;
@@ -89,7 +92,10 @@ fn _sonara(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(core::convert::py_d_weighting, m)?)?;
     m.add_function(wrap_pyfunction!(core::convert::py_z_weighting, m)?)?;
     m.add_function(wrap_pyfunction!(core::convert::py_frequency_weighting, m)?)?;
-    m.add_function(wrap_pyfunction!(core::convert::py_multi_frequency_weighting, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        core::convert::py_multi_frequency_weighting,
+        m
+    )?)?;
     m.add_function(wrap_pyfunction!(core::convert::py_samples_like, m)?)?;
     m.add_function(wrap_pyfunction!(core::convert::py_times_like, m)?)?;
     // Notation
@@ -103,7 +109,10 @@ fn _sonara(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(core::convert::py_fifths_to_note, m)?)?;
     m.add_function(wrap_pyfunction!(core::convert::py_interval_to_fjs, m)?)?;
     m.add_function(wrap_pyfunction!(core::convert::py_interval_frequencies, m)?)?;
-    m.add_function(wrap_pyfunction!(core::convert::py_pythagorean_intervals, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        core::convert::py_pythagorean_intervals,
+        m
+    )?)?;
     m.add_function(wrap_pyfunction!(core::convert::py_plimit_intervals, m)?)?;
 
     // --- Core: Spectrum ---
@@ -116,7 +125,10 @@ fn _sonara(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(core::spectrum::py_magphase, m)?)?;
     m.add_function(wrap_pyfunction!(core::spectrum::py_phase_vocoder, m)?)?;
     m.add_function(wrap_pyfunction!(core::spectrum::py_pcen, m)?)?;
-    m.add_function(wrap_pyfunction!(core::spectrum::py_perceptual_weighting, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        core::spectrum::py_perceptual_weighting,
+        m
+    )?)?;
     m.add_function(wrap_pyfunction!(core::spectrum::py_griffinlim, m)?)?;
     // CQT
     m.add_function(wrap_pyfunction!(core::spectrum::py_cqt, m)?)?;
@@ -165,7 +177,10 @@ fn _sonara(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(feature::spectral::py_melspectrogram, m)?)?;
     m.add_function(wrap_pyfunction!(feature::spectral::py_mfcc, m)?)?;
     m.add_function(wrap_pyfunction!(feature::spectral::py_chroma_stft, m)?)?;
-    m.add_function(wrap_pyfunction!(feature::spectral::py_spectral_centroid, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        feature::spectral::py_spectral_centroid,
+        m
+    )?)?;
     m.add_function(wrap_pyfunction!(feature::spectral::py_rms, m)?)?;
 
     Ok(())

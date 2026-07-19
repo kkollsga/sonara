@@ -17,7 +17,7 @@ use rayon::prelude::*;
 
 use crate::core::fft;
 use crate::dsp::windows;
-use crate::error::{SonaraError, Result};
+use crate::error::{Result, SonaraError};
 use crate::types::*;
 use crate::util::utils;
 
@@ -73,12 +73,8 @@ pub fn stft(
                 padded.slice_mut(s![pad..pad + y.len()]).assign(&y);
                 padded
             }
-            PadMode::Reflect => {
-                pad_reflect(y, n_fft / 2)
-            }
-            PadMode::Edge => {
-                pad_edge(y, n_fft / 2)
-            }
+            PadMode::Reflect => pad_reflect(y, n_fft / 2),
+            PadMode::Edge => pad_edge(y, n_fft / 2),
             _ => {
                 let pad = n_fft / 2;
                 let mut padded = Array1::<Float>::zeros(y.len() + 2 * pad);
@@ -181,7 +177,10 @@ pub fn stft_power(
 
     let n = y_padded.len();
     if n < n_fft {
-        return Err(SonaraError::InsufficientData { needed: n_fft, got: n });
+        return Err(SonaraError::InsufficientData {
+            needed: n_fft,
+            got: n,
+        });
     }
 
     let n_frames = 1 + (n - n_fft) / hop_length;
@@ -198,9 +197,13 @@ pub fn stft_power(
 
     #[inline(always)]
     fn apply_power(c: Complex<Float>, use_norm_sqr: bool, use_norm: bool, power: Float) -> Float {
-        if use_norm_sqr { c.norm_sqr() }
-        else if use_norm { c.norm() }
-        else { c.norm().powf(power) }
+        if use_norm_sqr {
+            c.norm_sqr()
+        } else if use_norm {
+            c.norm()
+        } else {
+            c.norm().powf(power)
+        }
     }
 
     if n_frames >= PARALLEL_THRESHOLD {
@@ -213,7 +216,10 @@ pub fn stft_power(
                     fft_in[i] = y_raw[start + i] * win_raw[i];
                 }
                 let fft_out = fft::rfft_alloc(&mut fft_in).expect("FFT failed");
-                fft_out.into_iter().map(|c| apply_power(c, use_norm_sqr, use_norm, power)).collect::<Vec<_>>()
+                fft_out
+                    .into_iter()
+                    .map(|c| apply_power(c, use_norm_sqr, use_norm, power))
+                    .collect::<Vec<_>>()
             })
             .collect();
 
@@ -284,9 +290,8 @@ pub fn istft(
         (0..n_frames)
             .into_par_iter()
             .map(|col| {
-                let mut spectrum: Vec<Complex<Float>> = (0..n_bins)
-                    .map(|i| stft_matrix[(i, col)])
-                    .collect();
+                let mut spectrum: Vec<Complex<Float>> =
+                    (0..n_bins).map(|i| stft_matrix[(i, col)]).collect();
                 let mut output = vec![0.0_f32; n_fft];
                 fft::irfft(&mut spectrum, &mut output).expect("IFFT failed");
                 // Apply scale and window in one pass
@@ -526,10 +531,7 @@ pub fn phase_vocoder(
                 let mag0 = d[(i, frame_idx)].norm();
                 let mag1 = d[(i, frame_idx + 1)].norm();
                 let mag = (1.0 - frac) * mag0 + frac * mag1;
-                output[(i, step)] = Complex::new(
-                    mag * phase[i].cos(),
-                    mag * phase[i].sin(),
-                );
+                output[(i, step)] = Complex::new(mag * phase[i].cos(), mag * phase[i].sin());
             }
 
             // Advance phase
@@ -546,10 +548,7 @@ pub fn phase_vocoder(
         } else if frame_idx < n_frames {
             for i in 0..n_bins {
                 let mag = d[(i, frame_idx)].norm();
-                output[(i, step)] = Complex::new(
-                    mag * phase[i].cos(),
-                    mag * phase[i].sin(),
-                );
+                output[(i, step)] = Complex::new(mag * phase[i].cos(), mag * phase[i].sin());
             }
         }
     }
@@ -751,7 +750,8 @@ pub fn iirt(
             let start = t * hop_length;
             let end = (start + win_length).min(y.len());
             let frame = y.slice(ndarray::s![start..end]);
-            let energy: Float = frame.iter().map(|&v| v * v).sum::<Float>() / (end - start) as Float;
+            let energy: Float =
+                frame.iter().map(|&v| v * v).sum::<Float>() / (end - start) as Float;
             result[(fi, t)] = energy;
         }
     }
@@ -776,8 +776,14 @@ pub fn reassigned_spectrogram(
     // Full reassignment requires computing STFT with time-ramped and derivative windows
     let window = WindowSpec::Named("hann".into());
     let (spec, _) = spectrogram(
-        Some(y), None, n_fft, hop_length, 2.0,
-        &window, true, PadMode::Constant,
+        Some(y),
+        None,
+        n_fft,
+        hop_length,
+        2.0,
+        &window,
+        true,
+        PadMode::Constant,
     )?;
     Ok(spec)
 }
@@ -785,11 +791,7 @@ pub fn reassigned_spectrogram(
 /// Fast Mellin Transform (scale-invariant transform).
 ///
 /// Computes the Mellin transform via logarithmic resampling + FFT.
-pub fn fmt(
-    y: ArrayView1<Float>,
-    t_min: Float,
-    n_fmt: Option<usize>,
-) -> Result<Array1<Float>> {
+pub fn fmt(y: ArrayView1<Float>, t_min: Float, n_fmt: Option<usize>) -> Result<Array1<Float>> {
     let n = y.len();
     let n_out = n_fmt.unwrap_or(n);
 
@@ -806,7 +808,9 @@ pub fn fmt(
 
     // FFT of log-resampled signal
     let spectrum = crate::core::fft::rfft_alloc(&mut resampled)?;
-    Ok(Array1::from_vec(spectrum.iter().map(|c| c.norm()).collect()))
+    Ok(Array1::from_vec(
+        spectrum.iter().map(|c| c.norm()).collect(),
+    ))
 }
 
 /// Compute a spectrogram from a signal or pre-computed STFT.
@@ -839,7 +843,10 @@ pub fn spectrogram(
         }
         (Some(y), None) => {
             // Fused: STFT → power in one pass (no intermediate complex matrix)
-            return Ok((stft_power(y, n_fft, hop_length, window, center, pad_mode, power)?, n_fft));
+            return Ok((
+                stft_power(y, n_fft, hop_length, window, center, pad_mode, power)?,
+                n_fft,
+            ));
         }
         (None, None) => {
             return Err(SonaraError::InvalidParameter {
@@ -914,9 +921,7 @@ mod tests {
     }
 
     fn test_signal(n: usize, freq: Float, sr: Float) -> Array1<Float> {
-        Array1::from_shape_fn(n, |i| {
-            (2.0 * PI * freq * i as Float / sr).sin()
-        })
+        Array1::from_shape_fn(n, |i| (2.0 * PI * freq * i as Float / sr).sin())
     }
 
     // ---- STFT shape ----
@@ -924,9 +929,18 @@ mod tests {
     #[test]
     fn test_stft_shape() {
         let y = test_signal(22050, 440.0, 22050.0);
-        let s = stft(y.view(), 2048, None, None, &default_window(), true, PadMode::Constant).unwrap();
+        let s = stft(
+            y.view(),
+            2048,
+            None,
+            None,
+            &default_window(),
+            true,
+            PadMode::Constant,
+        )
+        .unwrap();
         assert_eq!(s.nrows(), 1025); // 1 + n_fft/2
-        // n_frames = 1 + (22050 + 2048 - 2048) / 512 = 1 + 22050/512 = 44
+                                     // n_frames = 1 + (22050 + 2048 - 2048) / 512 = 1 + 22050/512 = 44
         let expected_frames = 1 + (y.len() + 2048 - 2048) / 512;
         assert_eq!(s.ncols(), expected_frames);
     }
@@ -934,7 +948,16 @@ mod tests {
     #[test]
     fn test_stft_shape_no_center() {
         let y = test_signal(22050, 440.0, 22050.0);
-        let s = stft(y.view(), 2048, None, None, &default_window(), false, PadMode::Constant).unwrap();
+        let s = stft(
+            y.view(),
+            2048,
+            None,
+            None,
+            &default_window(),
+            false,
+            PadMode::Constant,
+        )
+        .unwrap();
         assert_eq!(s.nrows(), 1025);
         let expected_frames = 1 + (y.len() - 2048) / 512;
         assert_eq!(s.ncols(), expected_frames);
@@ -947,7 +970,16 @@ mod tests {
         let sr = 22050.0;
         let freq = 440.0;
         let y = test_signal(22050, freq, sr);
-        let s = stft(y.view(), 2048, None, None, &default_window(), true, PadMode::Constant).unwrap();
+        let s = stft(
+            y.view(),
+            2048,
+            None,
+            None,
+            &default_window(),
+            true,
+            PadMode::Constant,
+        )
+        .unwrap();
 
         // Magnitude spectrogram
         let mag = s.mapv(|c| c.norm());
@@ -957,9 +989,12 @@ mod tests {
 
         // Find the bin with most energy
         let expected_bin = (freq * 2048.0 / sr).round() as usize;
-        let max_bin = avg_mag.iter().enumerate()
+        let max_bin = avg_mag
+            .iter()
+            .enumerate()
             .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
-            .unwrap().0;
+            .unwrap()
+            .0;
 
         assert!(
             (max_bin as i64 - expected_bin as i64).unsigned_abs() <= 1,
@@ -971,14 +1006,30 @@ mod tests {
     fn test_stft_dc() {
         // Constant signal: DC bin should have the most energy
         let y = Array1::from_elem(22050, 1.0);
-        let s = stft(y.view(), 2048, None, None, &default_window(), true, PadMode::Constant).unwrap();
+        let s = stft(
+            y.view(),
+            2048,
+            None,
+            None,
+            &default_window(),
+            true,
+            PadMode::Constant,
+        )
+        .unwrap();
         let mag = s.mapv(|c| c.norm());
         let avg_mag: Array1<Float> = mag.mean_axis(Axis(1)).unwrap();
 
         // DC bin should be the largest
         let dc_mag = avg_mag[0];
-        let max_other = avg_mag.slice(ndarray::s![1..]).iter().copied().fold(0.0_f32, Float::max);
-        assert!(dc_mag > max_other, "DC bin should have the largest average magnitude, dc={dc_mag}, max_other={max_other}");
+        let max_other = avg_mag
+            .slice(ndarray::s![1..])
+            .iter()
+            .copied()
+            .fold(0.0_f32, Float::max);
+        assert!(
+            dc_mag > max_other,
+            "DC bin should have the largest average magnitude, dc={dc_mag}, max_other={max_other}"
+        );
     }
 
     // ---- ISTFT roundtrip ----
@@ -986,7 +1037,16 @@ mod tests {
     #[test]
     fn test_istft_roundtrip() {
         let y = test_signal(22050, 440.0, 22050.0);
-        let s = stft(y.view(), 2048, None, None, &default_window(), true, PadMode::Constant).unwrap();
+        let s = stft(
+            y.view(),
+            2048,
+            None,
+            None,
+            &default_window(),
+            true,
+            PadMode::Constant,
+        )
+        .unwrap();
         let y_rec = istft(s.view(), None, None, &default_window(), true, Some(22050)).unwrap();
 
         assert_eq!(y_rec.len(), 22050);
@@ -999,7 +1059,16 @@ mod tests {
     fn test_istft_roundtrip_512() {
         let y = test_signal(8000, 440.0, 22050.0);
         let n_fft = 512;
-        let s = stft(y.view(), n_fft, None, None, &default_window(), true, PadMode::Constant).unwrap();
+        let s = stft(
+            y.view(),
+            n_fft,
+            None,
+            None,
+            &default_window(),
+            true,
+            PadMode::Constant,
+        )
+        .unwrap();
         let y_rec = istft(s.view(), None, None, &default_window(), true, Some(8000)).unwrap();
 
         for i in 50..7950 {
@@ -1012,8 +1081,26 @@ mod tests {
     #[test]
     fn test_stft_hop_length() {
         let y = test_signal(22050, 440.0, 22050.0);
-        let s1 = stft(y.view(), 2048, Some(512), None, &default_window(), true, PadMode::Constant).unwrap();
-        let s2 = stft(y.view(), 2048, Some(256), None, &default_window(), true, PadMode::Constant).unwrap();
+        let s1 = stft(
+            y.view(),
+            2048,
+            Some(512),
+            None,
+            &default_window(),
+            true,
+            PadMode::Constant,
+        )
+        .unwrap();
+        let s2 = stft(
+            y.view(),
+            2048,
+            Some(256),
+            None,
+            &default_window(),
+            true,
+            PadMode::Constant,
+        )
+        .unwrap();
         // Smaller hop → more frames
         assert!(s2.ncols() > s1.ncols());
     }
@@ -1023,7 +1110,16 @@ mod tests {
     #[test]
     fn test_magphase_nonneg() {
         let y = test_signal(8000, 440.0, 22050.0);
-        let s = stft(y.view(), 1024, None, None, &default_window(), true, PadMode::Constant).unwrap();
+        let s = stft(
+            y.view(),
+            1024,
+            None,
+            None,
+            &default_window(),
+            true,
+            PadMode::Constant,
+        )
+        .unwrap();
         let (mag, _phase) = magphase(s.view(), 1.0);
         for &v in mag.iter() {
             assert!(v >= 0.0);
@@ -1033,7 +1129,16 @@ mod tests {
     #[test]
     fn test_magphase_reconstruct() {
         let y = test_signal(8000, 440.0, 22050.0);
-        let s = stft(y.view(), 1024, None, None, &default_window(), true, PadMode::Constant).unwrap();
+        let s = stft(
+            y.view(),
+            1024,
+            None,
+            None,
+            &default_window(),
+            true,
+            PadMode::Constant,
+        )
+        .unwrap();
         let (mag, phase) = magphase(s.view(), 1.0);
 
         // mag * phase should reconstruct s
@@ -1103,7 +1208,16 @@ mod tests {
     #[test]
     fn test_phase_vocoder_identity() {
         let y = test_signal(8000, 440.0, 22050.0);
-        let s = stft(y.view(), 1024, None, None, &default_window(), true, PadMode::Constant).unwrap();
+        let s = stft(
+            y.view(),
+            1024,
+            None,
+            None,
+            &default_window(),
+            true,
+            PadMode::Constant,
+        )
+        .unwrap();
         let pv = phase_vocoder(s.view(), 1.0, None).unwrap();
         // Same number of frames at rate 1.0
         assert_eq!(pv.ncols(), s.ncols());
@@ -1112,7 +1226,16 @@ mod tests {
     #[test]
     fn test_phase_vocoder_stretch() {
         let y = test_signal(22050, 440.0, 22050.0);
-        let s = stft(y.view(), 2048, None, None, &default_window(), true, PadMode::Constant).unwrap();
+        let s = stft(
+            y.view(),
+            2048,
+            None,
+            None,
+            &default_window(),
+            true,
+            PadMode::Constant,
+        )
+        .unwrap();
         let pv = phase_vocoder(s.view(), 2.0, None).unwrap();
         // Rate 2.0 → approximately half the frames
         let expected = (s.ncols() as Float / 2.0).ceil() as usize;
@@ -1124,7 +1247,16 @@ mod tests {
     #[test]
     fn test_griffinlim_output_length() {
         let y = test_signal(8000, 440.0, 22050.0);
-        let s = stft(y.view(), 1024, None, None, &default_window(), true, PadMode::Constant).unwrap();
+        let s = stft(
+            y.view(),
+            1024,
+            None,
+            None,
+            &default_window(),
+            true,
+            PadMode::Constant,
+        )
+        .unwrap();
         let mag = s.mapv(|c| c.norm());
         let reconstructed = griffinlim(mag.view(), 10, None, None, &default_window()).unwrap();
         // Should produce a signal of reasonable length
@@ -1134,7 +1266,16 @@ mod tests {
     #[test]
     fn test_griffinlim_energy() {
         let y = test_signal(8000, 440.0, 22050.0);
-        let s = stft(y.view(), 1024, None, None, &default_window(), true, PadMode::Constant).unwrap();
+        let s = stft(
+            y.view(),
+            1024,
+            None,
+            None,
+            &default_window(),
+            true,
+            PadMode::Constant,
+        )
+        .unwrap();
         let mag = s.mapv(|c| c.norm());
         let reconstructed = griffinlim(mag.view(), 32, None, None, &default_window()).unwrap();
 
@@ -1172,9 +1313,16 @@ mod tests {
     fn test_spectrogram_from_signal() {
         let y = test_signal(8000, 440.0, 22050.0);
         let (spec, n_fft) = spectrogram(
-            Some(y.view()), None, 2048, 512, 2.0,
-            &default_window(), true, PadMode::Constant,
-        ).unwrap();
+            Some(y.view()),
+            None,
+            2048,
+            512,
+            2.0,
+            &default_window(),
+            true,
+            PadMode::Constant,
+        )
+        .unwrap();
         assert_eq!(n_fft, 2048);
         assert_eq!(spec.nrows(), 1025);
         // All values should be non-negative (power spectrogram)
@@ -1186,11 +1334,27 @@ mod tests {
     #[test]
     fn test_spectrogram_from_stft() {
         let y = test_signal(8000, 440.0, 22050.0);
-        let s = stft(y.view(), 1024, None, None, &default_window(), true, PadMode::Constant).unwrap();
+        let s = stft(
+            y.view(),
+            1024,
+            None,
+            None,
+            &default_window(),
+            true,
+            PadMode::Constant,
+        )
+        .unwrap();
         let (spec, _) = spectrogram(
-            None, Some(s.view()), 1024, 256, 1.0,
-            &default_window(), true, PadMode::Constant,
-        ).unwrap();
+            None,
+            Some(s.view()),
+            1024,
+            256,
+            1.0,
+            &default_window(),
+            true,
+            PadMode::Constant,
+        )
+        .unwrap();
         assert_eq!(spec.nrows(), 513);
     }
 }

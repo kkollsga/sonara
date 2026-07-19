@@ -4,7 +4,7 @@
 
 use ndarray::{Array1, Array2, ArrayView1, ArrayView2};
 
-use crate::error::{SonaraError, Result};
+use crate::error::{Result, SonaraError};
 use crate::types::Float;
 
 // ============================================================
@@ -126,7 +126,11 @@ pub fn rqa(sim: ArrayView2<Float>) -> Result<Array2<Float>> {
     for i in 0..n {
         for j in 0..m {
             if sim[(i, j)] > 0.0 {
-                let prev = if i > 0 && j > 0 { score[(i - 1, j - 1)] } else { 0.0 };
+                let prev = if i > 0 && j > 0 {
+                    score[(i - 1, j - 1)]
+                } else {
+                    0.0
+                };
                 score[(i, j)] = prev + 1.0;
             }
         }
@@ -340,9 +344,7 @@ mod tests {
     #[test]
     fn test_dtw_identity() {
         // DTW of a sequence with itself → zero cost diagonal
-        let c = Array2::from_shape_fn((5, 5), |(i, j)| {
-            if i == j { 0.0 } else { 1.0 }
-        });
+        let c = Array2::from_shape_fn((5, 5), |(i, j)| if i == j { 0.0 } else { 1.0 });
         let (d, path) = dtw(c.view(), None).unwrap();
         assert_abs_diff_eq!(d[(4, 4)], 0.0, epsilon = 1e-5);
         // Path should be diagonal
@@ -369,9 +371,7 @@ mod tests {
 
     #[test]
     fn test_dtw_symmetric_cost() {
-        let c = Array2::from_shape_fn((10, 10), |(i, j)| {
-            ((i as Float) - (j as Float)).abs()
-        });
+        let c = Array2::from_shape_fn((10, 10), |(i, j)| ((i as Float) - (j as Float)).abs());
         let (d1, _) = dtw(c.view(), None).unwrap();
 
         let ct = c.t().to_owned();
@@ -385,9 +385,7 @@ mod tests {
 
     #[test]
     fn test_rqa_identity() {
-        let sim = Array2::from_shape_fn((5, 5), |(i, j)| {
-            if i == j { 1.0 } else { 0.0 }
-        });
+        let sim = Array2::from_shape_fn((5, 5), |(i, j)| if i == j { 1.0 } else { 0.0 });
         let score = rqa(sim.view()).unwrap();
         // Diagonal should count up: 1, 2, 3, 4, 5
         for i in 0..5 {
@@ -403,8 +401,16 @@ mod tests {
         let log_prob = Array2::from_shape_vec(
             (2, 5),
             vec![
-                0.0_f32.ln_1p(), -5.0, 0.0_f32.ln_1p(), -5.0, 0.0_f32.ln_1p(), // state 0 prefers frames 0,2,4
-                -5.0, 0.0_f32.ln_1p(), -5.0, 0.0_f32.ln_1p(), -5.0, // state 1 prefers frames 1,3
+                0.0_f32.ln_1p(),
+                -5.0,
+                0.0_f32.ln_1p(),
+                -5.0,
+                0.0_f32.ln_1p(), // state 0 prefers frames 0,2,4
+                -5.0,
+                0.0_f32.ln_1p(),
+                -5.0,
+                0.0_f32.ln_1p(),
+                -5.0, // state 1 prefers frames 1,3
             ],
         )
         .unwrap();
@@ -412,7 +418,12 @@ mod tests {
         // Transitions encourage staying
         let log_trans = Array2::from_shape_vec(
             (2, 2),
-            vec![(-0.1_f32).ln_1p(), (-2.0_f32), (-2.0_f32), (-0.1_f32).ln_1p()],
+            vec![
+                (-0.1_f32).ln_1p(),
+                (-2.0_f32),
+                (-2.0_f32),
+                (-0.1_f32).ln_1p(),
+            ],
         )
         .unwrap();
 
@@ -442,11 +453,7 @@ mod tests {
             ],
         )
         .unwrap();
-        let log_trans = Array2::from_shape_vec(
-            (2, 2),
-            vec![-0.1, -3.0, -3.0, -0.1],
-        )
-        .unwrap();
+        let log_trans = Array2::from_shape_vec((2, 2), vec![-0.1, -3.0, -3.0, -0.1]).unwrap();
 
         let states = viterbi_binary(log_prob.view(), log_trans.view()).unwrap();
         assert_eq!(states.len(), 6);
@@ -519,9 +526,7 @@ mod tests {
     #[test]
     fn test_dtw_larger() {
         let n = 100;
-        let c = Array2::from_shape_fn((n, n), |(i, j)| {
-            ((i as Float) - (j as Float)).abs()
-        });
+        let c = Array2::from_shape_fn((n, n), |(i, j)| ((i as Float) - (j as Float)).abs());
         let (_d, path) = dtw(c.view(), None).unwrap();
         assert!(path.len() >= n);
         assert_eq!(path[0], (0, 0));

@@ -6,7 +6,7 @@
 use ndarray::Array2;
 use ndarray::ArrayView2;
 
-use crate::error::{SonaraError, Result};
+use crate::error::{Result, SonaraError};
 use crate::types::Float;
 
 /// Match intervals by Jaccard overlap.
@@ -128,11 +128,15 @@ mod tests {
     #[test]
     fn test_match_intervals_overlap() {
         let from = Array2::from_shape_vec((1, 2), vec![0.5, 1.5]).unwrap();
-        let to = Array2::from_shape_vec((3, 2), vec![
-            0.0, 1.0,  // overlaps [0.5, 1.0] = 0.5
-            1.0, 2.0,  // overlaps [1.0, 1.5] = 0.5
-            0.0, 2.0,  // overlaps [0.5, 1.5] = 1.0
-        ]).unwrap();
+        let to = Array2::from_shape_vec(
+            (3, 2),
+            vec![
+                0.0, 1.0, // overlaps [0.5, 1.0] = 0.5
+                1.0, 2.0, // overlaps [1.0, 1.5] = 0.5
+                0.0, 2.0, // overlaps [0.5, 1.5] = 1.0
+            ],
+        )
+        .unwrap();
         let matches = match_intervals(from.view(), to.view()).unwrap();
         // Best match should be interval 2 (full overlap / smallest union)
         assert_eq!(matches[0], 2);
@@ -164,6 +168,10 @@ mod tests {
         // No overlap
         assert_abs_diff_eq!(jaccard_overlap(0.0, 1.0, 2.0, 3.0), 0.0, epsilon = 1e-5);
         // Half overlap: [0,2] ∩ [1,3] = [1,2] = 1, union = 3
-        assert_abs_diff_eq!(jaccard_overlap(0.0, 2.0, 1.0, 3.0), 1.0 / 3.0, epsilon = 1e-5);
+        assert_abs_diff_eq!(
+            jaccard_overlap(0.0, 2.0, 1.0, 3.0),
+            1.0 / 3.0,
+            epsilon = 1e-5
+        );
     }
 }

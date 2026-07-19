@@ -147,7 +147,12 @@ fn parse_csv(path: &Path) -> Vec<Label> {
         }
         let fields: Vec<&str> = line.splitn(3, ',').map(|f| f.trim()).collect();
         // Skip a header row (first line whose bpm field is non-numeric).
-        if i == 0 && fields.get(1).map(|f| f.parse::<Float>().is_err()).unwrap_or(false) {
+        if i == 0
+            && fields
+                .get(1)
+                .map(|f| f.parse::<Float>().is_err())
+                .unwrap_or(false)
+        {
             continue;
         }
         let path = fields.first().unwrap_or(&"").to_string();
@@ -160,7 +165,11 @@ fn parse_csv(path: &Path) -> Vec<Label> {
             .map(|s| s.trim())
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string());
-        labels.push(Label { path, bpm_ref, key_ref });
+        labels.push(Label {
+            path,
+            bpm_ref,
+            key_ref,
+        });
     }
     labels
 }
@@ -354,11 +363,7 @@ fn main() {
         println!("  (no rows with both a detected BPM and bpm_ref)");
     } else {
         let n = scored.len() as Float;
-        let acc_half = scored
-            .iter()
-            .filter(|r| r.abs_err.unwrap() <= 0.5)
-            .count() as Float
-            / n;
+        let acc_half = scored.iter().filter(|r| r.abs_err.unwrap() <= 0.5).count() as Float / n;
         let acc_pct = scored
             .iter()
             .filter(|r| r.abs_err.unwrap() <= PCT_TOL * r.bpm_ref.unwrap())
@@ -382,7 +387,10 @@ fn main() {
             octaves
         );
         println!("  median abs error       : {:.2} BPM", median(errs.clone()));
-        println!("  p95 abs error          : {:.2} BPM", percentile(errs, 95.0));
+        println!(
+            "  p95 abs error          : {:.2} BPM",
+            percentile(errs, 95.0)
+        );
     }
 
     // ---- Key metrics ----

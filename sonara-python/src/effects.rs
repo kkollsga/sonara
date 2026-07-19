@@ -1,8 +1,8 @@
 use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1};
 use pyo3::prelude::*;
 
-use sonara::effects as rs;
 use crate::error::IntoPyResult;
+use sonara::effects as rs;
 
 #[pyfunction]
 #[pyo3(name = "trim", signature = (y, *, top_db=60.0, frame_length=2048, hop_length=512))]
@@ -13,8 +13,8 @@ pub fn py_trim<'py>(
     frame_length: usize,
     hop_length: usize,
 ) -> PyResult<(Bound<'py, PyArray1<f32>>, (usize, usize))> {
-    let (trimmed, bounds) = rs::trim(y.as_array(), top_db, frame_length, hop_length)
-        .into_pyresult()?;
+    let (trimmed, bounds) =
+        rs::trim(y.as_array(), top_db, frame_length, hop_length).into_pyresult()?;
     Ok((trimmed.into_pyarray(py), bounds))
 }
 
@@ -44,9 +44,15 @@ pub fn py_split_with_constraints(
     min_signal_duration: Option<f32>,
 ) -> PyResult<Vec<(usize, usize)>> {
     rs::split_with_constraints(
-        y.as_array(), sr, top_db, frame_length, hop_length,
-        min_silence_duration, min_signal_duration,
-    ).into_pyresult()
+        y.as_array(),
+        sr,
+        top_db,
+        frame_length,
+        hop_length,
+        min_silence_duration,
+        min_signal_duration,
+    )
+    .into_pyresult()
 }
 
 #[pyfunction]
@@ -63,9 +69,9 @@ pub fn py_melody_separate<'py>(
     n_fft: usize,
     hop_length: usize,
 ) -> PyResult<(Bound<'py, PyArray1<f32>>, Bound<'py, PyArray1<f32>>)> {
-    let (melody, accomp) = rs::melody_separate(
-        y.as_array(), sr, fmin, fmax, n_harmonics, n_fft, hop_length,
-    ).into_pyresult()?;
+    let (melody, accomp) =
+        rs::melody_separate(y.as_array(), sr, fmin, fmax, n_harmonics, n_fft, hop_length)
+            .into_pyresult()?;
     Ok((melody.into_pyarray(py), accomp.into_pyarray(py)))
 }
 

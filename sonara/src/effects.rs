@@ -6,8 +6,8 @@
 use ndarray::{s, Array1, Array2, ArrayView1};
 use num_complex::Complex;
 
-use crate::core::{audio, convert, spectrum};
 use crate::core::pitch;
+use crate::core::{audio, convert, spectrum};
 use crate::decompose;
 use crate::dsp::iir;
 use crate::error::Result;
@@ -17,7 +17,11 @@ use crate::types::*;
 /// Harmonic-Percussive Source Separation (audio domain).
 ///
 /// Returns `(harmonic, percussive)` audio signals.
-pub fn hpss(y: ArrayView1<Float>, kernel_size: usize, margin: Float) -> Result<(AudioBuffer, AudioBuffer)> {
+pub fn hpss(
+    y: ArrayView1<Float>,
+    kernel_size: usize,
+    margin: Float,
+) -> Result<(AudioBuffer, AudioBuffer)> {
     let window = WindowSpec::Named("hann".into());
     let stft = spectrum::stft(y, 2048, None, None, &window, true, PadMode::Constant)?;
     let mag = stft.mapv(|c| c.norm());
@@ -27,11 +31,19 @@ pub fn hpss(y: ArrayView1<Float>, kernel_size: usize, margin: Float) -> Result<(
     // Reconstruct phase from original STFT
     let h_stft = ndarray::Array2::from_shape_fn(stft.raw_dim(), |(i, j)| {
         let norm = stft[(i, j)].norm();
-        if norm > 0.0 { stft[(i, j)] * h_mag[(i, j)] / norm } else { num_complex::Complex::new(0.0, 0.0) }
+        if norm > 0.0 {
+            stft[(i, j)] * h_mag[(i, j)] / norm
+        } else {
+            num_complex::Complex::new(0.0, 0.0)
+        }
     });
     let p_stft = ndarray::Array2::from_shape_fn(stft.raw_dim(), |(i, j)| {
         let norm = stft[(i, j)].norm();
-        if norm > 0.0 { stft[(i, j)] * p_mag[(i, j)] / norm } else { num_complex::Complex::new(0.0, 0.0) }
+        if norm > 0.0 {
+            stft[(i, j)] * p_mag[(i, j)] / norm
+        } else {
+            num_complex::Complex::new(0.0, 0.0)
+        }
     });
 
     let length = Some(y.len());
@@ -210,7 +222,9 @@ pub fn remix(y: ArrayView1<Float>, intervals: &[(usize, usize)]) -> AudioBuffer 
     let mut pos = 0;
     for &(start, end) in intervals {
         let len = (end - start).min(y.len().saturating_sub(start));
-        result.slice_mut(s![pos..pos + len]).assign(&y.slice(s![start..start + len]));
+        result
+            .slice_mut(s![pos..pos + len])
+            .assign(&y.slice(s![start..start + len]));
         pos += len;
     }
     result
@@ -257,7 +271,15 @@ pub fn melody_separate(
     let (f0, voiced, _probs) = pitch::pyin(y, fmin, fmax, sr, n_fft, Some(hop_length))?;
 
     // 2. Compute STFT
-    let stft_matrix = spectrum::stft(y, n_fft, Some(hop_length), None, &window, true, PadMode::Constant)?;
+    let stft_matrix = spectrum::stft(
+        y,
+        n_fft,
+        Some(hop_length),
+        None,
+        &window,
+        true,
+        PadMode::Constant,
+    )?;
     let n_bins = stft_matrix.nrows();
     let n_frames = stft_matrix.ncols();
 
@@ -309,8 +331,22 @@ pub fn melody_separate(
     }
 
     // 5. Reconstruct via ISTFT
-    let melody = spectrum::istft(melody_stft.view(), Some(hop_length), None, &window, true, Some(y.len()))?;
-    let accomp = spectrum::istft(accomp_stft.view(), Some(hop_length), None, &window, true, Some(y.len()))?;
+    let melody = spectrum::istft(
+        melody_stft.view(),
+        Some(hop_length),
+        None,
+        &window,
+        true,
+        Some(y.len()),
+    )?;
+    let accomp = spectrum::istft(
+        accomp_stft.view(),
+        Some(hop_length),
+        None,
+        &window,
+        true,
+        Some(y.len()),
+    )?;
 
     Ok((melody, accomp))
 }
@@ -343,8 +379,12 @@ mod tests {
     fn test_split() {
         let mut y = Array1::<Float>::zeros(44100);
         // Two bursts of signal
-        for i in 5000..10000 { y[i] = 0.5 * (i as Float * 0.1).sin(); }
-        for i in 25000..35000 { y[i] = 0.5 * (i as Float * 0.1).sin(); }
+        for i in 5000..10000 {
+            y[i] = 0.5 * (i as Float * 0.1).sin();
+        }
+        for i in 25000..35000 {
+            y[i] = 0.5 * (i as Float * 0.1).sin();
+        }
         let intervals = split(y.view(), 40.0, 2048, 512).unwrap();
         assert!(intervals.len() >= 1, "should find at least 1 segment");
     }
@@ -353,7 +393,7 @@ mod tests {
     fn test_split_with_constraints() {
         let sr: u32 = 22050;
         let mut y = Array1::<Float>::zeros(sr as usize * 4); // 4 seconds
-        // Burst 1: 0.2s–0.6s
+                                                             // Burst 1: 0.2s–0.6s
         for i in (0.2 * sr as Float) as usize..(0.6 * sr as Float) as usize {
             y[i] = 0.5 * (i as Float * 0.1).sin();
         }
@@ -367,20 +407,23 @@ mod tests {
         }
 
         let raw = split(y.view(), 40.0, 2048, 512).unwrap();
-        assert!(raw.len() >= 2, "should find at least 2 segments, got {}", raw.len());
+        assert!(
+            raw.len() >= 2,
+            "should find at least 2 segments, got {}",
+            raw.len()
+        );
 
         // Merge silences shorter than 0.5s — merges bursts 1+2
-        let merged = split_with_constraints(
-            y.view(), sr, 40.0, 2048, 512,
-            Some(0.5), None,
-        ).unwrap();
-        assert!(merged.len() < raw.len(), "merging should reduce segment count");
+        let merged =
+            split_with_constraints(y.view(), sr, 40.0, 2048, 512, Some(0.5), None).unwrap();
+        assert!(
+            merged.len() < raw.len(),
+            "merging should reduce segment count"
+        );
 
         // Drop segments shorter than 0.5s
-        let filtered = split_with_constraints(
-            y.view(), sr, 40.0, 2048, 512,
-            None, Some(0.5),
-        ).unwrap();
+        let filtered =
+            split_with_constraints(y.view(), sr, 40.0, 2048, 512, None, Some(0.5)).unwrap();
         assert!(filtered.len() >= 1, "long burst should survive");
     }
 
@@ -389,7 +432,8 @@ mod tests {
         let y = sine(440.0, 22050, 0.5);
         let pre = preemphasis(y.view(), 0.97).unwrap();
         let de = deemphasis(pre.view(), 0.97).unwrap();
-        for i in 10..y.len() - 10 { // skip edges
+        for i in 10..y.len() - 10 {
+            // skip edges
             assert_abs_diff_eq!(y[i], de[i], epsilon = 0.01);
         }
     }
@@ -420,20 +464,31 @@ mod tests {
     fn test_melody_separate_basic() {
         // 2s sine at 440Hz — verify function runs and produces valid output
         let y = sine(440.0, 22050, 2.0);
-        let (melody, accomp) = melody_separate(
-            y.view(), 22050, 65.0, 2100.0, 10, 2048, 512,
-        ).unwrap();
+        let (melody, accomp) =
+            melody_separate(y.view(), 22050, 65.0, 2100.0, 10, 2048, 512).unwrap();
         assert_eq!(melody.len(), y.len());
         assert_eq!(accomp.len(), y.len());
         // Both outputs should be finite
-        assert!(melody.iter().all(|x| x.is_finite()), "melody should be finite");
-        assert!(accomp.iter().all(|x| x.is_finite()), "accompaniment should be finite");
+        assert!(
+            melody.iter().all(|x| x.is_finite()),
+            "melody should be finite"
+        );
+        assert!(
+            accomp.iter().all(|x| x.is_finite()),
+            "accompaniment should be finite"
+        );
         // Sum of melody + accompaniment should approximate original (energy conservation)
         let orig_energy: Float = y.iter().map(|x| x * x).sum();
         let mel_energy: Float = melody.iter().map(|x| x * x).sum();
         let acc_energy: Float = accomp.iter().map(|x| x * x).sum();
         // Total energy should be in same order of magnitude
-        assert!((mel_energy + acc_energy) > 0.0, "should produce non-zero output");
-        assert!((mel_energy + acc_energy) < orig_energy * 4.0, "energy shouldn't explode");
+        assert!(
+            (mel_energy + acc_energy) > 0.0,
+            "should produce non-zero output"
+        );
+        assert!(
+            (mel_energy + acc_energy) < orig_energy * 4.0,
+            "energy shouldn't explode"
+        );
     }
 }

@@ -3,15 +3,19 @@
 //! Key/scale mapping, Indian notation (mela/thaat/svara), and just intonation
 //! (FJS, Pythagorean, p-limit intervals).
 
-use crate::error::{SonaraError, Result};
+use crate::error::{Result, SonaraError};
 use crate::types::Float;
 
 // ============================================================
 // Western key/scale functions
 // ============================================================
 
-const NOTE_NAMES: [&str; 12] = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-const NOTE_NAMES_FLAT: [&str; 12] = ["C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"];
+const NOTE_NAMES: [&str; 12] = [
+    "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
+];
+const NOTE_NAMES_FLAT: [&str; 12] = [
+    "C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B",
+];
 
 /// Major scale intervals (semitones from root).
 const MAJOR_INTERVALS: [usize; 7] = [0, 2, 4, 5, 7, 9, 11];
@@ -37,9 +41,14 @@ pub fn key_to_notes(key: &str) -> Result<Vec<String>> {
     };
 
     let root_idx = note_name_to_index(&root)?;
-    let use_flats = root.contains('b') || ["F", "Bb", "Eb", "Ab", "Db", "Gb"].contains(&root.as_str());
+    let use_flats =
+        root.contains('b') || ["F", "Bb", "Eb", "Ab", "Db", "Gb"].contains(&root.as_str());
 
-    let names = if use_flats { &NOTE_NAMES_FLAT } else { &NOTE_NAMES };
+    let names = if use_flats {
+        &NOTE_NAMES_FLAT
+    } else {
+        &NOTE_NAMES
+    };
 
     Ok(intervals
         .iter()
@@ -94,24 +103,84 @@ fn note_name_to_index(name: &str) -> Result<usize> {
 
 /// All 72 Melakarta raga names.
 const MELAKARTA_NAMES: [&str; 72] = [
-    "Kanakangi", "Ratnangi", "Ganamurti", "Vanaspati", "Manavati", "Tanarupi",
-    "Senavati", "Hanumatodi", "Dhenuka", "Natakapriya", "Kokilapriya", "Rupavati",
-    "Gayakapriya", "Vakulabharanam", "Mayamalavagowla", "Chakravakam", "Suryakantam", "Hatakambari",
-    "Jhankaradhvani", "Natabhairavi", "Keeravani", "Kharaharapriya", "Gaurimanohari", "Varunapriya",
-    "Mararanjani", "Charukesi", "Sarasangi", "Harikambhoji", "Dheerasankarabharanam", "Naganandini",
-    "Yagapriya", "Ragavardhini", "Gangeyabhushani", "Vagadheeswari", "Shulini", "Chalanata",
-    "Salagam", "Jalarnavam", "Jhalavarali", "Navaneetam", "Pavani", "Raghupriya",
-    "Gavambodhi", "Bhavapriya", "Shubhapantuvarali", "Shadvidamargini", "Suvarnangi", "Divyamani",
-    "Dhavalambari", "Namanarayani", "Kamavardhini", "Ramapriya", "Gamanashrama", "Vishwambhari",
-    "Shamalangi", "Shanmukhapriya", "Simhendramadhyamam", "Hemavati", "Dharmavati", "Neetimati",
-    "Kantamani", "Rishabhapriya", "Latangi", "Vachaspati", "Mechakalyani", "Chitrambari",
-    "Sucharitra", "Jyotiswarupini", "Dhatuvardhini", "Nasikabhushani", "Kosalam", "Rasikapriya",
+    "Kanakangi",
+    "Ratnangi",
+    "Ganamurti",
+    "Vanaspati",
+    "Manavati",
+    "Tanarupi",
+    "Senavati",
+    "Hanumatodi",
+    "Dhenuka",
+    "Natakapriya",
+    "Kokilapriya",
+    "Rupavati",
+    "Gayakapriya",
+    "Vakulabharanam",
+    "Mayamalavagowla",
+    "Chakravakam",
+    "Suryakantam",
+    "Hatakambari",
+    "Jhankaradhvani",
+    "Natabhairavi",
+    "Keeravani",
+    "Kharaharapriya",
+    "Gaurimanohari",
+    "Varunapriya",
+    "Mararanjani",
+    "Charukesi",
+    "Sarasangi",
+    "Harikambhoji",
+    "Dheerasankarabharanam",
+    "Naganandini",
+    "Yagapriya",
+    "Ragavardhini",
+    "Gangeyabhushani",
+    "Vagadheeswari",
+    "Shulini",
+    "Chalanata",
+    "Salagam",
+    "Jalarnavam",
+    "Jhalavarali",
+    "Navaneetam",
+    "Pavani",
+    "Raghupriya",
+    "Gavambodhi",
+    "Bhavapriya",
+    "Shubhapantuvarali",
+    "Shadvidamargini",
+    "Suvarnangi",
+    "Divyamani",
+    "Dhavalambari",
+    "Namanarayani",
+    "Kamavardhini",
+    "Ramapriya",
+    "Gamanashrama",
+    "Vishwambhari",
+    "Shamalangi",
+    "Shanmukhapriya",
+    "Simhendramadhyamam",
+    "Hemavati",
+    "Dharmavati",
+    "Neetimati",
+    "Kantamani",
+    "Rishabhapriya",
+    "Latangi",
+    "Vachaspati",
+    "Mechakalyani",
+    "Chitrambari",
+    "Sucharitra",
+    "Jyotiswarupini",
+    "Dhatuvardhini",
+    "Nasikabhushani",
+    "Kosalam",
+    "Rasikapriya",
 ];
 
 /// 10 Thaat names.
 const THAAT_NAMES: [&str; 10] = [
-    "Bilaval", "Khamaj", "Kafi", "Asavari", "Bhairavi",
-    "Bhairav", "Kalyan", "Marva", "Poorvi", "Todi",
+    "Bilaval", "Khamaj", "Kafi", "Asavari", "Bhairavi", "Bhairav", "Kalyan", "Marva", "Poorvi",
+    "Todi",
 ];
 
 /// Thaat scale degrees (semitone offsets from Sa).
@@ -137,8 +206,13 @@ pub fn mela_to_svara(mela: usize) -> Result<Vec<String>> {
         });
     }
     let degrees = mela_to_degrees(mela)?;
-    let svara_names = ["Sa", "Ri1", "Ri2", "Ga1", "Ga2", "Ma1", "Ma2", "Pa", "Da1", "Da2", "Ni1", "Ni2"];
-    Ok(degrees.iter().map(|&d| svara_names[d % 12].to_string()).collect())
+    let svara_names = [
+        "Sa", "Ri1", "Ri2", "Ga1", "Ga2", "Ma1", "Ma2", "Pa", "Da1", "Da2", "Ni1", "Ni2",
+    ];
+    Ok(degrees
+        .iter()
+        .map(|&d| svara_names[d % 12].to_string())
+        .collect())
 }
 
 /// Convert a melakarta number to scale degrees.
@@ -152,12 +226,12 @@ pub fn mela_to_degrees(mela: usize) -> Result<Vec<usize>> {
 
     let idx = mela - 1;
     let chakra = idx / 6; // 0-11
-    let sub = idx % 6;    // 0-5
+    let sub = idx % 6; // 0-5
 
     // Sa is always 0, Pa is always 7
     let mut degrees = vec![0usize; 7];
-    degrees[0] = 0;  // Sa
-    degrees[4] = 7;  // Pa
+    degrees[0] = 0; // Sa
+    degrees[4] = 7; // Pa
 
     // Ma: chakras 0-5 use Ma1 (5), chakras 6-11 use Ma2 (6)
     degrees[3] = if chakra < 6 { 5 } else { 6 };
@@ -165,23 +239,59 @@ pub fn mela_to_degrees(mela: usize) -> Result<Vec<usize>> {
     // Ri and Ga depend on chakra within the half
     let half_chakra = chakra % 6;
     match half_chakra {
-        0 => { degrees[1] = 1; degrees[2] = 2; }
-        1 => { degrees[1] = 1; degrees[2] = 3; }
-        2 => { degrees[1] = 1; degrees[2] = 4; }
-        3 => { degrees[1] = 2; degrees[2] = 3; }
-        4 => { degrees[1] = 2; degrees[2] = 4; }
-        5 => { degrees[1] = 3; degrees[2] = 4; }
+        0 => {
+            degrees[1] = 1;
+            degrees[2] = 2;
+        }
+        1 => {
+            degrees[1] = 1;
+            degrees[2] = 3;
+        }
+        2 => {
+            degrees[1] = 1;
+            degrees[2] = 4;
+        }
+        3 => {
+            degrees[1] = 2;
+            degrees[2] = 3;
+        }
+        4 => {
+            degrees[1] = 2;
+            degrees[2] = 4;
+        }
+        5 => {
+            degrees[1] = 3;
+            degrees[2] = 4;
+        }
         _ => unreachable!(),
     }
 
     // Da and Ni depend on sub-index
     match sub {
-        0 => { degrees[5] = 8;  degrees[6] = 9; }
-        1 => { degrees[5] = 8;  degrees[6] = 10; }
-        2 => { degrees[5] = 8;  degrees[6] = 11; }
-        3 => { degrees[5] = 9;  degrees[6] = 10; }
-        4 => { degrees[5] = 9;  degrees[6] = 11; }
-        5 => { degrees[5] = 10; degrees[6] = 11; }
+        0 => {
+            degrees[5] = 8;
+            degrees[6] = 9;
+        }
+        1 => {
+            degrees[5] = 8;
+            degrees[6] = 10;
+        }
+        2 => {
+            degrees[5] = 8;
+            degrees[6] = 11;
+        }
+        3 => {
+            degrees[5] = 9;
+            degrees[6] = 10;
+        }
+        4 => {
+            degrees[5] = 9;
+            degrees[6] = 11;
+        }
+        5 => {
+            degrees[5] = 10;
+            degrees[6] = 11;
+        }
         _ => unreachable!(),
     }
 

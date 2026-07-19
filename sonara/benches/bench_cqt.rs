@@ -15,15 +15,9 @@ fn bench_cqt(c: &mut Criterion) {
 
     for (label, n_samples) in [("1s", 22050), ("5s", 110250)] {
         let signal = generate_signal(n_samples);
-        group.bench_with_input(
-            BenchmarkId::new("84bins", label),
-            &signal,
-            |b, sig| {
-                b.iter(|| {
-                    constantq::cqt(sig.view(), 22050, 512, None, 84, 12, 1.0).unwrap()
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("84bins", label), &signal, |b, sig| {
+            b.iter(|| constantq::cqt(sig.view(), 22050, 512, None, 84, 12, 1.0).unwrap());
+        });
     }
 
     // Different n_bins
@@ -33,9 +27,7 @@ fn bench_cqt(c: &mut Criterion) {
             BenchmarkId::new("1s", format!("{}bins", n_bins)),
             &signal,
             |b, sig| {
-                b.iter(|| {
-                    constantq::cqt(sig.view(), 22050, 512, None, n_bins, 12, 1.0).unwrap()
-                });
+                b.iter(|| constantq::cqt(sig.view(), 22050, 512, None, n_bins, 12, 1.0).unwrap());
             },
         );
     }

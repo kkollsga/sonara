@@ -3,14 +3,14 @@
 //! Tempogram, Fourier tempogram, tempo estimation, tempogram ratio, metrogram,
 //! and time signature detection.
 
-#[cfg(test)]
-use std::f32::consts::PI;
 use ndarray::{Array1, Array2, ArrayView1, ArrayView2};
 use num_complex::Complex;
+#[cfg(test)]
+use std::f32::consts::PI;
 
 use crate::core::{audio, fft};
 use crate::dsp::windows;
-use crate::error::{SonaraError, Result};
+use crate::error::{Result, SonaraError};
 use crate::onset;
 use crate::types::*;
 use crate::util::utils;
@@ -38,7 +38,10 @@ pub fn tempogram(
 
     let n = oenv.len();
     if n < win_length {
-        return Err(SonaraError::InsufficientData { needed: win_length, got: n });
+        return Err(SonaraError::InsufficientData {
+            needed: win_length,
+            got: n,
+        });
     }
 
     // Frame the onset envelope
@@ -94,7 +97,10 @@ pub fn fourier_tempogram(
 
     let n = oenv.len();
     if n < win_length {
-        return Err(SonaraError::InsufficientData { needed: win_length, got: n });
+        return Err(SonaraError::InsufficientData {
+            needed: win_length,
+            got: n,
+        });
     }
 
     let frames = utils::frame(oenv.view(), win_length, 1)?;
@@ -152,7 +158,9 @@ pub fn tempo(
     let tg = tempogram(None, Some(oenv.view()), sr, hop_length, win_length)?;
 
     // Aggregate across time (mean)
-    let avg: Array1<Float> = tg.mean_axis(ndarray::Axis(1)).unwrap_or(Array1::zeros(win_length));
+    let avg: Array1<Float> = tg
+        .mean_axis(ndarray::Axis(1))
+        .unwrap_or(Array1::zeros(win_length));
 
     // Convert lag to BPM and find peak
     let sr_f = sr as Float;
@@ -227,12 +235,12 @@ pub fn tempogram_ratio(
 ///
 /// `[0.5, 1/3, 0.25, 0.2, 1/6, 1/7]` → meters `[2, 3, 4, 5, 6, 7]`
 const DEFAULT_METER_RATIOS: &[Float] = &[
-    0.5,                // 2/4
-    1.0 / 3.0,          // 3/4
-    0.25,                // 4/4
-    0.2,                 // 5/4
-    1.0 / 6.0,          // 6/4 (or 6/8)
-    1.0 / 7.0,          // 7/4
+    0.5,       // 2/4
+    1.0 / 3.0, // 3/4
+    0.25,      // 4/4
+    0.2,       // 5/4
+    1.0 / 6.0, // 6/4 (or 6/8)
+    1.0 / 7.0, // 7/4
 ];
 
 /// Numerators corresponding to each ratio in `DEFAULT_METER_RATIOS`.
@@ -264,9 +272,8 @@ pub fn metrogram(
     let ft_mag = ft.mapv(|c| c.norm());
 
     // Compute Fourier tempogram frequencies (BPM)
-    let freqs = crate::core::convert::fourier_tempo_frequencies(
-        sr as Float, win_length, hop_length,
-    );
+    let freqs =
+        crate::core::convert::fourier_tempo_frequencies(sr as Float, win_length, hop_length);
 
     // Interpolate at subharmonic frequencies and compute product
     let mut meter_scores = Array2::<Float>::zeros((n_ratios, n_frames));
@@ -276,17 +283,22 @@ pub fn metrogram(
             let mut score = 0.0;
             for b in 1..n_bins {
                 let target_freq = freqs[b] * ratio;
-                if target_freq <= 0.0 { continue; }
+                if target_freq <= 0.0 {
+                    continue;
+                }
 
                 // Linear interpolation in the frequency axis
                 let mut lo = 0;
                 for k in 0..n_bins {
-                    if freqs[k] <= target_freq { lo = k; }
+                    if freqs[k] <= target_freq {
+                        lo = k;
+                    }
                 }
                 let hi = (lo + 1).min(n_bins - 1);
 
                 let interp_val = if hi > lo && freqs[hi] > freqs[lo] {
-                    let frac = ((target_freq - freqs[lo]) / (freqs[hi] - freqs[lo])).clamp(0.0, 1.0);
+                    let frac =
+                        ((target_freq - freqs[lo]) / (freqs[hi] - freqs[lo])).clamp(0.0, 1.0);
                     (1.0 - frac) * ft_mag[(lo, t)] + frac * ft_mag[(hi, t)]
                 } else {
                     ft_mag[(lo, t)]
@@ -360,7 +372,11 @@ pub fn detect_time_signature(
         0.0
     };
 
-    let numerator = if best_idx < nums.len() { nums[best_idx] } else { 4 };
+    let numerator = if best_idx < nums.len() {
+        nums[best_idx]
+    } else {
+        4
+    };
     let label = format!("{}/4", numerator);
 
     (label, confidence)
@@ -436,7 +452,13 @@ mod tests {
         let mg = metrogram(None, Some(oenv.view()), 22050, 512, win, None).unwrap();
         let (label, confidence) = detect_time_signature(mg.view(), None);
         // A simple click train is ambiguous in meter, but should return a valid label
-        assert!(label.contains('/'), "label should be N/4 format, got {label}");
-        assert!(confidence >= 0.0 && confidence <= 1.0, "confidence {confidence} out of range");
+        assert!(
+            label.contains('/'),
+            "label should be N/4 format, got {label}"
+        );
+        assert!(
+            confidence >= 0.0 && confidence <= 1.0,
+            "confidence {confidence} out of range"
+        );
     }
 }

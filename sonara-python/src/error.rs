@@ -1,6 +1,6 @@
-use sonara::SonaraError;
 use pyo3::exceptions;
 use pyo3::PyErr;
+use sonara::SonaraError;
 
 /// Convert a SonaraError into a PyErr.
 /// We use a function instead of `impl From` to avoid the orphan rule.

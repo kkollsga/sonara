@@ -46,6 +46,14 @@ benchmark_phases1_4.json
 
 # Claude / AI tooling (local only)
 .claude/
+CLAUDE.md
+AGENTS.md
+
+# Local dev working folder + cross-project coordination channel — never committed.
+# See dev-docs/README.md and inbox/README.md for the canonical layouts, and the
+# dev-docs-cleanup / read-inbox skills for the auto-purged time-boxed tiers within.
+/dev-docs/
+/inbox/
 
 # Coverage / profiling
 *.profraw

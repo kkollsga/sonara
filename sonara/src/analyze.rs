@@ -31,7 +31,7 @@ use rayon::prelude::*;
 
 use crate::core::{audio, convert, fft, spectrum};
 use crate::dsp::windows;
-use crate::error::{SonaraError, Result};
+use crate::error::{Result, SonaraError};
 use crate::filters;
 use crate::perceptual;
 use crate::types::*;
@@ -208,9 +208,19 @@ impl AnalysisConfig {
         if let Some(ref features) = self.features {
             // If any non-core feature is requested
             const EXTENDED_FEATURES: &[&str] = &[
-                "bandwidth", "rolloff", "flatness", "contrast", "mfcc", "chroma",
-                "chords", "dissonance",
-                "energy", "danceability", "key", "valence", "acousticness",
+                "bandwidth",
+                "rolloff",
+                "flatness",
+                "contrast",
+                "mfcc",
+                "chroma",
+                "chords",
+                "dissonance",
+                "energy",
+                "danceability",
+                "key",
+                "valence",
+                "acousticness",
                 // mood needs chroma/key (extended pass).
                 "mood",
                 // --- structure ---
@@ -223,7 +233,8 @@ impl AnalysisConfig {
                 // the mid-band spectral-contrast + flatness means, both computed
                 // only in the extended pass — so they now require it (silence,
                 // by contrast, still does not).
-                "vocalness", "instrumentalness",
+                "vocalness",
+                "instrumentalness",
                 // --- similarity ---: embedding needs the playlist-level features
                 "embedding",
             ];
@@ -232,7 +243,6 @@ impl AnalysisConfig {
             self.mode != AnalysisMode::Compact
         }
     }
-
 }
 
 /// Feature names that are only ever computed when explicitly requested via
@@ -264,7 +274,12 @@ const OPT_IN_ONLY_FEATURES: &[&str] = &[
 /// automatically whenever extended analysis runs, so only the wants-gated tonal
 /// and perceptual features need to be listed here.
 const EMBEDDING_DEPS: &[&str] = &[
-    "energy", "danceability", "key", "valence", "dissonance", "chords",
+    "energy",
+    "danceability",
+    "key",
+    "valence",
+    "dissonance",
+    "chords",
 ];
 
 /// Version of the `TrackAnalysis` result schema. Bump whenever the meaning,
@@ -349,8 +364,8 @@ pub struct AnalysisProvenance {
     pub requested_features: Option<Vec<String>>,
 }
 
-pub use crate::structure::SegmentEvent;
 pub use crate::core::audio::TrackTags;
+pub use crate::structure::SegmentEvent;
 
 /// A chord with its time span, in seconds.
 ///
@@ -420,7 +435,6 @@ pub struct TrackAnalysis {
     /// approximate `dynamic_range_db` (which is a raw p95-p5 of RMS).
     pub loudness_range_lu: Option<Float>,
     // --- end loudness ---
-
     pub spectral_centroid_mean: Float,
     pub zero_crossing_rate: Float,
     pub onset_density: Float,
@@ -561,8 +575,7 @@ impl TrackAnalysis {
     /// `downbeats`) to seconds using the carried provenance:
     /// `frame * hop_length / sample_rate`.
     pub fn frame_to_sec(&self, frame: usize) -> Float {
-        frame as Float * self.provenance.hop_length as Float
-            / self.provenance.sample_rate as Float
+        frame as Float * self.provenance.hop_length as Float / self.provenance.sample_rate as Float
     }
 
     /// Beat times in seconds (see [`Self::frame_to_sec`]).
@@ -572,7 +585,10 @@ impl TrackAnalysis {
 
     /// Onset times in seconds (see [`Self::frame_to_sec`]).
     pub fn onsets_sec(&self) -> Vec<Float> {
-        self.onset_frames.iter().map(|&f| self.frame_to_sec(f)).collect()
+        self.onset_frames
+            .iter()
+            .map(|&f| self.frame_to_sec(f))
+            .collect()
     }
 
     /// Downbeat times in seconds; `None` unless `features=["beatgrid"]`.
@@ -631,7 +647,11 @@ pub fn analyze_signal(
 /// file yields an `Err` for that entry only — it never aborts or poisons the
 /// rest of the batch. This is the robustness contract the Python `analyze_batch`
 /// binding relies on when analyzing large libraries.
-pub fn analyze_batch(paths: &[&Path], sr: u32, config: &AnalysisConfig) -> Vec<Result<TrackAnalysis>> {
+pub fn analyze_batch(
+    paths: &[&Path],
+    sr: u32,
+    config: &AnalysisConfig,
+) -> Vec<Result<TrackAnalysis>> {
     analyze_batch_with(paths, sr, config, |_, _| {})
 }
 
@@ -705,9 +725,13 @@ fn analyze_signal_inner(
         if let Some(ref c) = *cache {
             if c.key == cache_key {
                 return (
-                    c.sparse_mel.clone(), c.sparse_chroma.clone(), c.freqs.clone(),
-                    c.win_padded.clone(), c.dct_matrix.clone(),
-                    c.contrast_bands.clone(), c.harmonic_weights,
+                    c.sparse_mel.clone(),
+                    c.sparse_chroma.clone(),
+                    c.freqs.clone(),
+                    c.win_padded.clone(),
+                    c.dct_matrix.clone(),
+                    c.contrast_bands.clone(),
+                    c.harmonic_weights,
                 );
             }
         }
@@ -718,8 +742,11 @@ fn analyze_signal_inner(
                 let row = mel_fb.row(m);
                 let first = row.iter().position(|&v| v > 0.0).unwrap_or(0);
                 let last = row.iter().rposition(|&v| v > 0.0).unwrap_or(0);
-                if first > last { (0, vec![]) }
-                else { (first, row.slice(s![first..=last]).to_vec()) }
+                if first > last {
+                    (0, vec![])
+                } else {
+                    (first, row.slice(s![first..=last]).to_vec())
+                }
             })
             .collect();
         let f = convert::fft_frequencies(sr_f, n_fft);
@@ -734,15 +761,24 @@ fn analyze_signal_inner(
                 let row = cfb.row(c);
                 let first = row.iter().position(|&v| v > 0.0).unwrap_or(0);
                 let last = row.iter().rposition(|&v| v > 0.0).unwrap_or(0);
-                if first > last { (0, vec![]) }
-                else { (first, row.slice(s![first..=last]).to_vec()) }
+                if first > last {
+                    (0, vec![])
+                } else {
+                    (first, row.slice(s![first..=last]).to_vec())
+                }
             })
             .collect();
 
         // Pre-computed DCT-II matrix (n_mfcc × n_mels)
         let dct_matrix = Array2::from_shape_fn((N_MFCC, n_mels), |(k, m)| {
-            let norm = if k == 0 { (1.0 / n_mels as Float).sqrt() } else { (2.0 / n_mels as Float).sqrt() };
-            norm * (std::f32::consts::PI * k as Float * (2 * m + 1) as Float / (2.0 * n_mels as Float)).cos()
+            let norm = if k == 0 {
+                (1.0 / n_mels as Float).sqrt()
+            } else {
+                (2.0 / n_mels as Float).sqrt()
+            };
+            norm * (std::f32::consts::PI * k as Float * (2 * m + 1) as Float
+                / (2.0 * n_mels as Float))
+                .cos()
         });
 
         // Spectral contrast band bin boundaries
@@ -758,12 +794,16 @@ fn analyze_signal_inner(
                 let lo = band_edges[b];
                 let hi = band_edges[b + 1];
                 let start = freqs_slice.iter().position(|&freq| freq >= lo).unwrap_or(0);
-                let end = freqs_slice.iter().position(|&freq| freq >= hi).unwrap_or(n_bins);
+                let end = freqs_slice
+                    .iter()
+                    .position(|&freq| freq >= hi)
+                    .unwrap_or(n_bins);
                 (start, end)
             })
             .collect();
 
-        let harmonic_weights: [Float; N_HPCP_HARMONICS] = std::array::from_fn(|h| 1.0 / (h as Float + 1.0));
+        let harmonic_weights: [Float; N_HPCP_HARMONICS] =
+            std::array::from_fn(|h| 1.0 / (h as Float + 1.0));
 
         *cache = Some(AnalysisCache {
             key: cache_key,
@@ -776,16 +816,35 @@ fn analyze_signal_inner(
             harmonic_weights,
         });
 
-        (sparse_mel, sparse_chroma, f, wp, dct_matrix, contrast_bands, harmonic_weights)
+        (
+            sparse_mel,
+            sparse_chroma,
+            f,
+            wp,
+            dct_matrix,
+            contrast_bands,
+            harmonic_weights,
+        )
     });
-    let (sparse_mel, sparse_chroma, freqs, win_padded, dct_matrix, contrast_bands, harmonic_weights) = cache_data;
+    let (
+        sparse_mel,
+        sparse_chroma,
+        freqs,
+        win_padded,
+        dct_matrix,
+        contrast_bands,
+        harmonic_weights,
+    ) = cache_data;
 
     let pad = n_fft / 2;
     let mut y_padded = Array1::<Float>::zeros(y.len() + 2 * pad);
     y_padded.slice_mut(s![pad..pad + y.len()]).assign(&y);
     let n = y_padded.len();
     if n < n_fft {
-        return Err(SonaraError::InsufficientData { needed: n_fft, got: n });
+        return Err(SonaraError::InsufficientData {
+            needed: n_fft,
+            got: n,
+        });
     }
     let y_raw = y_padded.as_slice().unwrap();
     let win_raw = win_padded.as_slice().unwrap();
@@ -800,12 +859,32 @@ fn analyze_signal_inner(
     let mut mel_spec = Array2::<Float>::zeros((n_mels, n_frames));
     let mut centroids = Array1::<Float>::zeros(n_frames);
     let mut rms_frames = Array1::<Float>::zeros(n_frames);
-    let mut bandwidths = if extended { Array1::<Float>::zeros(n_frames) } else { Array1::zeros(0) };
-    let mut rolloffs = if extended { Array1::<Float>::zeros(n_frames) } else { Array1::zeros(0) };
-    let mut flatnesses = if extended { Array1::<Float>::zeros(n_frames) } else { Array1::zeros(0) };
-    let mut chroma_raw = if extended { Array2::<Float>::zeros((12, n_frames)) } else { Array2::zeros((0, 0)) };
+    let mut bandwidths = if extended {
+        Array1::<Float>::zeros(n_frames)
+    } else {
+        Array1::zeros(0)
+    };
+    let mut rolloffs = if extended {
+        Array1::<Float>::zeros(n_frames)
+    } else {
+        Array1::zeros(0)
+    };
+    let mut flatnesses = if extended {
+        Array1::<Float>::zeros(n_frames)
+    } else {
+        Array1::zeros(0)
+    };
+    let mut chroma_raw = if extended {
+        Array2::<Float>::zeros((12, n_frames))
+    } else {
+        Array2::zeros((0, 0))
+    };
     // Fused HPCP (accumulated per-frame, normalized+averaged post-loop)
-    let mut hpcp_raw = if extended { Array2::<Float>::zeros((12, n_frames)) } else { Array2::zeros((0, 0)) };
+    let mut hpcp_raw = if extended {
+        Array2::<Float>::zeros((12, n_frames))
+    } else {
+        Array2::zeros((0, 0))
+    };
     // Fused contrast + dissonance accumulators
     let contrast_acc;
     let dissonance_acc;
@@ -825,7 +904,9 @@ fn analyze_signal_inner(
     let compute_frame = |t: usize| -> FrameResult {
         let start = t * hop_length;
         let mut fft_in = vec![0.0_f32; n_fft];
-        for i in 0..n_fft { fft_in[i] = y_raw[start + i] * win_raw[i]; }
+        for i in 0..n_fft {
+            fft_in[i] = y_raw[start + i] * win_raw[i];
+        }
         let mut fft_out = vec![num_complex::Complex::new(0.0, 0.0); n_bins];
         fft::rfft(&mut fft_in, &mut fft_out).expect("FFT failed");
 
@@ -844,11 +925,17 @@ fn analyze_signal_inner(
             cent_den += mag;
         }
 
-        let centroid = if cent_den > 0.0 { cent_num / cent_den } else { 0.0 };
+        let centroid = if cent_den > 0.0 {
+            cent_num / cent_den
+        } else {
+            0.0
+        };
 
         // RMS from time-domain
         let mut sum_sq = 0.0_f32;
-        for i in 0..n_fft { sum_sq += y_raw[start + i] * y_raw[start + i]; }
+        for i in 0..n_fft {
+            sum_sq += y_raw[start + i] * y_raw[start + i];
+        }
         let rms = (sum_sq / n_fft as Float).sqrt();
 
         let (bandwidth, rolloff, flatness) = if extended {
@@ -860,7 +947,9 @@ fn analyze_signal_inner(
                     bw_num += mag_col[i] * dev * dev;
                 }
                 (bw_num / cent_den).sqrt()
-            } else { 0.0 };
+            } else {
+                0.0
+            };
 
             // Rolloff — reuse mag_col
             let threshold = roll_percent * cent_den; // cent_den == sum of mag
@@ -885,7 +974,11 @@ fn analyze_signal_inner(
             }
             let geo_mean = (log_sum / n_bins as Float).exp();
             let arith_mean = arith_sum / n_bins as Float;
-            let fl = if arith_mean > 0.0 { geo_mean / arith_mean } else { 0.0 };
+            let fl = if arith_mean > 0.0 {
+                geo_mean / arith_mean
+            } else {
+                0.0
+            };
 
             (bw, ro, fl)
         } else {
@@ -893,18 +986,25 @@ fn analyze_signal_inner(
         };
 
         // Sparse mel projection
-        let mel_col: Vec<Float> = sparse_mel.iter().map(|(start_bin, weights)| {
-            let mut sum = 0.0;
-            for (k, &w) in weights.iter().enumerate() { sum += w * power_col[start_bin + k]; }
-            sum
-        }).collect();
+        let mel_col: Vec<Float> = sparse_mel
+            .iter()
+            .map(|(start_bin, weights)| {
+                let mut sum = 0.0;
+                for (k, &w) in weights.iter().enumerate() {
+                    sum += w * power_col[start_bin + k];
+                }
+                sum
+            })
+            .collect();
 
         // Sparse chroma projection
         let mut chroma_col = [0.0_f32; 12];
         if extended {
             for (c, (sb, weights)) in sparse_chroma.iter().enumerate() {
                 let mut sum = 0.0;
-                for (k, &w) in weights.iter().enumerate() { sum += w * power_col[sb + k]; }
+                for (k, &w) in weights.iter().enumerate() {
+                    sum += w * power_col[sb + k];
+                }
                 chroma_col[c] = sum;
             }
         }
@@ -913,12 +1013,12 @@ fn analyze_signal_inner(
         let mut contrast_bands_out = [0.0_f32; N_CONTRAST_BANDS + 1];
         if extended {
             for (b, &(sb, eb)) in contrast_bands.iter().enumerate() {
-                if sb >= eb { continue; }
+                if sb >= eb {
+                    continue;
+                }
                 let bn = eb - sb;
                 // Collect magnitudes for this band into a small buffer
-                let mut band_vals: Vec<Float> = (sb..eb)
-                    .map(|f| mag_col[f].max(1e-10))
-                    .collect();
+                let mut band_vals: Vec<Float> = (sb..eb).map(|f| mag_col[f].max(1e-10)).collect();
                 // Partial sort: O(n) instead of O(n log n)
                 let q_idx = ((bn as Float * contrast_quantile) as usize).min(bn - 1);
                 band_vals.select_nth_unstable_by(q_idx, |a, b| a.partial_cmp(b).unwrap());
@@ -943,8 +1043,12 @@ fn analyze_signal_inner(
             let mut all_peaks_mag = Vec::new();
 
             for i in 1..n_bins - 1 {
-                if mag_col[i] <= mag_col[i - 1] || mag_col[i] <= mag_col[i + 1] { continue; }
-                if freqs_raw[i] < 40.0 || freqs_raw[i] > 5000.0 { continue; }
+                if mag_col[i] <= mag_col[i - 1] || mag_col[i] <= mag_col[i + 1] {
+                    continue;
+                }
+                if freqs_raw[i] < 40.0 || freqs_raw[i] > 5000.0 {
+                    continue;
+                }
 
                 // Parabolic interpolation
                 let alpha = mag_col[i - 1];
@@ -972,7 +1076,9 @@ fn analyze_signal_inner(
 
             // Sort by magnitude descending, keep top MAX_PEAKS
             let mut indices: Vec<usize> = (0..all_peaks_freq.len()).collect();
-            indices.sort_unstable_by(|&a, &b| all_peaks_mag[b].partial_cmp(&all_peaks_mag[a]).unwrap());
+            indices.sort_unstable_by(|&a, &b| {
+                all_peaks_mag[b].partial_cmp(&all_peaks_mag[a]).unwrap()
+            });
             indices.truncate(MAX_PEAKS);
             let n_peaks = indices.len();
 
@@ -984,7 +1090,9 @@ fn analyze_signal_inner(
                 let pmag_sq = peaks_mag[p] * peaks_mag[p];
                 for h in 0..N_HPCP_HARMONICS {
                     let freq = peaks_freq[p] / (h as Float + 1.0);
-                    if freq < 20.0 { continue; }
+                    if freq < 20.0 {
+                        continue;
+                    }
                     let semitones = 12.0 * (freq / c_ref).log2();
                     let pitch_class = ((semitones % 12.0) + 12.0) % 12.0;
                     let center = pitch_class.round() as usize % 12;
@@ -1019,37 +1127,49 @@ fn analyze_signal_inner(
         }
 
         FrameResult {
-            mel_col, centroid, rms, bandwidth, rolloff, flatness,
-            chroma_col, contrast_bands: contrast_bands_out,
-            hpcp_col, dissonance: frame_diss,
+            mel_col,
+            centroid,
+            rms,
+            bandwidth,
+            rolloff,
+            flatness,
+            chroma_col,
+            contrast_bands: contrast_bands_out,
+            hpcp_col,
+            dissonance: frame_diss,
         }
     };
 
     // Scatter frame results into arrays
-    let mut scatter_results = |frame_results: Vec<FrameResult>| -> (
-        [Float; N_CONTRAST_BANDS + 1], Float,
-    ) {
-        let mut c_acc = [0.0_f32; N_CONTRAST_BANDS + 1];
-        let mut d_acc = 0.0_f32;
+    let mut scatter_results =
+        |frame_results: Vec<FrameResult>| -> ([Float; N_CONTRAST_BANDS + 1], Float) {
+            let mut c_acc = [0.0_f32; N_CONTRAST_BANDS + 1];
+            let mut d_acc = 0.0_f32;
 
-        for (t, fr) in frame_results.into_iter().enumerate() {
-            centroids[t] = fr.centroid;
-            rms_frames[t] = fr.rms;
-            if extended {
-                bandwidths[t] = fr.bandwidth;
-                rolloffs[t] = fr.rolloff;
-                flatnesses[t] = fr.flatness;
-                for c in 0..12 { chroma_raw[(c, t)] = fr.chroma_col[c]; }
-                for b in 0..N_CONTRAST_BANDS + 1 { c_acc[b] += fr.contrast_bands[b]; }
-                for c in 0..12 { hpcp_raw[(c, t)] = fr.hpcp_col[c]; }
-                d_acc += fr.dissonance;
+            for (t, fr) in frame_results.into_iter().enumerate() {
+                centroids[t] = fr.centroid;
+                rms_frames[t] = fr.rms;
+                if extended {
+                    bandwidths[t] = fr.bandwidth;
+                    rolloffs[t] = fr.rolloff;
+                    flatnesses[t] = fr.flatness;
+                    for c in 0..12 {
+                        chroma_raw[(c, t)] = fr.chroma_col[c];
+                    }
+                    for b in 0..N_CONTRAST_BANDS + 1 {
+                        c_acc[b] += fr.contrast_bands[b];
+                    }
+                    for c in 0..12 {
+                        hpcp_raw[(c, t)] = fr.hpcp_col[c];
+                    }
+                    d_acc += fr.dissonance;
+                }
+                for (m, val) in fr.mel_col.into_iter().enumerate() {
+                    mel_spec[(m, t)] = val;
+                }
             }
-            for (m, val) in fr.mel_col.into_iter().enumerate() {
-                mel_spec[(m, t)] = val;
-            }
-        }
-        (c_acc, d_acc)
-    };
+            (c_acc, d_acc)
+        };
 
     if n_frames >= PARALLEL_THRESHOLD {
         let frame_results: Vec<FrameResult> = (0..n_frames)
@@ -1060,9 +1180,7 @@ fn analyze_signal_inner(
         contrast_acc = ca;
         dissonance_acc = da;
     } else {
-        let frame_results: Vec<FrameResult> = (0..n_frames)
-            .map(|t| compute_frame(t))
-            .collect();
+        let frame_results: Vec<FrameResult> = (0..n_frames).map(|t| compute_frame(t)).collect();
         let (ca, da) = scatter_results(frame_results);
         contrast_acc = ca;
         dissonance_acc = da;
@@ -1088,22 +1206,37 @@ fn analyze_signal_inner(
     let pad_left = lag + n_fft / (2 * hop_length);
     let total_oenv_frames = out_frames + pad_left;
     let mut oenv_padded = Array1::<Float>::zeros(total_oenv_frames);
-    for t in 0..out_frames { oenv_padded[pad_left + t] = onset_env[t]; }
+    for t in 0..out_frames {
+        oenv_padded[pad_left + t] = onset_env[t];
+    }
 
     // ================================================================
     // BEAT TRACKING + ONSET DETECTION
     // ================================================================
 
     let (tempo_estimate, beats) = crate::beat::beat_track_detailed(
-        None, Some(oenv_padded.view()), sr, hop_length, 120.0, 100.0, true,
-        config.bpm_min, config.bpm_max,
+        None,
+        Some(oenv_padded.view()),
+        sr,
+        hop_length,
+        120.0,
+        100.0,
+        true,
+        config.bpm_min,
+        config.bpm_max,
     )?;
     let bpm = tempo_estimate.tempo;
     let bpm_raw = tempo_estimate.tempo_raw;
     let bpm_candidates = tempo_estimate.candidates;
 
     let onset_frames = crate::onset::onset_detect(
-        None, Some(oenv_padded.view()), sr, hop_length, false, 0.07, 0,
+        None,
+        Some(oenv_padded.view()),
+        sr,
+        hop_length,
+        false,
+        0.07,
+        0,
     )?;
 
     // ================================================================
@@ -1122,22 +1255,23 @@ fn analyze_signal_inner(
     // --- loudness ---
     // Extended loudness / gain metrics — strictly opt-in via `features=["loudness"]`.
     // Default modes (compact/playlist/full) skip this entirely, so they pay nothing.
-    let (
-        true_peak_db,
-        replaygain_db,
-        loudness_curve,
-        loudness_momentary_max_db,
-        loudness_range_lu,
-    ) = if config.wants("loudness") {
-        let tp = crate::loudness_ext::true_peak_db(y);
-        let rg = crate::loudness_ext::replaygain_db(loudness_lufs);
-        // Short-term curve: 3 s window, 1 s hop (ITU-R BS.1770 short-term).
-        // One K-weighting pass feeds the curve, momentary max and LRA.
-        let m = crate::loudness_ext::loudness_metrics(y, sr, 3.0, 1.0);
-        (Some(tp), Some(rg), Some(m.curve), Some(m.momentary_max_db), Some(m.range_lu))
-    } else {
-        (None, None, None, None, None)
-    };
+    let (true_peak_db, replaygain_db, loudness_curve, loudness_momentary_max_db, loudness_range_lu) =
+        if config.wants("loudness") {
+            let tp = crate::loudness_ext::true_peak_db(y);
+            let rg = crate::loudness_ext::replaygain_db(loudness_lufs);
+            // Short-term curve: 3 s window, 1 s hop (ITU-R BS.1770 short-term).
+            // One K-weighting pass feeds the curve, momentary max and LRA.
+            let m = crate::loudness_ext::loudness_metrics(y, sr, 3.0, 1.0);
+            (
+                Some(tp),
+                Some(rg),
+                Some(m.curve),
+                Some(m.momentary_max_db),
+                Some(m.range_lu),
+            )
+        } else {
+            (None, None, None, None, None)
+        };
     // --- end loudness ---
 
     // ================================================================
@@ -1159,7 +1293,9 @@ fn analyze_signal_inner(
                 mfcc_avg[k] += sum;
             }
         }
-        for v in mfcc_avg.iter_mut() { *v /= n_frames.max(1) as Float; }
+        for v in mfcc_avg.iter_mut() {
+            *v /= n_frames.max(1) as Float;
+        }
         Some(mfcc_avg)
     } else {
         None
@@ -1174,17 +1310,23 @@ fn analyze_signal_inner(
         let mut chroma_avg = vec![0.0_f32; 12];
         for t in 0..n_frames {
             let mut frame_chroma = [0.0_f32; 12];
-            for c in 0..12 { frame_chroma[c] = chroma_raw[(c, t)]; }
+            for c in 0..12 {
+                frame_chroma[c] = chroma_raw[(c, t)];
+            }
             // L-inf normalize per frame
             let max_val = frame_chroma.iter().copied().fold(0.0_f32, Float::max);
             if max_val > 0.0 {
-                for v in frame_chroma.iter_mut() { *v /= max_val; }
+                for v in frame_chroma.iter_mut() {
+                    *v /= max_val;
+                }
             }
             for (i, &v) in frame_chroma.iter().enumerate() {
                 chroma_avg[i] += v;
             }
         }
-        for v in chroma_avg.iter_mut() { *v /= n_frames as Float; }
+        for v in chroma_avg.iter_mut() {
+            *v /= n_frames as Float;
+        }
         Some(chroma_avg)
     } else {
         None
@@ -1196,7 +1338,9 @@ fn analyze_signal_inner(
 
     let spectral_contrast_mean = if extended && n_frames > 0 {
         let mut contrast_avg = contrast_acc.to_vec();
-        for v in contrast_avg.iter_mut() { *v /= n_frames as Float; }
+        for v in contrast_avg.iter_mut() {
+            *v /= n_frames as Float;
+        }
         Some(contrast_avg)
     } else {
         None
@@ -1215,7 +1359,11 @@ fn analyze_signal_inner(
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
         let p5 = sorted[sorted.len() * 5 / 100];
         let p95 = sorted[sorted.len() * 95 / 100];
-        if p5 > 0.0 { 20.0 * (p95 / p5).log10() } else { 0.0 }
+        if p5 > 0.0 {
+            20.0 * (p95 / p5).log10()
+        } else {
+            0.0
+        }
     } else {
         0.0
     };
@@ -1230,49 +1378,67 @@ fn analyze_signal_inner(
     let bpm_confidence = {
         let s1 = bpm_candidates.first().map(|c| c.1).unwrap_or(0.0);
         let strength = s1 / (s1 + 1.2);
-        let bpm_beats = if duration_sec > 0.0 { 60.0 * beats.len() as Float / duration_sec } else { 0.0 };
+        let bpm_beats = if duration_sec > 0.0 {
+            60.0 * beats.len() as Float / duration_sec
+        } else {
+            0.0
+        };
         let agree = if bpm > 0.0 && bpm_beats > 0.0 {
             let mut d = (bpm / bpm_beats).log2().abs();
-            d = d.min((d - 1.0).abs());          // fold one octave
+            d = d.min((d - 1.0).abs()); // fold one octave
             (-d / 0.10).exp()
-        } else { 0.0 };
+        } else {
+            0.0
+        };
         let density = (onset_density / 4.0).clamp(0.0, 1.0);
         (0.50 * strength + 0.35 * agree + 0.15 * density).clamp(0.0, 1.0)
     };
 
     let spectral_bandwidth_mean = if extended {
         Some(bandwidths.iter().sum::<Float>() / bandwidths.len().max(1) as Float)
-    } else { None };
+    } else {
+        None
+    };
 
     let spectral_rolloff_mean = if extended {
         Some(rolloffs.iter().sum::<Float>() / rolloffs.len().max(1) as Float)
-    } else { None };
+    } else {
+        None
+    };
 
     let spectral_flatness_mean = if extended {
         Some(flatnesses.iter().sum::<Float>() / flatnesses.len().max(1) as Float)
-    } else { None };
+    } else {
+        None
+    };
 
     // ================================================================
     // RHYTHM: Tempo curve & time signature
     // ================================================================
 
     let (tempo_curve, tempo_variability) = if extended && config.wants("tempo_curve") {
-        let tc = crate::beat::tempo_curve(&beats, sr, hop_length, Some(5))
-            .unwrap_or_default();
+        let tc = crate::beat::tempo_curve(&beats, sr, hop_length, Some(5)).unwrap_or_default();
         let tv = crate::beat::tempo_variability(&tc);
         (Some(tc), Some(tv))
     } else {
         (None, None)
     };
 
-    let (time_signature, time_signature_confidence) = if extended && config.wants("time_signature") {
+    let (time_signature, time_signature_confidence) = if extended && config.wants("time_signature")
+    {
         let win = 384.min(oenv_padded.len());
         if win >= 4 {
             match crate::feature::rhythm::metrogram(
-                None, Some(oenv_padded.view()), sr, hop_length, win, None,
+                None,
+                Some(oenv_padded.view()),
+                sr,
+                hop_length,
+                win,
+                None,
             ) {
                 Ok(mg) => {
-                    let (label, conf) = crate::feature::rhythm::detect_time_signature(mg.view(), None);
+                    let (label, conf) =
+                        crate::feature::rhythm::detect_time_signature(mg.view(), None);
                     (Some(label), Some(conf))
                 }
                 Err(_) => (None, None),
@@ -1301,9 +1467,17 @@ fn analyze_signal_inner(
             .filter(|&n| n >= 2)
             .unwrap_or(crate::beatgrid::DEFAULT_BEATS_PER_BAR);
         let grid = crate::beatgrid::analyze_grid(
-            &beats, oenv_padded.view(), sr, hop_length, beats_per_bar,
+            &beats,
+            oenv_padded.view(),
+            sr,
+            hop_length,
+            beats_per_bar,
         );
-        (Some(grid.grid_offset_sec), Some(grid.downbeats), Some(grid.grid_stability))
+        (
+            Some(grid.grid_offset_sec),
+            Some(grid.downbeats),
+            Some(grid.grid_stability),
+        )
     } else {
         (None, None, None)
     };
@@ -1321,7 +1495,9 @@ fn analyze_signal_inner(
             for t in 0..n_frames {
                 let sum: Float = (0..12).map(|c| hpcp_raw[(c, t)]).sum();
                 if sum > 0.0 {
-                    for c in 0..12 { hpcp_raw[(c, t)] /= sum; }
+                    for c in 0..12 {
+                        hpcp_raw[(c, t)] /= sum;
+                    }
                 }
             }
 
@@ -1329,16 +1505,28 @@ fn analyze_signal_inner(
                 let chords = crate::tonal::chords_from_beats(hpcp_raw.view(), &beats);
                 let desc = crate::tonal::chord_descriptors(&chords, duration_sec);
                 let events = chord_events_from_labels(
-                    &chords, &beats, n_frames, sr_f, hop_length, duration_sec,
+                    &chords,
+                    &beats,
+                    n_frames,
+                    sr_f,
+                    hop_length,
+                    duration_sec,
                 );
-                (Some(chords), Some(events), Some(desc.change_rate), Some(desc.predominant_chord))
+                (
+                    Some(chords),
+                    Some(events),
+                    Some(desc.change_rate),
+                    Some(desc.predominant_chord),
+                )
             } else {
                 (None, None, None, None)
             };
 
             let dv = if wants_diss {
                 Some(dissonance_acc / n_frames as Float)
-            } else { None };
+            } else {
+                None
+            };
 
             (cs, ce, ccr, pc, dv)
         } else {
@@ -1362,25 +1550,51 @@ fn analyze_signal_inner(
     let wants_mood = extended && config.wants("mood");
 
     let energy = if wants_energy {
-        Some(perceptual::energy(rms_mean, centroid_mean, onset_density, bw_mean))
-    } else { None };
+        Some(perceptual::energy(
+            rms_mean,
+            centroid_mean,
+            onset_density,
+            bw_mean,
+        ))
+    } else {
+        None
+    };
 
     let danceability = if wants_dance {
-        Some(perceptual::danceability_heuristic(bpm, &beats, onset_density))
-    } else { None };
+        Some(perceptual::danceability_heuristic(
+            bpm,
+            &beats,
+            onset_density,
+        ))
+    } else {
+        None
+    };
 
     // Key detection requires chroma (resolved as dependency). mood also needs it.
     let key_result = if wants_key || wants_valence || wants_mood {
         chroma_mean.as_ref().map(|c| perceptual::detect_key(c))
-    } else { None };
+    } else {
+        None
+    };
 
     let valence = if config.wants("valence") {
-        key_result.as_ref().map(|kr| perceptual::valence(kr, bpm, centroid_mean))
-    } else { None };
+        key_result
+            .as_ref()
+            .map(|kr| perceptual::valence(kr, bpm, centroid_mean))
+    } else {
+        None
+    };
 
     let acousticness = if wants_acoustic {
-        Some(perceptual::acousticness(fl_mean, ro_mean, centroid_mean, onset_density))
-    } else { None };
+        Some(perceptual::acousticness(
+            fl_mean,
+            ro_mean,
+            centroid_mean,
+            onset_density,
+        ))
+    } else {
+        None
+    };
 
     // --- mood (heuristic v1) ---
     // Extended-gated; recomputes energy/danceability internally so it does not
@@ -1398,7 +1612,9 @@ fn analyze_signal_inner(
             dissonance_val,
             dynamic_range_db,
         ))
-    } else { None };
+    } else {
+        None
+    };
 
     // --- fingerprint ---
     // Strictly opt-in (see OPT_IN_ONLY_FEATURES): never runs unless
@@ -1406,7 +1622,11 @@ fn analyze_signal_inner(
     // pay exactly zero cost. Operates on its own downsampled mono copy of `y`.
     let fingerprint = if config.wants("fingerprint") {
         let fp = crate::fingerprint::compute(y, sr);
-        if fp.is_empty() { None } else { Some(fp) }
+        if fp.is_empty() {
+            None
+        } else {
+            Some(fp)
+        }
     } else {
         None
     };
@@ -1414,14 +1634,24 @@ fn analyze_signal_inner(
     // key_result may also have been computed solely to feed mood; only surface
     // the key fields when key/valence was actually requested (no mood leakage).
     let emit_key = wants_key || wants_valence;
-    let key = if emit_key { key_result.as_ref().map(|kr| perceptual::format_key(kr)) } else { None };
-    let key_confidence = if emit_key { key_result.as_ref().map(|kr| kr.confidence) } else { None };
+    let key = if emit_key {
+        key_result.as_ref().map(|kr| perceptual::format_key(kr))
+    } else {
+        None
+    };
+    let key_confidence = if emit_key {
+        key_result.as_ref().map(|kr| kr.confidence)
+    } else {
+        None
+    };
     let key_camelot = if emit_key {
         key_result
             .as_ref()
             .and_then(|kr| perceptual::camelot(kr.key, kr.mode))
             .map(|c| c.to_string())
-    } else { None };
+    } else {
+        None
+    };
 
     // ================================================================
     // STRUCTURE (opt-in): energy curve + novelty segmentation
@@ -1514,7 +1744,11 @@ fn analyze_signal_inner(
     } else {
         None
     };
-    let vocalness = if config.wants("vocalness") { vocalness_val } else { None };
+    let vocalness = if config.wants("vocalness") {
+        vocalness_val
+    } else {
+        None
+    };
     let instrumentalness = if config.wants("instrumentalness") {
         vocalness_val.map(|v| (1.0 - v).clamp(0.0, 1.0))
     } else {
@@ -1693,7 +1927,7 @@ fn silence_offsets(
     for i in (0..n).rev() {
         if rms[i] >= thresh {
             let start = i + 1 - need; // i - (need-1)
-            // `start` underflow-safe because i >= need-1 is required for a run.
+                                      // `start` underflow-safe because i >= need-1 is required for a run.
             if i + 1 >= need && (i + 1 - need..=i).all(|k| rms[k] >= thresh) {
                 trail_frames = n - 1 - i;
                 break;
@@ -1714,17 +1948,26 @@ fn silence_offsets(
 
 /// Shorthand for compact mode analysis.
 pub fn compact() -> AnalysisConfig {
-    AnalysisConfig { mode: AnalysisMode::Compact, ..Default::default() }
+    AnalysisConfig {
+        mode: AnalysisMode::Compact,
+        ..Default::default()
+    }
 }
 
 /// Shorthand for playlist mode analysis.
 pub fn playlist() -> AnalysisConfig {
-    AnalysisConfig { mode: AnalysisMode::Playlist, ..Default::default() }
+    AnalysisConfig {
+        mode: AnalysisMode::Playlist,
+        ..Default::default()
+    }
 }
 
 /// Shorthand for full mode analysis.
 pub fn full() -> AnalysisConfig {
-    AnalysisConfig { mode: AnalysisMode::Full, ..Default::default() }
+    AnalysisConfig {
+        mode: AnalysisMode::Full,
+        ..Default::default()
+    }
 }
 
 /// Build merged [`ChordEvent`]s from per-window labels. Windows are the
@@ -1753,7 +1996,11 @@ fn chord_events_from_labels(
         let end_sec = to_sec(boundaries[i + 1]);
         match events.last_mut() {
             Some(last) if last.label == *label => last.end_sec = end_sec,
-            _ => events.push(ChordEvent { label: label.clone(), start_sec, end_sec }),
+            _ => events.push(ChordEvent {
+                label: label.clone(),
+                start_sec,
+                end_sec,
+            }),
         }
     }
     if let Some(last) = events.last_mut() {
@@ -1787,8 +2034,7 @@ mod tests {
     }
 
     fn fixture(name: &str) -> std::path::PathBuf {
-        std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../tests/fixtures"))
-            .join(name)
+        std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../tests/fixtures")).join(name)
     }
 
     #[test]
@@ -1807,7 +2053,10 @@ mod tests {
         assert_eq!(t.year, Some(2024));
         assert_eq!(t.track_no, Some(3));
         // tags must NOT trigger the extended DSP pass.
-        assert!(result.mfcc_mean.is_none(), "tags must not enable extended features");
+        assert!(
+            result.mfcc_mean.is_none(),
+            "tags must not enable extended features"
+        );
         assert!(result.energy.is_none());
         assert!(result.chroma_mean.is_none());
         // The computed `genre` placeholder is distinct from the tag genre.
@@ -1830,7 +2079,10 @@ mod tests {
             ..Default::default()
         };
         let result = analyze_signal(y.view(), 22050, &config).unwrap();
-        assert!(result.tags.is_none(), "analyze_signal has no file → tags None");
+        assert!(
+            result.tags.is_none(),
+            "analyze_signal has no file → tags None"
+        );
     }
 
     #[test]
@@ -1854,10 +2106,17 @@ mod tests {
         // Chroma should map A440 to bin 9
         let chroma = result.chroma_mean.unwrap();
         assert_eq!(chroma.len(), 12);
-        let max_bin = chroma.iter().enumerate()
+        let max_bin = chroma
+            .iter()
+            .enumerate()
             .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
-            .unwrap().0;
-        assert_eq!(max_bin, 9, "A440 should map to chroma bin 9 (A), got {}", max_bin);
+            .unwrap()
+            .0;
+        assert_eq!(
+            max_bin, 9,
+            "A440 should map to chroma bin 9 (A), got {}",
+            max_bin
+        );
     }
 
     /// Sum of equal-amplitude pure sines over `dur` seconds at `sr`.
@@ -1866,7 +2125,10 @@ mod tests {
         (0..n)
             .map(|i| {
                 let t = i as Float / sr as Float;
-                freqs.iter().map(|&f| (2.0 * PI * f * t).sin()).sum::<Float>()
+                freqs
+                    .iter()
+                    .map(|&f| (2.0 * PI * f * t).sin())
+                    .sum::<Float>()
                     / freqs.len() as Float
             })
             .collect()
@@ -1941,7 +2203,10 @@ mod tests {
                 .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
                 .unwrap()
                 .0;
-            assert_eq!(max_bin, 9, "sr={sr}: A440 should map to bin 9 (A), got {max_bin}");
+            assert_eq!(
+                max_bin, 9,
+                "sr={sr}: A440 should map to bin 9 (A), got {max_bin}"
+            );
         }
     }
 
@@ -1974,7 +2239,12 @@ mod tests {
         let y = sine(440.0, 22050, 2.0);
         let config = AnalysisConfig {
             mode: AnalysisMode::Playlist,
-            features: Some(["key", "energy", "chroma"].iter().map(|s| s.to_string()).collect()),
+            features: Some(
+                ["key", "energy", "chroma"]
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect(),
+            ),
             ..Default::default()
         };
         let result = analyze_signal(y.view(), 22050, &config).unwrap();
@@ -1983,7 +2253,13 @@ mod tests {
         // Sorted, so the recorded list is deterministic across runs.
         assert_eq!(
             p.requested_features.as_deref(),
-            Some(&["chroma".to_string(), "energy".to_string(), "key".to_string()][..])
+            Some(
+                &[
+                    "chroma".to_string(),
+                    "energy".to_string(),
+                    "key".to_string()
+                ][..]
+            )
         );
     }
 
@@ -2007,7 +2283,9 @@ mod tests {
     #[test]
     fn test_chord_events_merge_and_cover() {
         let chords: Vec<String> = ["Am", "Am", "C", "C", "C", "G"]
-            .iter().map(|s| s.to_string()).collect();
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         // beats[0] > 0 and last beat < n_frames → boundaries = [0] + beats + [n_frames]
         let beats = vec![10, 20, 30, 40, 50];
         let n_frames = 60;
@@ -2022,7 +2300,10 @@ mod tests {
         assert_eq!(events[0].start_sec, 0.0);
         assert_eq!(events[2].end_sec, dur);
         for w in events.windows(2) {
-            assert!((w[0].end_sec - w[1].start_sec).abs() < 1e-9, "not contiguous");
+            assert!(
+                (w[0].end_sec - w[1].start_sec).abs() < 1e-9,
+                "not contiguous"
+            );
         }
         // Merge boundary: Am ends where C starts = boundary frame 20
         let expect = 20.0 * hop as Float / sr_f;
@@ -2039,7 +2320,9 @@ mod tests {
         };
         let result = analyze_signal(y.view(), 22050, &config).unwrap();
         let seq = result.chord_sequence.expect("chord_sequence requested");
-        let events = result.chord_events.expect("chord_events mirror chord_sequence");
+        let events = result
+            .chord_events
+            .expect("chord_events mirror chord_sequence");
         if seq.is_empty() {
             assert!(events.is_empty());
             return;
@@ -2047,7 +2330,9 @@ mod tests {
         // Events are the run-length merge of the sequence.
         let mut merged: Vec<&String> = Vec::new();
         for label in &seq {
-            if merged.last() != Some(&label) { merged.push(label); }
+            if merged.last() != Some(&label) {
+                merged.push(label);
+            }
         }
         let labels: Vec<&String> = events.iter().map(|e| &e.label).collect();
         assert_eq!(labels, merged);
@@ -2067,7 +2352,12 @@ mod tests {
         let y = sine(440.0, 22050, 2.0);
         let config = AnalysisConfig {
             mode: AnalysisMode::Compact,
-            features: Some(["energy", "key", "chroma"].iter().map(|s| s.to_string()).collect()),
+            features: Some(
+                ["energy", "key", "chroma"]
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect(),
+            ),
             ..Default::default()
         };
         let result = analyze_signal(y.view(), 22050, &config).unwrap();
@@ -2107,11 +2397,17 @@ mod tests {
             pos += interval;
         }
         let result = analyze_signal(y.view(), sr, &compact()).unwrap();
-        assert!(!result.bpm_candidates.is_empty(), "expected tempo candidates");
+        assert!(
+            !result.bpm_candidates.is_empty(),
+            "expected tempo candidates"
+        );
         assert!(result.bpm_candidates.len() <= 5);
         // Candidates are sorted by score descending.
         for w in result.bpm_candidates.windows(2) {
-            assert!(w[0].1 >= w[1].1, "candidates must be sorted by score descending");
+            assert!(
+                w[0].1 >= w[1].1,
+                "candidates must be sorted by score descending"
+            );
         }
         assert!(result.bpm_raw > 30.0 && result.bpm_raw < 320.0);
         // Without a bpm range, the final bpm equals the raw selection.
@@ -2152,21 +2448,33 @@ mod tests {
         }
         let r_click = analyze_signal(clicks.view(), sr, &compact()).unwrap();
         // Always present + bounded.
-        assert!((0.0..=1.0).contains(&r_click.bpm_confidence),
-            "bpm_confidence out of [0,1]: {}", r_click.bpm_confidence);
+        assert!(
+            (0.0..=1.0).contains(&r_click.bpm_confidence),
+            "bpm_confidence out of [0,1]: {}",
+            r_click.bpm_confidence
+        );
         // Steady percussive material should read as reasonably anchored.
-        assert!(r_click.bpm_confidence > 0.5,
-            "click train bpm_confidence should be > 0.5, got {}", r_click.bpm_confidence);
+        assert!(
+            r_click.bpm_confidence > 0.5,
+            "click train bpm_confidence should be > 0.5, got {}",
+            r_click.bpm_confidence
+        );
 
         // Slow sustained sine drone: sparse onsets, weak tempo evidence.
         let drone = sine(220.0, sr, 4.0);
         let r_drone = analyze_signal(drone.view(), sr, &compact()).unwrap();
-        assert!((0.0..=1.0).contains(&r_drone.bpm_confidence),
-            "drone bpm_confidence out of [0,1]: {}", r_drone.bpm_confidence);
+        assert!(
+            (0.0..=1.0).contains(&r_drone.bpm_confidence),
+            "drone bpm_confidence out of [0,1]: {}",
+            r_drone.bpm_confidence
+        );
         // Comparative: sparse-onset drone is less anchored than the click train.
-        assert!(r_drone.bpm_confidence < r_click.bpm_confidence,
+        assert!(
+            r_drone.bpm_confidence < r_click.bpm_confidence,
             "drone ({}) should be less anchored than click train ({})",
-            r_drone.bpm_confidence, r_click.bpm_confidence);
+            r_drone.bpm_confidence,
+            r_click.bpm_confidence
+        );
     }
 
     #[test]
@@ -2175,10 +2483,16 @@ mod tests {
             (2.0 * PI * 440.0 * i as Float / 22050.0).sin() * 0.5
         });
         let result = analyze_signal(y.view(), 22050, &compact()).unwrap();
-        assert!(result.rms_mean > 0.1 && result.rms_mean < 0.6,
-            "RMS {} unexpected", result.rms_mean);
-        assert!(result.spectral_centroid_mean > 300.0 && result.spectral_centroid_mean < 600.0,
-            "Centroid {} unexpected", result.spectral_centroid_mean);
+        assert!(
+            result.rms_mean > 0.1 && result.rms_mean < 0.6,
+            "RMS {} unexpected",
+            result.rms_mean
+        );
+        assert!(
+            result.spectral_centroid_mean > 300.0 && result.spectral_centroid_mean < 600.0,
+            "Centroid {} unexpected",
+            result.spectral_centroid_mean
+        );
     }
 
     #[test]
@@ -2231,8 +2545,18 @@ mod tests {
         rms.extend(std::iter::repeat(0.5).take(100));
         rms.extend(std::iter::repeat(0.0).take(97));
         let (lead, trail) = silence_offsets(&rms, SR, HOP, -60.0);
-        assert!((lead - 65.0 * SPF).abs() < SPF, "lead {} vs {}", lead, 65.0 * SPF);
-        assert!((trail - 97.0 * SPF).abs() < SPF, "trail {} vs {}", trail, 97.0 * SPF);
+        assert!(
+            (lead - 65.0 * SPF).abs() < SPF,
+            "lead {} vs {}",
+            lead,
+            65.0 * SPF
+        );
+        assert!(
+            (trail - 97.0 * SPF).abs() < SPF,
+            "trail {} vs {}",
+            trail,
+            97.0 * SPF
+        );
         assert!((lead - 1.5).abs() < 2.0 * SPF);
         assert!((trail - 2.25).abs() < 2.0 * SPF);
     }
@@ -2250,7 +2574,12 @@ mod tests {
         let rms = vec![0.0_f32; 200];
         let dur = 200.0 * SPF;
         let (lead, trail) = silence_offsets(&rms, SR, HOP, -60.0);
-        assert!((lead - dur).abs() < 1e-4, "leading {} should ~= duration {}", lead, dur);
+        assert!(
+            (lead - dur).abs() < 1e-4,
+            "leading {} should ~= duration {}",
+            lead,
+            dur
+        );
         assert!((trail - dur).abs() < 1e-4);
     }
 
@@ -2264,8 +2593,12 @@ mod tests {
         rms.extend(std::iter::repeat(0.0).take(20));
         let (lead, _trail) = silence_offsets(&rms, SR, HOP, -60.0);
         // Sustained audio starts at frame 61, not at the click (frame 30).
-        assert!((lead - 61.0 * SPF).abs() < SPF,
-            "click should not end silence: lead {} expected ~{}", lead, 61.0 * SPF);
+        assert!(
+            (lead - 61.0 * SPF).abs() < SPF,
+            "click should not end silence: lead {} expected ~{}",
+            lead,
+            61.0 * SPF
+        );
     }
 
     #[test]
@@ -2301,7 +2634,10 @@ mod tests {
             assert!(r.mood_aggressive.is_none());
             assert!(r.mood_relaxed.is_none());
             assert!(r.mood_sad.is_none());
-            assert!(r.instrumentalness.is_none(), "instrumentalness must be opt-in");
+            assert!(
+                r.instrumentalness.is_none(),
+                "instrumentalness must be opt-in"
+            );
         }
     }
 
@@ -2311,7 +2647,11 @@ mod tests {
         let r = analyze_signal(y.view(), SR, &feature_config(&["mood"])).unwrap();
         for v in [r.mood_happy, r.mood_aggressive, r.mood_relaxed, r.mood_sad] {
             let v = v.expect("mood_* must be Some when mood requested");
-            assert!((0.0..=1.0).contains(&v) && v.is_finite(), "mood out of range {}", v);
+            assert!(
+                (0.0..=1.0).contains(&v) && v.is_finite(),
+                "mood out of range {}",
+                v
+            );
         }
         // Requesting mood must NOT leak the key / valence fields.
         assert!(r.key.is_none(), "mood must not leak key");
@@ -2324,13 +2664,27 @@ mod tests {
         // instrumentalness alone: Some in range, vocalness field stays None.
         let r = analyze_signal(y.view(), SR, &feature_config(&["instrumentalness"])).unwrap();
         let inst = r.instrumentalness.expect("instrumentalness must be Some");
-        assert!((0.0..=1.0).contains(&inst) && inst.is_finite(), "instrumentalness {}", inst);
+        assert!(
+            (0.0..=1.0).contains(&inst) && inst.is_finite(),
+            "instrumentalness {}",
+            inst
+        );
         assert!(r.vocalness.is_none(), "vocalness field must stay None");
         // Both together: instrumentalness == 1 - vocalness.
-        let r2 = analyze_signal(y.view(), SR, &feature_config(&["vocalness", "instrumentalness"])).unwrap();
+        let r2 = analyze_signal(
+            y.view(),
+            SR,
+            &feature_config(&["vocalness", "instrumentalness"]),
+        )
+        .unwrap();
         let v = r2.vocalness.expect("vocalness Some");
         let i = r2.instrumentalness.expect("instrumentalness Some");
-        assert!((i - (1.0 - v)).abs() < 1e-5, "inst {} should equal 1 - vocalness {}", i, v);
+        assert!(
+            (i - (1.0 - v)).abs() < 1e-5,
+            "inst {} should equal 1 - vocalness {}",
+            i,
+            v
+        );
     }
 
     #[test]
@@ -2339,7 +2693,10 @@ mod tests {
         // Default playlist/full modes must NOT compute structure.
         for cfg in [playlist(), full()] {
             let r = analyze_signal(y.view(), 22050, &cfg).unwrap();
-            assert!(r.energy_curve.is_none(), "structure must be absent by default");
+            assert!(
+                r.energy_curve.is_none(),
+                "structure must be absent by default"
+            );
             assert!(r.segments.is_none());
             assert!(r.energy_level.is_none());
         }
@@ -2386,25 +2743,46 @@ mod tests {
         let r = analyze_signal(y.view(), sr, &structure_config()).unwrap();
         let segs = r.segments.as_ref().unwrap();
         // Covering + ordered + non-overlapping.
-        assert!(segs.first().unwrap().start_sec.abs() < 1e-2, "first segment must start at 0");
-        assert!((segs.last().unwrap().end_sec - r.duration_sec).abs() < 0.5, "last must end at duration");
+        assert!(
+            segs.first().unwrap().start_sec.abs() < 1e-2,
+            "first segment must start at 0"
+        );
+        assert!(
+            (segs.last().unwrap().end_sec - r.duration_sec).abs() < 0.5,
+            "last must end at duration"
+        );
         for w in segs.windows(2) {
-            assert!((w[0].end_sec - w[1].start_sec).abs() < 1e-2, "segments must be contiguous");
+            assert!(
+                (w[0].end_sec - w[1].start_sec).abs() < 1e-2,
+                "segments must be contiguous"
+            );
         }
         // Boundaries near 30s and 90s.
         let interior: Vec<Float> = segs.iter().skip(1).map(|s| s.start_sec).collect();
         let near = |target: Float| interior.iter().any(|&b| (b - target).abs() < 8.0);
-        assert!(near(30.0), "expected boundary near 30s, interior={:?}", interior);
-        assert!(near(90.0), "expected boundary near 90s, interior={:?}", interior);
+        assert!(
+            near(30.0),
+            "expected boundary near 30s, interior={:?}",
+            interior
+        );
+        assert!(
+            near(90.0),
+            "expected boundary near 90s, interior={:?}",
+            interior
+        );
         // Intro/outro land in the quiet regions.
         assert!(r.intro_end_sec.unwrap() < 45.0);
         assert!(r.outro_start_sec.unwrap() > 80.0);
         // Middle (loud) segment has clearly higher mean energy than the ends.
-        let mid = segs.iter()
+        let mid = segs
+            .iter()
             .find(|s| s.start_sec < 60.0 && s.end_sec > 60.0)
             .map(|s| s.energy)
             .unwrap_or(0.0);
-        assert!(mid > segs.first().unwrap().energy + 0.15, "loud section should be more energetic");
+        assert!(
+            mid > segs.first().unwrap().energy + 0.15,
+            "loud section should be more energetic"
+        );
     }
 
     #[test]
@@ -2428,9 +2806,11 @@ mod tests {
         assert!(cands[0].2 >= cands[1].2 && cands[1].2 >= cands[2].2);
         // Camelot codes valid.
         let valid: HashSet<&str> = [
-            "1A","2A","3A","4A","5A","6A","7A","8A","9A","10A","11A","12A",
-            "1B","2B","3B","4B","5B","6B","7B","8B","9B","10B","11B","12B",
-        ].into_iter().collect();
+            "1A", "2A", "3A", "4A", "5A", "6A", "7A", "8A", "9A", "10A", "11A", "12A", "1B", "2B",
+            "3B", "4B", "5B", "6B", "7B", "8B", "9B", "10B", "11B", "12B",
+        ]
+        .into_iter()
+        .collect();
         for (_, cam, _) in &cands {
             assert!(valid.contains(cam.as_str()), "invalid camelot {}", cam);
         }
@@ -2447,7 +2827,9 @@ mod tests {
         // vocalness now requires the extended pass (mid-band spectral contrast);
         // requesting it alone must trigger that pass and yield Some in [0, 1].
         // This Some doubles as the proof the extended pass ran.
-        let v = r.vocalness.expect("vocalness must be Some (extended pass runs for it)");
+        let v = r
+            .vocalness
+            .expect("vocalness must be Some (extended pass runs for it)");
         assert!(v >= 0.0 && v <= 1.0 && v.is_finite(), "vocalness {}", v);
     }
 
@@ -2458,7 +2840,10 @@ mod tests {
         // spectral_flatness_mean gets computed — assert it's Some, which proves
         // the pass ran solely from requesting vocalness.
         let cfg = feature_config(&["vocalness"]);
-        assert!(cfg.needs_extended(), "vocalness must require the extended pass");
+        assert!(
+            cfg.needs_extended(),
+            "vocalness must require the extended pass"
+        );
         let y = sine(440.0, SR, 3.0);
         let r = analyze_signal(y.view(), SR, &cfg).unwrap();
         assert!(
@@ -2508,9 +2893,18 @@ mod tests {
         let rt = analyze_signal(tone.view(), sr, &feature_config(&["vocalness"])).unwrap();
         let v_tone = rt.vocalness.unwrap();
 
-        assert!(v_noise > v_tone, "broadband {v_noise} should out-score tonal {v_tone}");
-        assert!(v_noise > 0.6, "broadband vocalness {v_noise} should be high");
-        assert!(v_tone < 0.5, "harmonic-tone vocalness {v_tone} should be low");
+        assert!(
+            v_noise > v_tone,
+            "broadband {v_noise} should out-score tonal {v_tone}"
+        );
+        assert!(
+            v_noise > 0.6,
+            "broadband vocalness {v_noise} should be high"
+        );
+        assert!(
+            v_tone < 0.5,
+            "harmonic-tone vocalness {v_tone} should be low"
+        );
     }
 
     #[test]
@@ -2540,12 +2934,19 @@ mod tests {
         // Callback fired exactly once per input; total constant == len.
         let mut recorded = calls.into_inner().unwrap();
         assert_eq!(recorded.len(), len, "callback fires once per file");
-        assert!(recorded.iter().all(|&(_, total)| total == len), "total is constant == len");
+        assert!(
+            recorded.iter().all(|&(_, total)| total == len),
+            "total is constant == len"
+        );
 
         // `done` values are a permutation of 1..=len (completion order varies).
         let mut dones: Vec<usize> = recorded.drain(..).map(|(d, _)| d).collect();
         dones.sort_unstable();
-        assert_eq!(dones, (1..=len).collect::<Vec<_>>(), "done values are 1..=len");
+        assert_eq!(
+            dones,
+            (1..=len).collect::<Vec<_>>(),
+            "done values are 1..=len"
+        );
     }
 
     // ---- genre (bring-your-own model) ----
@@ -2563,7 +2964,9 @@ mod tests {
     }
 
     fn genre_config(features: Option<&[&str]>) -> AnalysisConfig {
-        let model = crate::genre::from_json_str(&genre_model_json(crate::similarity::SIMILARITY_VERSION)).unwrap();
+        let model =
+            crate::genre::from_json_str(&genre_model_json(crate::similarity::SIMILARITY_VERSION))
+                .unwrap();
         AnalysisConfig {
             mode: AnalysisMode::Compact,
             features: features.map(|f| f.iter().map(|s| s.to_string()).collect()),
@@ -2593,7 +2996,10 @@ mod tests {
         assert!(r.genre_confidence.is_some());
         // Now the embedding fields ARE emitted (explicitly requested).
         assert!(r.embedding.is_some(), "embedding emitted when requested");
-        assert_eq!(r.embedding_version, Some(crate::similarity::SIMILARITY_VERSION));
+        assert_eq!(
+            r.embedding_version,
+            Some(crate::similarity::SIMILARITY_VERSION)
+        );
     }
 
     #[test]
@@ -2607,7 +3013,10 @@ mod tests {
         };
         match analyze_signal(y.view(), 22050, &config) {
             Err(SonaraError::ModelError(msg)) => {
-                assert!(msg.contains("999"), "message should name the model version: {msg}");
+                assert!(
+                    msg.contains("999"),
+                    "message should name the model version: {msg}"
+                );
             }
             Err(other) => panic!("expected ModelError, got {other:?}"),
             Ok(_) => panic!("expected ModelError, got Ok"),

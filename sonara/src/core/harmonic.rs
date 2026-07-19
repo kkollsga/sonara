@@ -2,11 +2,11 @@
 //!
 //! Salience, interp_harmonics, and f0_harmonics.
 
+use crate::error::{Result, SonaraError};
+use crate::types::Float;
 #[cfg(test)]
 use ndarray::Array1;
 use ndarray::{Array2, ArrayView1, ArrayView2};
-use crate::error::{SonaraError, Result};
-use crate::types::Float;
 
 /// Compute harmonic salience.
 ///
@@ -191,7 +191,8 @@ mod tests {
         let s = Array2::from_shape_fn((64, 10), |(i, j)| (i + j) as Float * 0.01);
         let freqs = Array1::from_shape_fn(64, |i| i as Float * 50.0 + 50.0);
         let f0 = Array1::from_elem(10, 440.0);
-        let result = f0_harmonics(s.view(), freqs.view(), f0.view(), &[1.0, 2.0, 3.0], 0.0).unwrap();
+        let result =
+            f0_harmonics(s.view(), freqs.view(), f0.view(), &[1.0, 2.0, 3.0], 0.0).unwrap();
         assert_eq!(result.shape(), &[3, 10]);
     }
 }

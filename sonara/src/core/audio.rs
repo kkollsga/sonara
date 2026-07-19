@@ -11,7 +11,7 @@ use std::path::Path;
 use ndarray::s;
 use ndarray::{Array1, Array2, ArrayView1, Axis};
 
-use crate::error::{SonaraError, Result};
+use crate::error::{Result, SonaraError};
 use crate::types::{AudioBuffer, Float};
 
 // ============================================================
@@ -228,7 +228,10 @@ fn codec_short_name(codec: symphonia::core::codecs::CodecType) -> Option<&'stati
 ///
 /// When `want_tags` is `true`, container/stream metadata tags are also collected
 /// (see [`TrackTags`]); when `false`, no tag work is done at all.
-fn load_symphonia(path: &Path, want_tags: bool) -> Result<(Vec<Float>, u32, usize, Option<TrackTags>)> {
+fn load_symphonia(
+    path: &Path,
+    want_tags: bool,
+) -> Result<(Vec<Float>, u32, usize, Option<TrackTags>)> {
     use symphonia::core::audio::SampleBuffer;
     use symphonia::core::codecs::DecoderOptions;
     use symphonia::core::formats::FormatOptions;
@@ -246,7 +249,12 @@ fn load_symphonia(path: &Path, want_tags: bool) -> Result<(Vec<Float>, u32, usiz
     }
 
     let mut probed = symphonia::default::get_probe()
-        .format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default())
+        .format(
+            &hint,
+            mss,
+            &FormatOptions::default(),
+            &MetadataOptions::default(),
+        )
         .map_err(|e| map_symphonia_err(path, "probe", None, e))?;
 
     let mut format = probed.format;
@@ -279,19 +287,14 @@ fn load_symphonia(path: &Path, want_tags: bool) -> Result<(Vec<Float>, u32, usiz
         .ok_or_else(|| SonaraError::Decode(format!("{}: no audio track found", path.display())))?;
     let track_id = track.id;
     let codec_name = codec_short_name(track.codec_params.codec);
-    let sr = track
-        .codec_params
-        .sample_rate
-        .ok_or_else(|| SonaraError::Decode(format!(
+    let sr = track.codec_params.sample_rate.ok_or_else(|| {
+        SonaraError::Decode(format!(
             "{} (codec='{}'): missing sample rate in stream header",
             path.display(),
             codec_name.unwrap_or("unknown"),
-        )))?;
-    let n_channels = track
-        .codec_params
-        .channels
-        .map(|c| c.count())
-        .unwrap_or(1);
+        ))
+    })?;
+    let n_channels = track.codec_params.channels.map(|c| c.count()).unwrap_or(1);
 
     let mut decoder = symphonia::default::get_codecs()
         .make(&track.codec_params, &DecoderOptions::default())
@@ -420,7 +423,11 @@ fn set_str(slot: &mut Option<String>, tag: &symphonia::core::meta::Tag) {
 /// Parse the leading 4-digit year out of a date string (e.g. "2024",
 /// "2024-05-01", "2024/05").
 fn parse_year(s: &str) -> Option<u32> {
-    let digits: String = s.trim().chars().take_while(|c| c.is_ascii_digit()).collect();
+    let digits: String = s
+        .trim()
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
     if digits.len() == 4 {
         digits.parse().ok()
     } else {
@@ -430,7 +437,11 @@ fn parse_year(s: &str) -> Option<u32> {
 
 /// Parse the leading integer of a track-number string (e.g. "3" or "3/12").
 fn parse_leading_u32(s: &str) -> Option<u32> {
-    let digits: String = s.trim().chars().take_while(|c| c.is_ascii_digit()).collect();
+    let digits: String = s
+        .trim()
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
     if digits.is_empty() {
         None
     } else {
@@ -448,11 +459,7 @@ pub fn to_mono(y: ndarray::ArrayView2<Float>) -> Array1<Float> {
 /// Fast path for exact 2:1 decimation (e.g., 44100→22050) using a half-band
 /// FIR filter — ~20x faster than full sinc resampling for this common case.
 /// Falls back to rubato sinc interpolation for all other ratios.
-pub fn resample(
-    y: ArrayView1<Float>,
-    orig_sr: u32,
-    target_sr: u32,
-) -> Result<Array1<Float>> {
+pub fn resample(y: ArrayView1<Float>, orig_sr: u32, target_sr: u32) -> Result<Array1<Float>> {
     if orig_sr == target_sr {
         return Ok(y.to_owned());
     }
@@ -494,14 +501,14 @@ fn decimate_half(y: ArrayView1<Float>) -> Array1<Float> {
     let raw_coeffs: [Float; N_TAPS] = {
         let pi = std::f32::consts::PI;
         [
-            0.5 * (pi * 0.5).recip() * (0.54 - 0.46 * (2.0 * pi * 14.0 / 30.0).cos()),  // k=1
+            0.5 * (pi * 0.5).recip() * (0.54 - 0.46 * (2.0 * pi * 14.0 / 30.0).cos()), // k=1
             0.5 * -(pi * 1.5).recip() * (0.54 - 0.46 * (2.0 * pi * 12.0 / 30.0).cos()), // k=3
-            0.5 * (pi * 2.5).recip() * (0.54 - 0.46 * (2.0 * pi * 10.0 / 30.0).cos()),  // k=5
-            0.5 * -(pi * 3.5).recip() * (0.54 - 0.46 * (2.0 * pi * 8.0 / 30.0).cos()),  // k=7
-            0.5 * (pi * 4.5).recip() * (0.54 - 0.46 * (2.0 * pi * 6.0 / 30.0).cos()),   // k=9
-            0.5 * -(pi * 5.5).recip() * (0.54 - 0.46 * (2.0 * pi * 4.0 / 30.0).cos()),  // k=11
-            0.5 * (pi * 6.5).recip() * (0.54 - 0.46 * (2.0 * pi * 2.0 / 30.0).cos()),   // k=13
-            0.5 * -(pi * 7.5).recip() * (0.54 - 0.46 * (2.0 * pi * 0.0 / 30.0).cos()),  // k=15
+            0.5 * (pi * 2.5).recip() * (0.54 - 0.46 * (2.0 * pi * 10.0 / 30.0).cos()), // k=5
+            0.5 * -(pi * 3.5).recip() * (0.54 - 0.46 * (2.0 * pi * 8.0 / 30.0).cos()), // k=7
+            0.5 * (pi * 4.5).recip() * (0.54 - 0.46 * (2.0 * pi * 6.0 / 30.0).cos()),  // k=9
+            0.5 * -(pi * 5.5).recip() * (0.54 - 0.46 * (2.0 * pi * 4.0 / 30.0).cos()), // k=11
+            0.5 * (pi * 6.5).recip() * (0.54 - 0.46 * (2.0 * pi * 2.0 / 30.0).cos()),  // k=13
+            0.5 * -(pi * 7.5).recip() * (0.54 - 0.46 * (2.0 * pi * 0.0 / 30.0).cos()), // k=15
         ]
     };
 
@@ -530,7 +537,11 @@ fn decimate_half(y: ArrayView1<Float>) -> Array1<Float> {
             let il = c as isize - k;
             let ir = c as isize + k;
             let left = if il >= 0 { raw[il as usize] } else { 0.0 };
-            let right = if (ir as usize) < n { raw[ir as usize] } else { 0.0 };
+            let right = if (ir as usize) < n {
+                raw[ir as usize]
+            } else {
+                0.0
+            };
             sum += coeff * (left + right);
         }
         out[i] = sum;
@@ -556,7 +567,11 @@ fn decimate_half(y: ArrayView1<Float>) -> Array1<Float> {
             let il = c as isize - k;
             let ir = c as isize + k;
             let left = if il >= 0 { raw[il as usize] } else { 0.0 };
-            let right = if (ir as usize) < n { raw[ir as usize] } else { 0.0 };
+            let right = if (ir as usize) < n {
+                raw[ir as usize]
+            } else {
+                0.0
+            };
             sum += coeff * (left + right);
         }
         out[i] = sum;
@@ -566,13 +581,9 @@ fn decimate_half(y: ArrayView1<Float>) -> Array1<Float> {
 }
 
 /// General resampling using rubato sinc interpolation.
-fn resample_rubato(
-    y: ArrayView1<Float>,
-    orig_sr: u32,
-    target_sr: u32,
-) -> Result<Array1<Float>> {
-    use rubato::{Fft, FixedSync, Resampler};
+fn resample_rubato(y: ArrayView1<Float>, orig_sr: u32, target_sr: u32) -> Result<Array1<Float>> {
     use rubato::audioadapter_buffers::direct::SequentialSliceOfVecs;
+    use rubato::{Fft, FixedSync, Resampler};
 
     let chunk_size = 1024;
     let mut resampler = Fft::<f32>::new(
@@ -696,7 +707,8 @@ impl StreamResampler {
             1,
             1,
             FixedSync::Input,
-        ).map_err(|e| SonaraError::Fft(format!("stream resampler init: {e}")))?;
+        )
+        .map_err(|e| SonaraError::Fft(format!("stream resampler init: {e}")))?;
 
         Ok(Self {
             resampler,
@@ -712,8 +724,8 @@ impl StreamResampler {
     /// resampler's required input size. May return an empty Vec if
     /// not enough samples have been accumulated yet.
     pub fn process_chunk(&mut self, chunk: &[Float]) -> Result<Vec<Float>> {
-        use rubato::Resampler;
         use rubato::audioadapter_buffers::direct::SequentialSliceOfVecs;
+        use rubato::Resampler;
 
         self.buffer.extend_from_slice(chunk);
 
@@ -734,7 +746,8 @@ impl StreamResampler {
             let mut out_buf = SequentialSliceOfVecs::new_mut(&mut output_data, 1, out_len)
                 .map_err(|e| SonaraError::Fft(format!("stream resample output: {e}")))?;
 
-            let (_n_in, n_out) = self.resampler
+            let (_n_in, n_out) = self
+                .resampler
                 .process_into_buffer(&input, &mut out_buf, None)
                 .map_err(|e| SonaraError::Fft(format!("stream resample: {e}")))?;
 
@@ -749,8 +762,8 @@ impl StreamResampler {
     ///
     /// Call this after the last chunk to drain the internal buffers.
     pub fn flush(&mut self) -> Result<Vec<Float>> {
-        use rubato::Resampler;
         use rubato::audioadapter_buffers::direct::SequentialSliceOfVecs;
+        use rubato::Resampler;
 
         if self.buffer.is_empty() {
             return Ok(Vec::new());
@@ -769,7 +782,8 @@ impl StreamResampler {
         let mut out_buf = SequentialSliceOfVecs::new_mut(&mut output_data, 1, out_len)
             .map_err(|e| SonaraError::Fft(format!("stream resample flush output: {e}")))?;
 
-        let (_n_in, n_out) = self.resampler
+        let (_n_in, n_out) = self
+            .resampler
             .process_into_buffer(&input, &mut out_buf, None)
             .map_err(|e| SonaraError::Fft(format!("stream resample flush: {e}")))?;
 
@@ -947,7 +961,11 @@ pub fn zero_crossings(y: ArrayView1<Float>, threshold: Float) -> Array1<bool> {
         if i == 0 {
             false
         } else {
-            let a = if y[i - 1].abs() <= threshold { 0.0 } else { y[i - 1] };
+            let a = if y[i - 1].abs() <= threshold {
+                0.0
+            } else {
+                y[i - 1]
+            };
             let b = if y[i].abs() <= threshold { 0.0 } else { y[i] };
             (a > 0.0 && b <= 0.0) || (a <= 0.0 && b > 0.0)
         }
@@ -1028,11 +1046,8 @@ mod tests {
 
     #[test]
     fn test_to_mono_stereo() {
-        let stereo = Array2::from_shape_vec(
-            (2, 4),
-            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
-        )
-        .unwrap();
+        let stereo =
+            Array2::from_shape_vec((2, 4), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]).unwrap();
         let mono = to_mono(stereo.view());
         assert_eq!(mono.len(), 4);
         assert_abs_diff_eq!(mono[0], 3.0, epsilon = 1e-5); // (1+5)/2
@@ -1081,9 +1096,7 @@ mod tests {
     #[test]
     fn test_zero_crossings_sine() {
         let n = 1000;
-        let y = Array1::from_shape_fn(n, |i| {
-            (2.0 * PI * 10.0 * i as Float / n as Float).sin()
-        });
+        let y = Array1::from_shape_fn(n, |i| (2.0 * PI * 10.0 * i as Float / n as Float).sin());
         let zc = zero_crossings(y.view(), 0.0);
         let count: usize = zc.iter().filter(|&&v| v).count();
         // 10 cycles → ~20 zero crossings
@@ -1104,17 +1117,21 @@ mod tests {
         let n = 2048;
         let freq = 100.0;
         let sr = 22050.0;
-        let y = Array1::from_shape_fn(n, |i| {
-            (2.0 * PI * freq * i as Float / sr).sin()
-        });
+        let y = Array1::from_shape_fn(n, |i| (2.0 * PI * freq * i as Float / sr).sin());
         let acf = autocorrelate(y.view(), Some(n)).unwrap();
         // Autocorrelation of sine peaks at 0 and at period
         assert!(acf[0] > 0.0); // Peak at lag 0
         let period_samples = (sr / freq).round() as usize;
         // Should have a peak near the period
         let peak_region = &acf.as_slice().unwrap()[period_samples - 5..period_samples + 5];
-        let local_max = peak_region.iter().copied().fold(Float::NEG_INFINITY, Float::max);
-        assert!(local_max > acf[0] * 0.5, "autocorrelation should peak near period");
+        let local_max = peak_region
+            .iter()
+            .copied()
+            .fold(Float::NEG_INFINITY, Float::max);
+        assert!(
+            local_max > acf[0] * 0.5,
+            "autocorrelation should peak near period"
+        );
     }
 
     #[test]
@@ -1303,9 +1320,7 @@ mod tests {
         let sr = 44100u32;
         let freq = 440.0;
         let n = sr as usize; // 1 second
-        let y = Array1::from_shape_fn(n, |i| {
-            (2.0 * PI * freq * i as Float / sr as Float).sin()
-        });
+        let y = Array1::from_shape_fn(n, |i| (2.0 * PI * freq * i as Float / sr as Float).sin());
         let decimated = resample(y.view(), sr, sr / 2).unwrap();
         // Check RMS is preserved (energy should be similar)
         let rms_orig = (y.mapv(|v| v * v).sum() / y.len() as Float).sqrt();

@@ -4,8 +4,8 @@ use pyo3::types::PyDict;
 use std::collections::HashSet;
 use std::path::Path;
 
-use sonara::analyze as rs;
 use crate::error::{error_kind, IntoPyResult};
+use sonara::analyze as rs;
 
 fn result_to_dict<'py>(py: Python<'py>, r: &rs::TrackAnalysis) -> PyResult<Bound<'py, PyDict>> {
     let d = PyDict::new(py);
@@ -39,32 +39,64 @@ fn result_to_dict<'py>(py: Python<'py>, r: &rs::TrackAnalysis) -> PyResult<Bound
 
     // --- loudness ---
     // Extended loudness / gain metrics (opt-in via features=["loudness"]).
-    if let Some(v) = r.true_peak_db { d.set_item("true_peak_db", v)?; }
-    if let Some(v) = r.replaygain_db { d.set_item("replaygain_db", v)?; }
-    if let Some(ref v) = r.loudness_curve { d.set_item("loudness_curve", v.clone())?; }
-    if let Some(v) = r.loudness_momentary_max_db { d.set_item("loudness_momentary_max_db", v)?; }
-    if let Some(v) = r.loudness_range_lu { d.set_item("loudness_range_lu", v)?; }
+    if let Some(v) = r.true_peak_db {
+        d.set_item("true_peak_db", v)?;
+    }
+    if let Some(v) = r.replaygain_db {
+        d.set_item("replaygain_db", v)?;
+    }
+    if let Some(ref v) = r.loudness_curve {
+        d.set_item("loudness_curve", v.clone())?;
+    }
+    if let Some(v) = r.loudness_momentary_max_db {
+        d.set_item("loudness_momentary_max_db", v)?;
+    }
+    if let Some(v) = r.loudness_range_lu {
+        d.set_item("loudness_range_lu", v)?;
+    }
     // --- end loudness ---
     d.set_item("spectral_centroid_mean", r.spectral_centroid_mean)?;
     d.set_item("zero_crossing_rate", r.zero_crossing_rate)?;
     d.set_item("onset_density", r.onset_density)?;
 
     // Spectral (playlist/full modes)
-    if let Some(v) = r.spectral_bandwidth_mean { d.set_item("spectral_bandwidth_mean", v)?; }
-    if let Some(v) = r.spectral_rolloff_mean { d.set_item("spectral_rolloff_mean", v)?; }
-    if let Some(v) = r.spectral_flatness_mean { d.set_item("spectral_flatness_mean", v)?; }
-    if let Some(ref v) = r.spectral_contrast_mean { d.set_item("spectral_contrast_mean", v.clone())?; }
-    if let Some(ref v) = r.mfcc_mean { d.set_item("mfcc_mean", v.clone())?; }
-    if let Some(ref v) = r.chroma_mean { d.set_item("chroma_mean", v.clone())?; }
+    if let Some(v) = r.spectral_bandwidth_mean {
+        d.set_item("spectral_bandwidth_mean", v)?;
+    }
+    if let Some(v) = r.spectral_rolloff_mean {
+        d.set_item("spectral_rolloff_mean", v)?;
+    }
+    if let Some(v) = r.spectral_flatness_mean {
+        d.set_item("spectral_flatness_mean", v)?;
+    }
+    if let Some(ref v) = r.spectral_contrast_mean {
+        d.set_item("spectral_contrast_mean", v.clone())?;
+    }
+    if let Some(ref v) = r.mfcc_mean {
+        d.set_item("mfcc_mean", v.clone())?;
+    }
+    if let Some(ref v) = r.chroma_mean {
+        d.set_item("chroma_mean", v.clone())?;
+    }
 
     // Rhythm (playlist/full modes)
-    if let Some(ref v) = r.tempo_curve { d.set_item("tempo_curve", v.clone())?; }
-    if let Some(v) = r.tempo_variability { d.set_item("tempo_variability", v)?; }
-    if let Some(ref v) = r.time_signature { d.set_item("time_signature", v.as_str())?; }
-    if let Some(v) = r.time_signature_confidence { d.set_item("time_signature_confidence", v)?; }
+    if let Some(ref v) = r.tempo_curve {
+        d.set_item("tempo_curve", v.clone())?;
+    }
+    if let Some(v) = r.tempo_variability {
+        d.set_item("tempo_variability", v)?;
+    }
+    if let Some(ref v) = r.time_signature {
+        d.set_item("time_signature", v.as_str())?;
+    }
+    if let Some(v) = r.time_signature_confidence {
+        d.set_item("time_signature_confidence", v)?;
+    }
 
     // Tonal (playlist/full modes)
-    if let Some(ref v) = r.chord_sequence { d.set_item("chord_sequence", v.clone())?; }
+    if let Some(ref v) = r.chord_sequence {
+        d.set_item("chord_sequence", v.clone())?;
+    }
     // Time-spanned chord events (merged runs of chord_sequence), list of dicts
     // mirroring the segments shape: {"label", "start_sec", "end_sec"}.
     if let Some(ref events) = r.chord_events {
@@ -78,42 +110,90 @@ fn result_to_dict<'py>(py: Python<'py>, r: &rs::TrackAnalysis) -> PyResult<Bound
         }
         d.set_item("chord_events", list)?;
     }
-    if let Some(v) = r.chord_change_rate { d.set_item("chord_change_rate", v)?; }
-    if let Some(ref v) = r.predominant_chord { d.set_item("predominant_chord", v.as_str())?; }
-    if let Some(v) = r.dissonance { d.set_item("dissonance", v)?; }
+    if let Some(v) = r.chord_change_rate {
+        d.set_item("chord_change_rate", v)?;
+    }
+    if let Some(ref v) = r.predominant_chord {
+        d.set_item("predominant_chord", v.as_str())?;
+    }
+    if let Some(v) = r.dissonance {
+        d.set_item("dissonance", v)?;
+    }
 
     // Perceptual (playlist/full modes)
-    if let Some(v) = r.energy { d.set_item("energy", v)?; }
-    if let Some(v) = r.danceability { d.set_item("danceability", v)?; }
-    if let Some(ref v) = r.key { d.set_item("key", v.as_str())?; }
-    if let Some(v) = r.key_confidence { d.set_item("key_confidence", v)?; }
-    if let Some(ref v) = r.key_camelot { d.set_item("key_camelot", v.as_str())?; }
-    if let Some(v) = r.valence { d.set_item("valence", v)?; }
-    if let Some(v) = r.acousticness { d.set_item("acousticness", v)?; }
+    if let Some(v) = r.energy {
+        d.set_item("energy", v)?;
+    }
+    if let Some(v) = r.danceability {
+        d.set_item("danceability", v)?;
+    }
+    if let Some(ref v) = r.key {
+        d.set_item("key", v.as_str())?;
+    }
+    if let Some(v) = r.key_confidence {
+        d.set_item("key_confidence", v)?;
+    }
+    if let Some(ref v) = r.key_camelot {
+        d.set_item("key_camelot", v.as_str())?;
+    }
+    if let Some(v) = r.valence {
+        d.set_item("valence", v)?;
+    }
+    if let Some(v) = r.acousticness {
+        d.set_item("acousticness", v)?;
+    }
 
     // Embedding (future)
-    if let Some(ref v) = r.embedding { d.set_item("embedding", v.clone())?; }
+    if let Some(ref v) = r.embedding {
+        d.set_item("embedding", v.clone())?;
+    }
     // --- similarity ---
-    if let Some(v) = r.embedding_version { d.set_item("embedding_version", v)?; }
+    if let Some(v) = r.embedding_version {
+        d.set_item("embedding_version", v)?;
+    }
 
     // Tier 3 placeholders (only included when not None)
-    if let Some(v) = r.mood_happy { d.set_item("mood_happy", v)?; }
-    if let Some(v) = r.mood_aggressive { d.set_item("mood_aggressive", v)?; }
-    if let Some(v) = r.mood_relaxed { d.set_item("mood_relaxed", v)?; }
-    if let Some(v) = r.mood_sad { d.set_item("mood_sad", v)?; }
-    if let Some(v) = r.instrumentalness { d.set_item("instrumentalness", v)?; }
+    if let Some(v) = r.mood_happy {
+        d.set_item("mood_happy", v)?;
+    }
+    if let Some(v) = r.mood_aggressive {
+        d.set_item("mood_aggressive", v)?;
+    }
+    if let Some(v) = r.mood_relaxed {
+        d.set_item("mood_relaxed", v)?;
+    }
+    if let Some(v) = r.mood_sad {
+        d.set_item("mood_sad", v)?;
+    }
+    if let Some(v) = r.instrumentalness {
+        d.set_item("instrumentalness", v)?;
+    }
     // Genre: populated only when a user-supplied genre model was passed.
-    if let Some(ref v) = r.genre { d.set_item("genre", v.as_str())?; }
-    if let Some(v) = r.genre_confidence { d.set_item("genre_confidence", v)?; }
+    if let Some(ref v) = r.genre {
+        d.set_item("genre", v.as_str())?;
+    }
+    if let Some(v) = r.genre_confidence {
+        d.set_item("genre_confidence", v)?;
+    }
 
     // --- beat grid ---
     // Opt-in (features=["beatgrid"]); keys absent by default.
-    if let Some(v) = r.grid_offset_sec { d.set_item("grid_offset_sec", v)?; }
-    if let Some(ref v) = r.downbeats { d.set_item("downbeats", v.clone())?; }
-    if let Some(v) = r.grid_stability { d.set_item("grid_stability", v)?; }
+    if let Some(v) = r.grid_offset_sec {
+        d.set_item("grid_offset_sec", v)?;
+    }
+    if let Some(ref v) = r.downbeats {
+        d.set_item("downbeats", v.clone())?;
+    }
+    if let Some(v) = r.grid_stability {
+        d.set_item("grid_stability", v)?;
+    }
     // --- structure --- (opt-in: features=["structure"])
-    if let Some(ref v) = r.energy_curve { d.set_item("energy_curve", v.clone())?; }
-    if let Some(v) = r.energy_curve_hop_sec { d.set_item("energy_curve_hop_sec", v)?; }
+    if let Some(ref v) = r.energy_curve {
+        d.set_item("energy_curve", v.clone())?;
+    }
+    if let Some(v) = r.energy_curve_hop_sec {
+        d.set_item("energy_curve_hop_sec", v)?;
+    }
     if let Some(ref segs) = r.segments {
         let list = pyo3::types::PyList::empty(py);
         for s in segs {
@@ -125,12 +205,22 @@ fn result_to_dict<'py>(py: Python<'py>, r: &rs::TrackAnalysis) -> PyResult<Bound
         }
         d.set_item("segments", list)?;
     }
-    if let Some(v) = r.intro_end_sec { d.set_item("intro_end_sec", v)?; }
-    if let Some(v) = r.outro_start_sec { d.set_item("outro_start_sec", v)?; }
-    if let Some(v) = r.energy_level { d.set_item("energy_level", v)?; }
+    if let Some(v) = r.intro_end_sec {
+        d.set_item("intro_end_sec", v)?;
+    }
+    if let Some(v) = r.outro_start_sec {
+        d.set_item("outro_start_sec", v)?;
+    }
+    if let Some(v) = r.energy_level {
+        d.set_item("energy_level", v)?;
+    }
     // --- silence --- (opt-in via features=["silence"])
-    if let Some(v) = r.leading_silence_sec { d.set_item("leading_silence_sec", v)?; }
-    if let Some(v) = r.trailing_silence_sec { d.set_item("trailing_silence_sec", v)?; }
+    if let Some(v) = r.leading_silence_sec {
+        d.set_item("leading_silence_sec", v)?;
+    }
+    if let Some(v) = r.trailing_silence_sec {
+        d.set_item("trailing_silence_sec", v)?;
+    }
 
     // --- key candidates --- (opt-in via features=["key_candidates"])
     // List of (key string, camelot code, score) tuples, ranked best-first.
@@ -140,7 +230,9 @@ fn result_to_dict<'py>(py: Python<'py>, r: &rs::TrackAnalysis) -> PyResult<Bound
     }
 
     // --- vocalness --- (opt-in via features=["vocalness"])
-    if let Some(v) = r.vocalness { d.set_item("vocalness", v)?; }
+    if let Some(v) = r.vocalness {
+        d.set_item("vocalness", v)?;
+    }
 
     // --- fingerprint ---
     // Opt-in acoustic fingerprint for duplicate detection. Serialized as a
@@ -148,7 +240,10 @@ fn result_to_dict<'py>(py: Python<'py>, r: &rs::TrackAnalysis) -> PyResult<Bound
     // the "fingerprint" feature was requested.
     if let Some(ref fp) = r.fingerprint {
         d.set_item("fingerprint", sonara::fingerprint::encode_base64(fp))?;
-        d.set_item("fingerprint_version", sonara::fingerprint::FINGERPRINT_VERSION)?;
+        d.set_item(
+            "fingerprint_version",
+            sonara::fingerprint::FINGERPRINT_VERSION,
+        )?;
     }
 
     // --- tags ---
@@ -157,13 +252,27 @@ fn result_to_dict<'py>(py: Python<'py>, r: &rs::TrackAnalysis) -> PyResult<Bound
     // when that tag was found in the file.
     if let Some(ref t) = r.tags {
         let td = PyDict::new(py);
-        if let Some(ref v) = t.title { td.set_item("title", v.as_str())?; }
-        if let Some(ref v) = t.artist { td.set_item("artist", v.as_str())?; }
-        if let Some(ref v) = t.album { td.set_item("album", v.as_str())?; }
-        if let Some(ref v) = t.genre { td.set_item("genre", v.as_str())?; }
-        if let Some(v) = t.year { td.set_item("year", v)?; }
-        if let Some(v) = t.original_year { td.set_item("original_year", v)?; }
-        if let Some(v) = t.track_no { td.set_item("track_no", v)?; }
+        if let Some(ref v) = t.title {
+            td.set_item("title", v.as_str())?;
+        }
+        if let Some(ref v) = t.artist {
+            td.set_item("artist", v.as_str())?;
+        }
+        if let Some(ref v) = t.album {
+            td.set_item("album", v.as_str())?;
+        }
+        if let Some(ref v) = t.genre {
+            td.set_item("genre", v.as_str())?;
+        }
+        if let Some(v) = t.year {
+            td.set_item("year", v)?;
+        }
+        if let Some(v) = t.original_year {
+            td.set_item("original_year", v)?;
+        }
+        if let Some(v) = t.track_no {
+            td.set_item("track_no", v)?;
+        }
         d.set_item("tags", td)?;
     }
 
@@ -179,10 +288,15 @@ fn parse_config(
 ) -> PyResult<rs::AnalysisConfig> {
     let mode = rs::AnalysisMode::from_str(mode).ok_or_else(|| {
         pyo3::exceptions::PyValueError::new_err(format!(
-            "Invalid mode '{}'. Valid modes: 'compact', 'playlist', 'full'", mode
+            "Invalid mode '{}'. Valid modes: 'compact', 'playlist', 'full'",
+            mode
         ))
     })?;
-    let features = features.map(|f| f.into_iter().map(|s| s.to_lowercase()).collect::<HashSet<_>>());
+    let features = features.map(|f| {
+        f.into_iter()
+            .map(|s| s.to_lowercase())
+            .collect::<HashSet<_>>()
+    });
     // Load the bring-your-own genre model once per call (path → validated model),
     // mapping a load/validation failure to the standard SonaraError → PyErr path.
     // The embedding_version match is enforced later, at analysis time.
@@ -192,7 +306,13 @@ fn parse_config(
         )),
         None => None,
     };
-    Ok(rs::AnalysisConfig { mode, features, bpm_min, bpm_max, genre_model })
+    Ok(rs::AnalysisConfig {
+        mode,
+        features,
+        bpm_min,
+        bpm_max,
+        genre_model,
+    })
 }
 
 #[pyfunction]
@@ -367,10 +487,12 @@ fn extract_fp_string(obj: &Bound<'_, PyAny>) -> PyResult<String> {
 pub fn py_fingerprint_match(a: &Bound<'_, PyAny>, b: &Bound<'_, PyAny>) -> PyResult<f32> {
     let sa = extract_fp_string(a)?;
     let sb = extract_fp_string(b)?;
-    let fa = sonara::fingerprint::decode_base64(&sa)
-        .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("invalid base64 fingerprint (first argument)"))?;
-    let fb = sonara::fingerprint::decode_base64(&sb)
-        .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("invalid base64 fingerprint (second argument)"))?;
+    let fa = sonara::fingerprint::decode_base64(&sa).ok_or_else(|| {
+        pyo3::exceptions::PyValueError::new_err("invalid base64 fingerprint (first argument)")
+    })?;
+    let fb = sonara::fingerprint::decode_base64(&sb).ok_or_else(|| {
+        pyo3::exceptions::PyValueError::new_err("invalid base64 fingerprint (second argument)")
+    })?;
     Ok(sonara::fingerprint::match_score(&fa, &fb))
 }
 

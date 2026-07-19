@@ -6,14 +6,18 @@ use ndarray::{s, Array1, Array2, ArrayView1, Axis};
 use num_complex::Complex;
 use num_traits::Float as NumFloat;
 
-use crate::error::{SonaraError, Result};
+use crate::error::{Result, SonaraError};
 use crate::types::Float;
 
 /// Slice a signal into overlapping frames.
 ///
 /// Returns a 2-D array of shape `(frame_length, n_frames)` where column `t` is
 /// `y[t * hop_length .. t * hop_length + frame_length]`.
-pub fn frame(y: ArrayView1<Float>, frame_length: usize, hop_length: usize) -> Result<Array2<Float>> {
+pub fn frame(
+    y: ArrayView1<Float>,
+    frame_length: usize,
+    hop_length: usize,
+) -> Result<Array2<Float>> {
     if hop_length == 0 {
         return Err(SonaraError::InvalidParameter {
             param: "hop_length",
@@ -113,9 +117,7 @@ pub fn pad_center(data: ArrayView1<Float>, size: usize) -> Result<Array1<Float>>
     }
     let mut result = Array1::<Float>::zeros(size);
     let pad_left = (size - n) / 2;
-    result
-        .slice_mut(s![pad_left..pad_left + n])
-        .assign(&data);
+    result.slice_mut(s![pad_left..pad_left + n]).assign(&data);
     Ok(result)
 }
 
@@ -123,7 +125,11 @@ pub fn pad_center(data: ArrayView1<Float>, size: usize) -> Result<Array1<Float>>
 ///
 /// Given `x` with shape (n,) and `ndim=3, axes=-2`, produces shape (1, n, 1).
 /// The `axes` parameter specifies which axis of the output should hold the data.
-pub fn expand_to(x: ArrayView1<Float>, ndim: usize, axes: i32) -> Result<crate::types::ArrayDynFloat> {
+pub fn expand_to(
+    x: ArrayView1<Float>,
+    ndim: usize,
+    axes: i32,
+) -> Result<crate::types::ArrayDynFloat> {
     use ndarray::IxDyn;
 
     if ndim == 0 {
@@ -150,14 +156,13 @@ pub fn expand_to(x: ArrayView1<Float>, ndim: usize, axes: i32) -> Result<crate::
     let mut shape = vec![1usize; ndim];
     shape[axis] = x.len();
 
-    let result = crate::types::ArrayDynFloat::from_shape_vec(
-        IxDyn(&shape),
-        x.to_vec(),
-    )
-    .map_err(|e| SonaraError::ShapeMismatch {
-        expected: format!("{shape:?}"),
-        got: e.to_string(),
-    })?;
+    let result =
+        crate::types::ArrayDynFloat::from_shape_vec(IxDyn(&shape), x.to_vec()).map_err(|e| {
+            SonaraError::ShapeMismatch {
+                expected: format!("{shape:?}"),
+                got: e.to_string(),
+            }
+        })?;
 
     Ok(result)
 }
@@ -276,7 +281,11 @@ pub fn peak_pick(
         // Check local max condition
         let max_start = i.saturating_sub(pre_max);
         let max_end = (i + post_max + 1).min(n);
-        let local_max = x.slice(s![max_start..max_end]).iter().copied().fold(Float::NEG_INFINITY, Float::max);
+        let local_max = x
+            .slice(s![max_start..max_end])
+            .iter()
+            .copied()
+            .fold(Float::NEG_INFINITY, Float::max);
 
         if (x[i] - local_max).abs() > 1e-15 {
             continue;
@@ -379,11 +388,7 @@ pub fn dtype_c2r() -> &'static str {
 ///
 /// For each segment defined by consecutive `frames` indices, aggregate along `axis`
 /// using the specified function (mean, median, min, max).
-pub fn sync(
-    data: &Array2<Float>,
-    frames: &[usize],
-    aggregate: &str,
-) -> Result<Array2<Float>> {
+pub fn sync(data: &Array2<Float>, frames: &[usize], aggregate: &str) -> Result<Array2<Float>> {
     if frames.is_empty() {
         return Err(SonaraError::InvalidParameter {
             param: "frames",
@@ -413,16 +418,20 @@ pub fn sync(
 
         let agg = match aggregate {
             "mean" => segment.mean_axis(Axis(1)).unwrap(),
-            "max" => {
-                Array1::from_shape_fn(data.nrows(), |r| {
-                    segment.row(r).iter().copied().fold(Float::NEG_INFINITY, Float::max)
-                })
-            }
-            "min" => {
-                Array1::from_shape_fn(data.nrows(), |r| {
-                    segment.row(r).iter().copied().fold(Float::INFINITY, Float::min)
-                })
-            }
+            "max" => Array1::from_shape_fn(data.nrows(), |r| {
+                segment
+                    .row(r)
+                    .iter()
+                    .copied()
+                    .fold(Float::NEG_INFINITY, Float::max)
+            }),
+            "min" => Array1::from_shape_fn(data.nrows(), |r| {
+                segment
+                    .row(r)
+                    .iter()
+                    .copied()
+                    .fold(Float::INFINITY, Float::min)
+            }),
             _ => {
                 return Err(SonaraError::InvalidParameter {
                     param: "aggregate",

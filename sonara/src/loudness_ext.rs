@@ -273,7 +273,12 @@ pub struct LoudnessMetrics {
 /// This K-weights the signal a single time (instead of once per metric) and
 /// derives all three block measurements from one shared prefix-sum, which is why
 /// the analysis pipeline calls this rather than the individual functions.
-pub fn loudness_metrics(y: ArrayView1<Float>, sr: u32, window_sec: Float, hop_sec: Float) -> LoudnessMetrics {
+pub fn loudness_metrics(
+    y: ArrayView1<Float>,
+    sr: u32,
+    window_sec: Float,
+    hop_sec: Float,
+) -> LoudnessMetrics {
     let n = y.len();
     let hop = ((hop_sec * sr as Float).round() as usize).max(1);
     let st_win = (window_sec * sr as Float).round() as usize;
@@ -281,7 +286,11 @@ pub fn loudness_metrics(y: ArrayView1<Float>, sr: u32, window_sec: Float, hop_se
     let mom_hop = ((0.1 * sr as Float).round() as usize).max(1);
 
     if n == 0 {
-        return LoudnessMetrics { curve: Vec::new(), momentary_max_db: ABS_GATE_LUFS, range_lu: 0.0 };
+        return LoudnessMetrics {
+            curve: Vec::new(),
+            momentary_max_db: ABS_GATE_LUFS,
+            range_lu: 0.0,
+        };
     }
     let kw = perceptual::k_weighted_signal(y, sr);
     let prefix = prefix_sq(&kw);
@@ -289,7 +298,11 @@ pub fn loudness_metrics(y: ArrayView1<Float>, sr: u32, window_sec: Float, hop_se
     let curve = curve_from_prefix(&prefix, n, st_win, hop);
     let momentary_max_db = momentary_from_prefix(&prefix, n, mom_win, mom_hop);
     let range_lu = loudness_range_lu(&curve);
-    LoudnessMetrics { curve, momentary_max_db, range_lu }
+    LoudnessMetrics {
+        curve,
+        momentary_max_db,
+        range_lu,
+    }
 }
 
 /// Short-term loudness curve: one LUFS value per sliding window.
@@ -304,7 +317,12 @@ pub fn loudness_metrics(y: ArrayView1<Float>, sr: u32, window_sec: Float, hop_se
 /// least `window_sec` long, and is **empty** for tracks shorter than one window
 /// (a documented simplification — there is no full short-term window to report).
 /// Blocks below the absolute gate are reported as [`ABS_GATE_LUFS`].
-pub fn loudness_curve(y: ArrayView1<Float>, sr: u32, window_sec: Float, hop_sec: Float) -> Vec<Float> {
+pub fn loudness_curve(
+    y: ArrayView1<Float>,
+    sr: u32,
+    window_sec: Float,
+    hop_sec: Float,
+) -> Vec<Float> {
     let n = y.len();
     if n == 0 {
         return Vec::new();
@@ -388,10 +406,7 @@ pub fn loudness_range_lu(short_term: &[Float]) -> Float {
     let integrated = (-0.691 + 10.0 * mean_pow.log10()) as Float;
     let rel_thresh = integrated - 20.0;
 
-    let mut gated: Vec<Float> = abs_gated
-        .into_iter()
-        .filter(|&v| v >= rel_thresh)
-        .collect();
+    let mut gated: Vec<Float> = abs_gated.into_iter().filter(|&v| v >= rel_thresh).collect();
     if gated.len() < 2 {
         return 0.0;
     }
@@ -410,7 +425,9 @@ mod tests {
 
     fn sine(freq: Float, sr: u32, dur: Float, amp: Float) -> Array1<Float> {
         let n = (sr as Float * dur) as usize;
-        Array1::from_shape_fn(n, |i| amp * (2.0 * PI * freq * i as Float / sr as Float).sin())
+        Array1::from_shape_fn(n, |i| {
+            amp * (2.0 * PI * freq * i as Float / sr as Float).sin()
+        })
     }
 
     #[test]
@@ -427,7 +444,10 @@ mod tests {
         // Half-scale -> ~-6.02 dBTP.
         let y = sine(997.0, 48000, 1.0, 0.5);
         let tp = true_peak_db(y.view());
-        assert!((tp - (-6.0206)).abs() < 0.1, "expected ~-6.02 dBTP, got {tp}");
+        assert!(
+            (tp - (-6.0206)).abs() < 0.1,
+            "expected ~-6.02 dBTP, got {tp}"
+        );
     }
 
     #[test]
@@ -439,7 +459,9 @@ mod tests {
         let n = 4000usize;
         // Phase pi/4 -> samples at +/-sin(pi/4)=0.707 crests, true peak at 1.0.
         let phase = PI / 4.0;
-        let y = Array1::from_shape_fn(n, |i| (2.0 * PI * f * i as Float / sr as Float + phase).sin());
+        let y = Array1::from_shape_fn(n, |i| {
+            (2.0 * PI * f * i as Float / sr as Float + phase).sin()
+        });
         let sample_peak = y.iter().fold(0.0_f32, |m, &v| m.max(v.abs()));
         let sample_peak_db = 20.0 * sample_peak.log10();
         let tp = true_peak_db(y.view());
@@ -448,7 +470,10 @@ mod tests {
             "true peak {tp} should exceed sample peak {sample_peak_db} for inter-sample over"
         );
         // True crest is at 0 dBTP; interpolation should recover close to it.
-        assert!(tp > -0.5 && tp < 0.2, "inter-sample true peak {tp} not near 0 dBTP");
+        assert!(
+            tp > -0.5 && tp < 0.2,
+            "inter-sample true peak {tp} not near 0 dBTP"
+        );
     }
 
     #[test]
@@ -509,7 +534,10 @@ mod tests {
         let y = Array1::from(v);
         let curve = loudness_curve(y.view(), sr, 3.0, 1.0);
         let lra = loudness_range_lu(&curve);
-        assert!(lra > 5.0, "alternating loud/quiet LRA should be large, got {lra}");
+        assert!(
+            lra > 5.0,
+            "alternating loud/quiet LRA should be large, got {lra}"
+        );
     }
 
     #[test]
@@ -517,7 +545,9 @@ mod tests {
         let silence = Array1::<Float>::zeros(22050);
         assert!(true_peak_db(silence.view()).is_finite());
         assert!(loudness_momentary_max_db(silence.view(), 22050).is_finite());
-        assert!(loudness_curve(silence.view(), 22050, 3.0, 1.0).iter().all(|v| v.is_finite()));
+        assert!(loudness_curve(silence.view(), 22050, 3.0, 1.0)
+            .iter()
+            .all(|v| v.is_finite()));
         assert_eq!(loudness_range_lu(&[]), 0.0);
 
         // Empty input.

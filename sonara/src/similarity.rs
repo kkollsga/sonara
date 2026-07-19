@@ -111,12 +111,10 @@ pub const WEIGHTS: [Float; EMBEDDING_DIM] = [
     // Spectral scalars: centroid, bandwidth, rolloff, flatness (31..35)
     1.0, 0.8, 0.8, 0.8,
     // Rhythm: bpm_fold, onset_density, danceability, grid_regularity (35..39)
-    2.0, 1.0, 1.0, 0.6,
-    // Dynamics: lufs (gain-dependent, low), dynamic_range (39..41)
+    2.0, 1.0, 1.0, 0.6, // Dynamics: lufs (gain-dependent, low), dynamic_range (39..41)
     0.3, 0.6,
     // Tonal: dissonance, chord_change_rate, key_cof_sin, key_cof_cos, key_mode (41..46)
-    0.6, 0.6, 1.0, 1.0, 0.5,
-    // Perceptual: energy, valence (46..48)
+    0.6, 0.6, 1.0, 1.0, 0.5, // Perceptual: energy, valence (46..48)
     1.0, 0.7,
 ];
 
@@ -128,7 +126,11 @@ pub const WEIGHTS: [Float; EMBEDDING_DIM] = [
 /// for degenerate signals).
 #[inline]
 fn finite_or(x: Float, default: Float) -> Float {
-    if x.is_finite() { x } else { default }
+    if x.is_finite() {
+        x
+    } else {
+        default
+    }
 }
 
 /// Clamped linear map of `x` from `[lo, hi]` onto `[0, 1]`.
@@ -181,7 +183,8 @@ fn grid_regularity(beats: &[usize]) -> Float {
     if mean <= 0.0 {
         return 0.0;
     }
-    let var = intervals.iter().map(|&i| (i - mean).powi(2)).sum::<Float>() / intervals.len() as Float;
+    let var =
+        intervals.iter().map(|&i| (i - mean).powi(2)).sum::<Float>() / intervals.len() as Float;
     let cv = var.sqrt() / mean;
     (1.0 - cv).clamp(0.0, 1.0)
 }
@@ -196,7 +199,10 @@ fn parse_key(key: &str) -> Option<(usize, bool)> {
     let mut it = key.split_whitespace();
     let root = it.next()?;
     let pc = NOTE_NAMES.iter().position(|&n| n == root)?;
-    let is_major = !it.next().map(|m| m.eq_ignore_ascii_case("minor")).unwrap_or(false);
+    let is_major = !it
+        .next()
+        .map(|m| m.eq_ignore_ascii_case("minor"))
+        .unwrap_or(false);
     Some((pc, is_major))
 }
 
@@ -235,7 +241,11 @@ pub fn embed(a: &TrackAnalysis) -> Vec<Float> {
     // shape and cluster near 0. tanh keeps unbounded coeffs in range.
     let mfcc = a.mfcc_mean.as_deref().unwrap_or(&[]);
     // c0: typical music ~ -250 .. -50; center -180, half-width 120.
-    v.push(tanh01(mfcc.first().copied().unwrap_or(-180.0), -180.0, 120.0));
+    v.push(tanh01(
+        mfcc.first().copied().unwrap_or(-180.0),
+        -180.0,
+        120.0,
+    ));
     // c1..c12: shape coeffs, roughly -40..40; center 0, half-width 30.
     for k in 1..13 {
         v.push(tanh01(mfcc.get(k).copied().unwrap_or(0.0), 0.0, 30.0));
@@ -246,7 +256,13 @@ pub fn embed(a: &TrackAnalysis) -> Vec<Float> {
     // pitch class is a relative strength already in ~[0, 1]. Clamp defensively.
     let chroma = a.chroma_mean.as_deref().unwrap_or(&[]);
     for c in 0..12 {
-        v.push(chroma.get(c).copied().map(|x| finite_or(x, 0.0).clamp(0.0, 1.0)).unwrap_or(0.0));
+        v.push(
+            chroma
+                .get(c)
+                .copied()
+                .map(|x| finite_or(x, 0.0).clamp(0.0, 1.0))
+                .unwrap_or(0.0),
+        );
     }
 
     // ---- Spectral contrast bands (dims 25..31) ----
@@ -261,7 +277,11 @@ pub fn embed(a: &TrackAnalysis) -> Vec<Float> {
     // Centroid (brightness): music ~500..5000 Hz.
     v.push(lin01(a.spectral_centroid_mean, 500.0, 5000.0));
     // Bandwidth (spread): ~500..4000 Hz.
-    v.push(lin01(a.spectral_bandwidth_mean.unwrap_or(0.0), 500.0, 4000.0));
+    v.push(lin01(
+        a.spectral_bandwidth_mean.unwrap_or(0.0),
+        500.0,
+        4000.0,
+    ));
     // Rolloff (85% energy freq): ~0..8000 Hz.
     v.push(lin01(a.spectral_rolloff_mean.unwrap_or(0.0), 0.0, 8000.0));
     // Flatness (tonal 0 .. noise-like): music ~0..0.25.
@@ -370,7 +390,11 @@ mod tests {
 
     fn embed_config() -> AnalysisConfig {
         let feats: HashSet<String> = ["embedding"].iter().map(|s| s.to_string()).collect();
-        AnalysisConfig { mode: AnalysisMode::Compact, features: Some(feats), ..AnalysisConfig::default() }
+        AnalysisConfig {
+            mode: AnalysisMode::Compact,
+            features: Some(feats),
+            ..AnalysisConfig::default()
+        }
     }
 
     fn sine(freq: Float, sr: u32, dur: Float) -> Array1<Float> {
@@ -407,7 +431,9 @@ mod tests {
 
     fn embed_signal(y: &Array1<Float>, sr: u32) -> Vec<Float> {
         let r = analyze_signal(y.view(), sr, &embed_config()).unwrap();
-        r.embedding.clone().expect("embedding populated when requested")
+        r.embedding
+            .clone()
+            .expect("embedding populated when requested")
     }
 
     #[test]
@@ -421,7 +447,12 @@ mod tests {
     fn test_dimension_exact() {
         let y = sine(440.0, 22050, 3.0);
         let v = embed_signal(&y, 22050);
-        assert_eq!(v.len(), EMBEDDING_DIM, "vector must be exactly {} dims", EMBEDDING_DIM);
+        assert_eq!(
+            v.len(),
+            EMBEDDING_DIM,
+            "vector must be exactly {} dims",
+            EMBEDDING_DIM
+        );
     }
 
     #[test]
@@ -442,7 +473,10 @@ mod tests {
                     assert_eq!(v.len(), EMBEDDING_DIM, "{name}: dim");
                     for (i, &x) in v.iter().enumerate() {
                         assert!(x.is_finite(), "{name}: dim {i} not finite: {x}");
-                        assert!((0.0..=1.0).contains(&x), "{name}: dim {i} out of [0,1]: {x}");
+                        assert!(
+                            (0.0..=1.0).contains(&x),
+                            "{name}: dim {i} out of [0,1]: {x}"
+                        );
                     }
                 }
             }
@@ -475,8 +509,7 @@ mod tests {
     #[test]
     fn test_gain_invariance_high_similarity() {
         let sr = 22050u32;
-        let y = kick_pattern(120.0, sr, 6.0)
-            + sine(220.0, sr, 6.0).mapv(|x| x * 0.3);
+        let y = kick_pattern(120.0, sr, 6.0) + sine(220.0, sr, 6.0).mapv(|x| x * 0.3);
         let full = embed_signal(&y, sr);
         let half = embed_signal(&y.mapv(|x| x * 0.5), sr);
         let sim = similarity(&full, &half);

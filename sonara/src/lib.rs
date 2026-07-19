@@ -11,20 +11,20 @@ pub mod effects;
 pub mod error;
 pub mod feature;
 pub mod filters;
+pub mod fingerprint;
 pub mod genre;
 pub mod loudness_ext;
-pub mod fingerprint;
 pub mod onset;
 pub mod perceptual;
 pub mod segment;
 pub mod sequence;
-pub mod structure;
 pub mod similarity;
+pub mod structure;
 pub mod tonal;
 pub mod types;
 pub mod util;
 pub mod vocal;
 
 // Re-export commonly used items at crate root
-pub use error::{SonaraError, Result};
+pub use error::{Result, SonaraError};
 pub use types::*;

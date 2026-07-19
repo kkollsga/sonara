@@ -51,10 +51,7 @@ pub fn mel(
         .collect();
 
     // Convert Hz to FFT bin indices (fractional)
-    let _bin_points: Vec<Float> = hz_points
-        .iter()
-        .map(|&f| f * n_fft as Float / sr)
-        .collect();
+    let _bin_points: Vec<Float> = hz_points.iter().map(|&f| f * n_fft as Float / sr).collect();
 
     // FFT frequencies
     let fft_freqs = convert::fft_frequencies(sr, n_fft);
@@ -93,12 +90,7 @@ pub fn mel(
 ///
 /// Maps DFT bins to chroma (pitch class) bins.
 /// Returns shape `(n_chroma, 1 + n_fft/2)`.
-pub fn chroma(
-    sr: Float,
-    n_fft: usize,
-    n_chroma: usize,
-    tuning: Float,
-) -> FilterBank {
+pub fn chroma(sr: Float, n_fft: usize, n_chroma: usize, tuning: Float) -> FilterBank {
     let n_bins = 1 + n_fft / 2;
     let fft_freqs = convert::fft_frequencies(sr, n_fft);
 
@@ -432,16 +424,16 @@ mod tests {
         let fft_freqs = convert::fft_frequencies(sr, n_fft);
         // (freq, expected class): A across octaves -> 9; C -> 0; plus a spread.
         let cases = [
-            (110.0_f32, 9),   // A2
-            (220.0, 9),       // A3
-            (440.0, 9),       // A4
-            (880.0, 9),       // A5
-            (261.63, 0),      // C4
-            (523.25, 0),      // C5
-            (329.63, 4),      // E4
-            (392.00, 7),      // G4
-            (493.88, 11),     // B4
-            (277.18, 1),      // C#4
+            (110.0_f32, 9), // A2
+            (220.0, 9),     // A3
+            (440.0, 9),     // A4
+            (880.0, 9),     // A5
+            (261.63, 0),    // C4
+            (523.25, 0),    // C5
+            (329.63, 4),    // E4
+            (392.00, 7),    // G4
+            (493.88, 11),   // B4
+            (277.18, 1),    // C#4
         ];
         for (freq, expected) in cases {
             // nearest FFT bin to the tone

@@ -20,7 +20,9 @@ use crate::types::Float;
 const C_REF: Float = 261.6256; // C4
 
 /// Note names for chord labels.
-const NOTE_NAMES: [&str; 12] = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+const NOTE_NAMES: [&str; 12] = [
+    "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
+];
 
 // ============================================================
 // Spectral peak detection
@@ -133,9 +135,7 @@ pub fn hpcp(
     let freqs_slice = freqs.as_slice().unwrap();
 
     // Harmonic weights: 1.0 for fundamental, decreasing for higher harmonics
-    let harmonic_weights: Vec<Float> = (0..n_harmonics)
-        .map(|h| 1.0 / (h as Float + 1.0))
-        .collect();
+    let harmonic_weights: Vec<Float> = (0..n_harmonics).map(|h| 1.0 / (h as Float + 1.0)).collect();
 
     for t in 0..n_frames {
         let power_col: Vec<Float> = (0..n_bins).map(|i| power_spec[(i, t)]).collect();
@@ -199,9 +199,13 @@ pub fn hpcp(
 fn chord_templates() -> Vec<([Float; 12], &'static str, usize)> {
     // (template, quality, root_index)
     // Major triad: root, major third (+4), fifth (+7)
-    let major = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0_f32];
+    let major = [
+        1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0_f32,
+    ];
     // Minor triad: root, minor third (+3), fifth (+7)
-    let minor = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0_f32];
+    let minor = [
+        1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0_f32,
+    ];
 
     let mut templates = Vec::with_capacity(24);
 
@@ -239,7 +243,11 @@ fn match_chord(hpcp_frame: &[Float]) -> (&'static str, usize, Float) {
         if t_norm < 1e-10 {
             continue;
         }
-        let dot: Float = hpcp_frame.iter().zip(template.iter()).map(|(a, b)| a * b).sum();
+        let dot: Float = hpcp_frame
+            .iter()
+            .zip(template.iter())
+            .map(|(a, b)| a * b)
+            .sum();
         let corr = dot / (hpcp_norm * t_norm);
         if corr > best_corr {
             best_corr = corr;
@@ -286,10 +294,7 @@ pub(crate) fn chord_boundaries(beats: &[usize], n_frames: usize) -> Vec<usize> {
     boundaries
 }
 
-pub fn chords_from_beats(
-    hpcp: ArrayView2<Float>,
-    beats: &[usize],
-) -> Vec<String> {
+pub fn chords_from_beats(hpcp: ArrayView2<Float>, beats: &[usize]) -> Vec<String> {
     let n_frames = hpcp.ncols();
 
     if beats.is_empty() || n_frames == 0 {
@@ -332,10 +337,7 @@ pub fn chords_from_beats(
 ///
 /// Falls back to this when beat information is unavailable.
 /// Uses segments of `segment_frames` frames (default ~0.5s).
-pub fn chords_from_frames(
-    hpcp: ArrayView2<Float>,
-    segment_frames: usize,
-) -> Vec<String> {
+pub fn chords_from_frames(hpcp: ArrayView2<Float>, segment_frames: usize) -> Vec<String> {
     let n_frames = hpcp.ncols();
     if n_frames == 0 {
         return Vec::new();
@@ -539,9 +541,7 @@ pub fn hpcp_and_dissonance(
 
     let freqs_slice = freqs.as_slice().unwrap();
 
-    let harmonic_weights: Vec<Float> = (0..n_harmonics)
-        .map(|h| 1.0 / (h as Float + 1.0))
-        .collect();
+    let harmonic_weights: Vec<Float> = (0..n_harmonics).map(|h| 1.0 / (h as Float + 1.0)).collect();
 
     for t in 0..n_frames {
         let power_col: Vec<Float> = (0..n_bins).map(|i| power_spec[(i, t)]).collect();
@@ -604,7 +604,12 @@ mod tests {
     use super::*;
     use ndarray::Array1;
 
-    fn make_tone_spectrum(freqs: &[Float], tone_freqs: &[Float], sr: Float, n_fft: usize) -> Array1<Float> {
+    fn make_tone_spectrum(
+        freqs: &[Float],
+        tone_freqs: &[Float],
+        sr: Float,
+        n_fft: usize,
+    ) -> Array1<Float> {
         let n_bins = n_fft / 2 + 1;
         let _bin_freqs = Array1::from_shape_fn(n_bins, |i| i as Float * sr / n_fft as Float);
         let mut power = Array1::<Float>::zeros(n_bins);
@@ -691,7 +696,10 @@ mod tests {
 
         // Should be more dissonant than an octave
         let d_octave = dissonance_from_peaks(&[440.0, 880.0], &[1.0, 1.0]);
-        assert!(d > d_octave * 10.0, "Minor second ({d}) should be much more dissonant than octave ({d_octave})");
+        assert!(
+            d > d_octave * 10.0,
+            "Minor second ({d}) should be much more dissonant than octave ({d_octave})"
+        );
     }
 
     #[test]
@@ -703,8 +711,12 @@ mod tests {
     #[test]
     fn test_chord_descriptors() {
         let chords = vec![
-            "C".to_string(), "C".to_string(), "Am".to_string(),
-            "F".to_string(), "G".to_string(), "C".to_string(),
+            "C".to_string(),
+            "C".to_string(),
+            "Am".to_string(),
+            "F".to_string(),
+            "G".to_string(),
+            "C".to_string(),
         ];
         let desc = chord_descriptors(&chords, 10.0);
         assert_eq!(desc.predominant_chord, "C");
@@ -757,12 +769,14 @@ mod tests {
             power[(g_bin, t)] = 0.6;
         }
 
-        let (hpcp_result, diss) = hpcp_and_dissonance(
-            power.view(), freqs.view(), 4, 40.0, 5000.0, 0.0, 50,
-        );
+        let (hpcp_result, diss) =
+            hpcp_and_dissonance(power.view(), freqs.view(), 4, 40.0, 5000.0, 0.0, 50);
 
         assert_eq!(hpcp_result.shape(), &[12, 3]);
         // C major chord components should be relatively consonant
-        assert!(diss < 0.5, "C major chord should not be highly dissonant: {diss}");
+        assert!(
+            diss < 0.5,
+            "C major chord should not be highly dissonant: {diss}"
+        );
     }
 }

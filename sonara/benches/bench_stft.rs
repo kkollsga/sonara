@@ -26,9 +26,15 @@ fn bench_stft_by_length(c: &mut Criterion) {
             |b, sig| {
                 b.iter(|| {
                     spectrum::stft(
-                        sig.view(), 2048, None, None,
-                        &default_window(), true, PadMode::Constant,
-                    ).unwrap()
+                        sig.view(),
+                        2048,
+                        None,
+                        None,
+                        &default_window(),
+                        true,
+                        PadMode::Constant,
+                    )
+                    .unwrap()
                 });
             },
         );
@@ -48,9 +54,15 @@ fn bench_stft_by_nfft(c: &mut Criterion) {
             |b, sig| {
                 b.iter(|| {
                     spectrum::stft(
-                        sig.view(), n_fft, None, None,
-                        &default_window(), true, PadMode::Constant,
-                    ).unwrap()
+                        sig.view(),
+                        n_fft,
+                        None,
+                        None,
+                        &default_window(),
+                        true,
+                        PadMode::Constant,
+                    )
+                    .unwrap()
                 });
             },
         );
@@ -66,9 +78,15 @@ fn bench_istft(c: &mut Criterion) {
         let n_samples = 22050 * duration_secs;
         let signal = generate_signal(n_samples);
         let stft_result = spectrum::stft(
-            signal.view(), 2048, None, None,
-            &default_window(), true, PadMode::Constant,
-        ).unwrap();
+            signal.view(),
+            2048,
+            None,
+            None,
+            &default_window(),
+            true,
+            PadMode::Constant,
+        )
+        .unwrap();
 
         group.bench_with_input(
             BenchmarkId::new("n_fft=2048", format!("{}s", duration_secs)),
@@ -76,9 +94,14 @@ fn bench_istft(c: &mut Criterion) {
             |b, s| {
                 b.iter(|| {
                     spectrum::istft(
-                        s.view(), None, None,
-                        &default_window(), true, Some(n_samples),
-                    ).unwrap()
+                        s.view(),
+                        None,
+                        None,
+                        &default_window(),
+                        true,
+                        Some(n_samples),
+                    )
+                    .unwrap()
                 });
             },
         );
@@ -95,13 +118,9 @@ fn bench_power_to_db(c: &mut Criterion) {
             ((i + j) as f32 * 0.001).max(1e-10)
         });
 
-        group.bench_with_input(
-            BenchmarkId::new("1025_bins", n_frames),
-            &spec,
-            |b, s| {
-                b.iter(|| spectrum::power_to_db(s.view(), 1.0, 1e-10, Some(80.0)));
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("1025_bins", n_frames), &spec, |b, s| {
+            b.iter(|| spectrum::power_to_db(s.view(), 1.0, 1e-10, Some(80.0)));
+        });
     }
 
     group.finish();

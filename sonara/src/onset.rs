@@ -7,7 +7,7 @@ use ndarray::{Array1, Array2, ArrayView1};
 use num_complex::Complex;
 
 use crate::core::spectrum;
-use crate::error::{SonaraError, Result};
+use crate::error::{Result, SonaraError};
 use crate::feature::spectral as feat;
 use crate::types::*;
 use crate::util::utils;
@@ -53,11 +53,21 @@ pub fn onset_detect(
     let post_max = 1;
     let pre_avg = ((0.10 * sr_f / hop_length as Float) as usize).max(1);
     let post_avg = ((0.10 * sr_f / hop_length as Float) as usize + 1).max(1);
-    let wait_frames = if wait > 0 { wait } else {
+    let wait_frames = if wait > 0 {
+        wait
+    } else {
         ((0.03 * sr_f / hop_length as Float) as usize).max(1)
     };
 
-    let peaks = utils::peak_pick(oenv_norm.view(), pre_max, post_max, pre_avg, post_avg, delta, wait_frames);
+    let peaks = utils::peak_pick(
+        oenv_norm.view(),
+        pre_max,
+        post_max,
+        pre_avg,
+        post_avg,
+        delta,
+        wait_frames,
+    );
 
     if backtrack && !peaks.is_empty() {
         Ok(onset_backtrack(&peaks, oenv.view()))
@@ -69,11 +79,7 @@ pub fn onset_detect(
 /// Compute onset strength envelope.
 ///
 /// Wrapper for onset_strength_multi that returns a single-channel envelope.
-pub fn onset_strength(
-    y: ArrayView1<Float>,
-    sr: u32,
-    hop_length: usize,
-) -> Result<Array1<Float>> {
+pub fn onset_strength(y: ArrayView1<Float>, sr: u32, hop_length: usize) -> Result<Array1<Float>> {
     let multi = onset_strength_multi(y, sr, hop_length, 1, None)?;
     Ok(multi.row(0).to_owned())
 }
@@ -95,7 +101,15 @@ pub fn onset_strength_multi(
 
     // Compute mel spectrogram in dB
     let mel = feat::melspectrogram(
-        Some(y), None, sr_f, n_fft, hop_length, 128, 0.0, sr_f / 2.0, 2.0,
+        Some(y),
+        None,
+        sr_f,
+        n_fft,
+        hop_length,
+        128,
+        0.0,
+        sr_f / 2.0,
+        2.0,
     )?;
     let s_db = spectrum::power_to_db(mel.view(), 1.0, 1e-10, Some(80.0));
 
@@ -114,7 +128,9 @@ pub fn onset_strength_multi(
                 for m in 0..n_mels {
                     let lo = m.saturating_sub(ms / 2);
                     let hi = (m + ms / 2 + 1).min(n_mels);
-                    let max_val = (lo..hi).map(|k| s_db[(k, t)]).fold(Float::NEG_INFINITY, Float::max);
+                    let max_val = (lo..hi)
+                        .map(|k| s_db[(k, t)])
+                        .fold(Float::NEG_INFINITY, Float::max);
                     filtered[(m, t)] = max_val;
                 }
             }
@@ -204,7 +220,15 @@ fn onset_strength_energy(
 ) -> Result<Array1<Float>> {
     let n_fft = 2048;
     let window = WindowSpec::Named("hann".into());
-    let stft = spectrum::stft(y, n_fft, Some(hop_length), None, &window, true, PadMode::Constant)?;
+    let stft = spectrum::stft(
+        y,
+        n_fft,
+        Some(hop_length),
+        None,
+        &window,
+        true,
+        PadMode::Constant,
+    )?;
     let n_frames = stft.ncols();
     let n_bins = stft.nrows();
 
@@ -238,7 +262,15 @@ fn onset_strength_phase(
 ) -> Result<Array1<Float>> {
     let n_fft = 2048;
     let window = WindowSpec::Named("hann".into());
-    let stft = spectrum::stft(y, n_fft, Some(hop_length), None, &window, true, PadMode::Constant)?;
+    let stft = spectrum::stft(
+        y,
+        n_fft,
+        Some(hop_length),
+        None,
+        &window,
+        true,
+        PadMode::Constant,
+    )?;
     let n_frames = stft.ncols();
     let n_bins = stft.nrows();
 
@@ -261,7 +293,8 @@ fn onset_strength_phase(
             // Second-order phase deviation
             let mut phase_dev = p2 - 2.0 * p1 + p0;
             // Wrap to [-pi, pi]
-            phase_dev = ((phase_dev + std::f32::consts::PI) % (2.0 * std::f32::consts::PI)) - std::f32::consts::PI;
+            phase_dev = ((phase_dev + std::f32::consts::PI) % (2.0 * std::f32::consts::PI))
+                - std::f32::consts::PI;
             sum += mag * phase_dev.abs();
         }
         env[pad_left + t - 2] = sum / n_bins as Float;
@@ -276,10 +309,17 @@ fn onset_strength_complex(
     _sr: u32,
     hop_length: usize,
 ) -> Result<Array1<Float>> {
-
     let n_fft = 2048;
     let window = WindowSpec::Named("hann".into());
-    let stft = spectrum::stft(y, n_fft, Some(hop_length), None, &window, true, PadMode::Constant)?;
+    let stft = spectrum::stft(
+        y,
+        n_fft,
+        Some(hop_length),
+        None,
+        &window,
+        true,
+        PadMode::Constant,
+    )?;
     let n_frames = stft.ncols();
     let n_bins = stft.nrows();
 
@@ -321,7 +361,11 @@ pub fn onset_backtrack(events: &[usize], energy: ArrayView1<Float>) -> Vec<usize
         let mut best_val = energy.get(event).copied().unwrap_or(Float::INFINITY);
 
         // Search backwards for minimum
-        let search_start = if backtracked.is_empty() { 0 } else { *backtracked.last().unwrap() };
+        let search_start = if backtracked.is_empty() {
+            0
+        } else {
+            *backtracked.last().unwrap()
+        };
         for i in (search_start..event).rev() {
             if let Some(&val) = energy.get(i) {
                 if val < best_val {
@@ -373,7 +417,11 @@ mod tests {
         let y = click_train(22050, 2.0, 120.0);
         let onsets = onset_detect(Some(y.view()), None, 22050, 512, false, 0.05, 0).unwrap();
         // 120 BPM for 2s → ~4 beats → ~4 onsets
-        assert!(onsets.len() >= 2, "expected >=2 onsets, got {}", onsets.len());
+        assert!(
+            onsets.len() >= 2,
+            "expected >=2 onsets, got {}",
+            onsets.len()
+        );
     }
 
     #[test]
@@ -403,7 +451,12 @@ mod tests {
     #[test]
     fn test_onset_strength_methods() {
         let y = click_train(22050, 2.0, 120.0);
-        for method in [OnsetMethod::SpectralFlux, OnsetMethod::Energy, OnsetMethod::Phase, OnsetMethod::Complex] {
+        for method in [
+            OnsetMethod::SpectralFlux,
+            OnsetMethod::Energy,
+            OnsetMethod::Phase,
+            OnsetMethod::Complex,
+        ] {
             let env = onset_strength_method(y.view(), 22050, 512, method).unwrap();
             assert!(env.len() > 0, "method {:?} produced empty envelope", method);
             // Each method should produce non-zero values for a click train

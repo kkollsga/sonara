@@ -26,7 +26,9 @@ fn bench_compact(c: &mut Criterion) {
         group.bench_with_input(
             BenchmarkId::new("compact", format!("{}s", secs)),
             &signal,
-            |b, sig| { b.iter(|| analyze::analyze_signal(sig.view(), 22050, &cfg).unwrap()); },
+            |b, sig| {
+                b.iter(|| analyze::analyze_signal(sig.view(), 22050, &cfg).unwrap());
+            },
         );
     }
     group.finish();
@@ -41,7 +43,9 @@ fn bench_playlist(c: &mut Criterion) {
         group.bench_with_input(
             BenchmarkId::new("playlist", format!("{}s", secs)),
             &signal,
-            |b, sig| { b.iter(|| analyze::analyze_signal(sig.view(), 22050, &cfg).unwrap()); },
+            |b, sig| {
+                b.iter(|| analyze::analyze_signal(sig.view(), 22050, &cfg).unwrap());
+            },
         );
     }
     group.finish();
@@ -56,7 +60,9 @@ fn bench_full(c: &mut Criterion) {
         group.bench_with_input(
             BenchmarkId::new("full", format!("{}s", secs)),
             &signal,
-            |b, sig| { b.iter(|| analyze::analyze_signal(sig.view(), 22050, &cfg).unwrap()); },
+            |b, sig| {
+                b.iter(|| analyze::analyze_signal(sig.view(), 22050, &cfg).unwrap());
+            },
         );
     }
     group.finish();
@@ -66,17 +72,26 @@ fn bench_all_modes(c: &mut Criterion) {
     let mut group = c.benchmark_group("analyze_all_modes");
     let signal = generate_signal(22050, 10);
 
-    group.bench_with_input(BenchmarkId::new("mode", "compact"), &signal,
-        |b, sig| { b.iter(|| analyze::analyze_signal(sig.view(), 22050, &analyze::compact()).unwrap()); });
+    group.bench_with_input(BenchmarkId::new("mode", "compact"), &signal, |b, sig| {
+        b.iter(|| analyze::analyze_signal(sig.view(), 22050, &analyze::compact()).unwrap());
+    });
 
-    group.bench_with_input(BenchmarkId::new("mode", "playlist"), &signal,
-        |b, sig| { b.iter(|| analyze::analyze_signal(sig.view(), 22050, &analyze::playlist()).unwrap()); });
+    group.bench_with_input(BenchmarkId::new("mode", "playlist"), &signal, |b, sig| {
+        b.iter(|| analyze::analyze_signal(sig.view(), 22050, &analyze::playlist()).unwrap());
+    });
 
-    group.bench_with_input(BenchmarkId::new("mode", "full"), &signal,
-        |b, sig| { b.iter(|| analyze::analyze_signal(sig.view(), 22050, &analyze::full()).unwrap()); });
+    group.bench_with_input(BenchmarkId::new("mode", "full"), &signal, |b, sig| {
+        b.iter(|| analyze::analyze_signal(sig.view(), 22050, &analyze::full()).unwrap());
+    });
 
     group.finish();
 }
 
-criterion_group!(benches, bench_compact, bench_playlist, bench_full, bench_all_modes);
+criterion_group!(
+    benches,
+    bench_compact,
+    bench_playlist,
+    bench_full,
+    bench_all_modes
+);
 criterion_main!(benches);

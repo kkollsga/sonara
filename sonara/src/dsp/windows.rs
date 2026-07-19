@@ -7,7 +7,7 @@ use std::f32::consts::PI;
 
 use ndarray::Array1;
 
-use crate::error::{SonaraError, Result};
+use crate::error::{Result, SonaraError};
 use crate::types::Float;
 
 /// Generate a Hann (raised cosine) window of length `n`.
@@ -153,7 +153,11 @@ fn bessel_i0(x: Float) -> Float {
 /// Supported windows: "hann", "hamming", "blackman", "bartlett", "boxcar",
 /// "ones", "rectangular", "triangular", "kaiser" (requires beta via WindowSpec::Parameterized),
 /// "tukey", "gaussian".
-pub fn get_window(spec: &crate::types::WindowSpec, n: usize, fftbins: bool) -> Result<Array1<Float>> {
+pub fn get_window(
+    spec: &crate::types::WindowSpec,
+    n: usize,
+    fftbins: bool,
+) -> Result<Array1<Float>> {
     use crate::types::WindowSpec;
     match spec {
         WindowSpec::Named(name) => match name.to_lowercase().as_str() {
@@ -163,7 +167,7 @@ pub fn get_window(spec: &crate::types::WindowSpec, n: usize, fftbins: bool) -> R
             "bartlett" | "triangular" | "triang" => Ok(bartlett(n, fftbins)),
             "boxcar" | "rectangular" | "ones" => Ok(boxcar(n)),
             "kaiser" => Ok(kaiser(n, 14.0, fftbins)), // default beta
-            "tukey" => Ok(tukey(n, 0.5, fftbins)),     // default alpha
+            "tukey" => Ok(tukey(n, 0.5, fftbins)),    // default alpha
             "gaussian" => Ok(gaussian(n, 0.4, fftbins)), // default std
             _ => Err(SonaraError::InvalidParameter {
                 param: "window",

@@ -156,7 +156,9 @@ pub fn compute(y: ArrayView1<Float>, sr: u32) -> Vec<u32> {
 
     // --- Precompute Hann window and band bin ranges ---
     let window: Vec<Float> = (0..N_FFT)
-        .map(|i| 0.5 - 0.5 * (2.0 * std::f32::consts::PI * i as Float / (N_FFT as Float - 1.0)).cos())
+        .map(|i| {
+            0.5 - 0.5 * (2.0 * std::f32::consts::PI * i as Float / (N_FFT as Float - 1.0)).cos()
+        })
         .collect();
     let bands = band_bin_ranges();
 
@@ -407,9 +409,10 @@ mod tests {
             let t = i as Float / sr as Float;
             let mut s = 0.0;
             for p in 0..N_PART {
-                let amp = (0.35 + 0.35 * (2.0 * PI * r1[p] * t + ph1[p]).sin()
+                let amp = (0.35
+                    + 0.35 * (2.0 * PI * r1[p] * t + ph1[p]).sin()
                     + 0.3 * (2.0 * PI * r2[p] * t + ph2[p]).sin())
-                    .max(0.0);
+                .max(0.0);
                 s += weights[p] * amp * (2.0 * PI * freqs[p] * t + ph1[p]).sin();
             }
             s / N_PART as Float
@@ -419,7 +422,10 @@ mod tests {
     /// Deterministic white noise in [-amp, amp].
     fn noise(n: usize, amp: Float, seed: u64) -> Array1<Float> {
         Array1::from_shape_fn(n, |i| {
-            let h = (i as u64).wrapping_add(seed).wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            let h = (i as u64)
+                .wrapping_add(seed)
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             let u = ((h >> 33) as f32) / (1u64 << 31) as f32 - 1.0;
             u * amp
         })
@@ -442,9 +448,16 @@ mod tests {
     fn test_identical_signal_matches_one() {
         let y = melody(22050, DUR, 1);
         let fp = compute(y.view(), 22050);
-        assert!(fp.len() > 100, "expected a non-trivial fingerprint, got {}", fp.len());
+        assert!(
+            fp.len() > 100,
+            "expected a non-trivial fingerprint, got {}",
+            fp.len()
+        );
         let score = match_score(&fp, &fp);
-        assert!((score - 1.0).abs() < 1e-6, "self-match should be 1.0, got {score}");
+        assert!(
+            (score - 1.0).abs() < 1e-6,
+            "self-match should be 1.0, got {score}"
+        );
     }
 
     #[test]
@@ -481,7 +494,10 @@ mod tests {
         let b = compute(padded.view(), 22050);
         let score = match_score(&a, &b);
         // Offset search must re-align despite 0.3 s of extra leading silence.
-        assert!(score > 0.4, "0.3s leading silence should still match, got {score}");
+        assert!(
+            score > 0.4,
+            "0.3s leading silence should still match, got {score}"
+        );
     }
 
     #[test]
@@ -489,12 +505,18 @@ mod tests {
         let a = compute(melody(22050, DUR, 1).view(), 22050);
         let b = compute(melody(22050, DUR, 2).view(), 22050);
         let score = match_score(&a, &b);
-        assert!(score < 0.3, "different recordings should score low, got {score}");
+        assert!(
+            score < 0.3,
+            "different recordings should score low, got {score}"
+        );
 
         // Noise vs melody: unrelated → near zero.
         let c = compute(noise((22050.0 * DUR) as usize, 0.5, 5).view(), 22050);
         let score2 = match_score(&a, &c);
-        assert!(score2 < 0.3, "noise vs melody should score low, got {score2}");
+        assert!(
+            score2 < 0.3,
+            "noise vs melody should score low, got {score2}"
+        );
     }
 
     #[test]

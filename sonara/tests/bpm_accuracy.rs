@@ -349,7 +349,10 @@ fn print_metrics(label: &str, cases: &[CaseResult]) {
         octaves
     );
     println!("  median abs error      : {:.2} BPM", median(errs.clone()));
-    println!("  p95 abs error         : {:.2} BPM", percentile(errs, 95.0));
+    println!(
+        "  p95 abs error         : {:.2} BPM",
+        percentile(errs, 95.0)
+    );
 }
 
 // ============================================================

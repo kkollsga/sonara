@@ -58,14 +58,22 @@ pub fn recurrence_matrix(
     }
 
     // Threshold by k-nearest-neighbors
-    let k_actual = if k == 0 { (2.0 * (n as Float).sqrt()).ceil() as usize } else { k };
+    let k_actual = if k == 0 {
+        (2.0 * (n as Float).sqrt()).ceil() as usize
+    } else {
+        k
+    };
     let mut rec = Array2::<Float>::zeros((n, n));
 
     for i in 0..n {
         // Find k-th nearest neighbor distance
         let mut row: Vec<Float> = dist.row(i).to_vec();
         row.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        let threshold = if k_actual < row.len() { row[k_actual] } else { Float::INFINITY };
+        let threshold = if k_actual < row.len() {
+            row[k_actual]
+        } else {
+            Float::INFINITY
+        };
 
         for j in 0..n {
             if dist[(i, j)] <= threshold && i != j {
@@ -192,11 +200,7 @@ pub fn path_enhance(r: ArrayView2<Float>, n_filter: usize) -> Array2<Float> {
 }
 
 /// Subdivide segments based on feature changes.
-pub fn subsegment(
-    _data: ArrayView2<Float>,
-    frames: &[usize],
-    n_segments: usize,
-) -> Vec<usize> {
+pub fn subsegment(_data: ArrayView2<Float>, frames: &[usize], n_segments: usize) -> Vec<usize> {
     let mut all_frames: Vec<usize> = frames.to_vec();
 
     // For each segment, find internal change points
@@ -266,7 +270,9 @@ mod tests {
                 // so reconstruction is approximate for asymmetric matrices
                 assert!(
                     (rec[(i, j)] - rec2[(i, j)]).abs() < 2.0,
-                    "mismatch at ({i},{j}): {} vs {}", rec[(i, j)], rec2[(i, j)]
+                    "mismatch at ({i},{j}): {} vs {}",
+                    rec[(i, j)],
+                    rec2[(i, j)]
                 );
             }
         }

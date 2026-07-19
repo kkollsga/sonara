@@ -12,7 +12,7 @@ use std::f32::consts::PI;
 use ndarray::{s, Array1, Array2, ArrayView1, ArrayView2};
 
 use crate::core::{convert, spectrum};
-use crate::error::{SonaraError, Result};
+use crate::error::{Result, SonaraError};
 use crate::filters;
 use crate::types::*;
 use crate::util::utils;
@@ -78,9 +78,8 @@ fn melspectrogram_fused(
     let win_length = n_fft;
     let n_bins = 1 + n_fft / 2;
 
-    let fft_window = crate::dsp::windows::get_window(
-        &WindowSpec::Named("hann".into()), win_length, true,
-    )?;
+    let fft_window =
+        crate::dsp::windows::get_window(&WindowSpec::Named("hann".into()), win_length, true)?;
     let fft_window = utils::pad_center(fft_window.view(), n_fft)?;
 
     // Center-pad signal
@@ -90,7 +89,10 @@ fn melspectrogram_fused(
 
     let n = y_padded.len();
     if n < n_fft {
-        return Err(SonaraError::InsufficientData { needed: n_fft, got: n });
+        return Err(SonaraError::InsufficientData {
+            needed: n_fft,
+            got: n,
+        });
     }
 
     let n_frames = 1 + (n - n_fft) / hop_length;
@@ -135,11 +137,17 @@ fn melspectrogram_fused(
 
         // Fused power computation
         if use_norm_sqr {
-            for i in 0..n_bins { power_col[i] = fft_out[i].norm_sqr(); }
+            for i in 0..n_bins {
+                power_col[i] = fft_out[i].norm_sqr();
+            }
         } else if use_norm {
-            for i in 0..n_bins { power_col[i] = fft_out[i].norm(); }
+            for i in 0..n_bins {
+                power_col[i] = fft_out[i].norm();
+            }
         } else {
-            for i in 0..n_bins { power_col[i] = fft_out[i].norm().powf(power); }
+            for i in 0..n_bins {
+                power_col[i] = fft_out[i].norm().powf(power);
+            }
         }
 
         // Sparse mel projection — only multiply non-zero filter weights
@@ -218,12 +226,23 @@ pub fn chroma_stft(
         (_, Some(s)) => s.to_owned(),
         (Some(y), None) => {
             let (spec, _) = spectrum::spectrogram(
-                Some(y), None, n_fft, hop_length, 2.0,
-                &WindowSpec::Named("hann".into()), true, PadMode::Constant,
+                Some(y),
+                None,
+                n_fft,
+                hop_length,
+                2.0,
+                &WindowSpec::Named("hann".into()),
+                true,
+                PadMode::Constant,
             )?;
             spec
         }
-        _ => return Err(SonaraError::InvalidParameter { param: "y/S", reason: "provide y or S".into() }),
+        _ => {
+            return Err(SonaraError::InvalidParameter {
+                param: "y/S",
+                reason: "provide y or S".into(),
+            })
+        }
     };
 
     let chroma_fb = filters::chroma(sr, n_fft, n_chroma, tuning);
@@ -270,7 +289,9 @@ pub fn tonnetz(
     for t in 0..n_frames {
         // Normalize chroma column to sum to 1
         let sum: Float = chroma.column(t).sum();
-        if sum <= 0.0 { continue; }
+        if sum <= 0.0 {
+            continue;
+        }
 
         for c in 0..12 {
             let w = chroma[(c, t)] / sum;
@@ -353,7 +374,11 @@ pub fn spectral_bandwidth(
             num += spec[(f, t)] * dev.powf(p);
             den += spec[(f, t)];
         }
-        bw[(0, t)] = if den > 0.0 { (num / den).powf(1.0 / p) } else { 0.0 };
+        bw[(0, t)] = if den > 0.0 {
+            (num / den).powf(1.0 / p)
+        } else {
+            0.0
+        };
     }
 
     Ok(bw)
@@ -409,12 +434,23 @@ pub fn spectral_flatness(
         (_, Some(s)) => s.to_owned(),
         (Some(y), None) => {
             let (s, _) = spectrum::spectrogram(
-                Some(y), None, n_fft, hop_length, power,
-                &WindowSpec::Named("hann".into()), true, PadMode::Constant,
+                Some(y),
+                None,
+                n_fft,
+                hop_length,
+                power,
+                &WindowSpec::Named("hann".into()),
+                true,
+                PadMode::Constant,
             )?;
             s
         }
-        _ => return Err(SonaraError::InvalidParameter { param: "y/S", reason: "provide y or S".into() }),
+        _ => {
+            return Err(SonaraError::InvalidParameter {
+                param: "y/S",
+                reason: "provide y or S".into(),
+            })
+        }
     };
 
     let n_frames = spec.ncols();
@@ -431,7 +467,11 @@ pub fn spectral_flatness(
         }
         let geo_mean = (log_sum / n_bins as Float).exp();
         let arith_mean = arith_sum / n_bins as Float;
-        flatness[(0, t)] = if arith_mean > 0.0 { geo_mean / arith_mean } else { 0.0 };
+        flatness[(0, t)] = if arith_mean > 0.0 {
+            geo_mean / arith_mean
+        } else {
+            0.0
+        };
     }
 
     Ok(flatness)
@@ -548,7 +588,10 @@ pub fn rms(
             }
             Ok(result)
         }
-        _ => Err(SonaraError::InvalidParameter { param: "y/S", reason: "provide y or S".into() }),
+        _ => Err(SonaraError::InvalidParameter {
+            param: "y/S",
+            reason: "provide y or S".into(),
+        }),
     }
 }
 
@@ -623,12 +666,21 @@ fn get_magnitude_spec(
         (_, Some(s)) => Ok(s.to_owned()),
         (Some(y), None) => {
             let (spec, _) = spectrum::spectrogram(
-                Some(y), None, n_fft, hop_length, 1.0,
-                &WindowSpec::Named("hann".into()), true, PadMode::Constant,
+                Some(y),
+                None,
+                n_fft,
+                hop_length,
+                1.0,
+                &WindowSpec::Named("hann".into()),
+                true,
+                PadMode::Constant,
             )?;
             Ok(spec)
         }
-        _ => Err(SonaraError::InvalidParameter { param: "y/S", reason: "provide y or S".into() }),
+        _ => Err(SonaraError::InvalidParameter {
+            param: "y/S",
+            reason: "provide y or S".into(),
+        }),
     }
 }
 
@@ -648,7 +700,8 @@ mod tests {
     #[test]
     fn test_melspectrogram_shape() {
         let y = sine(440.0, 22050.0, 1.0);
-        let mel = melspectrogram(Some(y.view()), None, 22050.0, 2048, 512, 128, 0.0, 0.0, 2.0).unwrap();
+        let mel =
+            melspectrogram(Some(y.view()), None, 22050.0, 2048, 512, 128, 0.0, 0.0, 2.0).unwrap();
         assert_eq!(mel.nrows(), 128);
         assert!(mel.ncols() > 0);
     }
@@ -656,7 +709,8 @@ mod tests {
     #[test]
     fn test_melspectrogram_nonneg() {
         let y = sine(440.0, 22050.0, 0.5);
-        let mel = melspectrogram(Some(y.view()), None, 22050.0, 2048, 512, 40, 0.0, 0.0, 2.0).unwrap();
+        let mel =
+            melspectrogram(Some(y.view()), None, 22050.0, 2048, 512, 40, 0.0, 0.0, 2.0).unwrap();
         for &v in mel.iter() {
             assert!(v >= 0.0, "mel spectrogram must be non-negative");
         }
@@ -691,7 +745,10 @@ mod tests {
         let y = sine(440.0, 22050.0, 0.5);
         let ch = chroma_stft(Some(y.view()), None, 22050.0, 2048, 512, 12, 0.0).unwrap();
         for &v in ch.iter() {
-            assert!(v >= 0.0 && v <= 1.0 + 1e-10, "chroma should be in [0, 1], got {v}");
+            assert!(
+                v >= 0.0 && v <= 1.0 + 1e-10,
+                "chroma should be in [0, 1], got {v}"
+            );
         }
     }
 
@@ -711,7 +768,8 @@ mod tests {
         let mid = cent.ncols() / 2;
         assert!(
             (cent[(0, mid)] - 440.0).abs() < 100.0,
-            "centroid expected ~440 Hz, got {}", cent[(0, mid)]
+            "centroid expected ~440 Hz, got {}",
+            cent[(0, mid)]
         );
     }
 
@@ -733,21 +791,24 @@ mod tests {
     fn test_spectral_flatness_sine_vs_noise() {
         // Sine should have low flatness
         let y_sine = sine(440.0, 22050.0, 0.5);
-        let flat_sine = spectral_flatness(Some(y_sine.view()), None, 2048, 512, 1e-10, 2.0).unwrap();
+        let flat_sine =
+            spectral_flatness(Some(y_sine.view()), None, 2048, 512, 1e-10, 2.0).unwrap();
 
         // White noise should have high flatness
         let y_noise = Array1::from_shape_fn(11025, |i| {
             // Simple deterministic "noise"
             ((i as Float * 1.618033).sin() + (i as Float * 2.71828).cos()) * 0.5
         });
-        let flat_noise = spectral_flatness(Some(y_noise.view()), None, 2048, 512, 1e-10, 2.0).unwrap();
+        let flat_noise =
+            spectral_flatness(Some(y_noise.view()), None, 2048, 512, 1e-10, 2.0).unwrap();
 
         let mid = flat_sine.ncols() / 2;
         let mid2 = flat_noise.ncols() / 2;
         assert!(
             flat_sine[(0, mid)] < flat_noise[(0, mid2)],
             "sine flatness {} should be < noise flatness {}",
-            flat_sine[(0, mid)], flat_noise[(0, mid2)]
+            flat_sine[(0, mid)],
+            flat_noise[(0, mid2)]
         );
     }
 
@@ -760,7 +821,8 @@ mod tests {
         let mid = r.ncols() / 2;
         assert!(
             (r[(0, mid)] - 1.0 / 2.0_f32.sqrt()).abs() < 0.05,
-            "RMS expected ~0.707, got {}", r[(0, mid)]
+            "RMS expected ~0.707, got {}",
+            r[(0, mid)]
         );
     }
 
@@ -780,14 +842,16 @@ mod tests {
         let expected = 2.0 * 440.0 / 22050.0;
         assert!(
             (zcr[(0, mid)] - expected).abs() < 0.01,
-            "ZCR expected ~{expected}, got {}", zcr[(0, mid)]
+            "ZCR expected ~{expected}, got {}",
+            zcr[(0, mid)]
         );
     }
 
     #[test]
     fn test_spectral_contrast_shape() {
         let y = sine(440.0, 22050.0, 0.5);
-        let sc = spectral_contrast(Some(y.view()), None, 22050.0, 2048, 512, 6, 200.0, 0.02).unwrap();
+        let sc =
+            spectral_contrast(Some(y.view()), None, 22050.0, 2048, 512, 6, 200.0, 0.02).unwrap();
         assert_eq!(sc.nrows(), 7); // n_bands + 1
     }
 }

@@ -169,7 +169,11 @@ pub fn detect_downbeats(
         }
         // Mean accent: phases can differ in count by one, so normalising keeps
         // the comparison fair.
-        let score = if count > 0 { sum / count as Float } else { Float::NEG_INFINITY };
+        let score = if count > 0 {
+            sum / count as Float
+        } else {
+            Float::NEG_INFINITY
+        };
         if score > best_score {
             best_score = score;
             best_phase = phase;
@@ -225,11 +229,7 @@ mod tests {
     /// `offset_frames` frames of silence are prepended (the known grid offset).
     /// The kick (strong accent) lands on every 4th beat starting at the offset;
     /// the other three beats get a weaker hat/click accent.
-    fn synth_4_4(
-        bpm: Float,
-        n_bars: usize,
-        offset_frames: usize,
-    ) -> (Vec<usize>, Array1<Float>) {
+    fn synth_4_4(bpm: Float, n_bars: usize, offset_frames: usize) -> (Vec<usize>, Array1<Float>) {
         let fpb = frames_per_beat(bpm);
         let n_beats = n_bars * 4;
         let total = offset_frames + n_beats * fpb + fpb;
@@ -268,7 +268,10 @@ mod tests {
 
         // Every downbeat should be a kick frame (phase 0).
         let expected: Vec<usize> = (0..4).map(|bar| offset_frames + bar * 4 * fpb).collect();
-        assert_eq!(grid.downbeats, expected, "downbeats should be the kick beats");
+        assert_eq!(
+            grid.downbeats, expected,
+            "downbeats should be the kick beats"
+        );
 
         // Downbeats are a subset of beats and about one per bar.
         assert!(grid.downbeats.iter().all(|d| beats.contains(d)));
@@ -333,7 +336,12 @@ mod tests {
             s_small,
             s_large
         );
-        assert!(s0 > s_large, "more jitter must reduce stability: {} vs {}", s0, s_large);
+        assert!(
+            s0 > s_large,
+            "more jitter must reduce stability: {} vs {}",
+            s0,
+            s_large
+        );
     }
 
     #[test]

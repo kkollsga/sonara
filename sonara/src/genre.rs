@@ -186,14 +186,16 @@ impl GenreModel {
 
 /// Parse and validate a genre model from a JSON string.
 pub fn from_json_str(s: &str) -> Result<GenreModel> {
-    let value = json::parse(s).map_err(|e| SonaraError::ModelError(format!("invalid model JSON: {e}")))?;
+    let value =
+        json::parse(s).map_err(|e| SonaraError::ModelError(format!("invalid model JSON: {e}")))?;
     build_model(&value)
 }
 
 /// Load and validate a genre model from a JSON file on disk.
 pub fn load(path: &Path) -> Result<GenreModel> {
-    let s = std::fs::read_to_string(path)
-        .map_err(|e| SonaraError::ModelError(format!("could not read model file {}: {e}", path.display())))?;
+    let s = std::fs::read_to_string(path).map_err(|e| {
+        SonaraError::ModelError(format!("could not read model file {}: {e}", path.display()))
+    })?;
     from_json_str(&s)
 }
 
@@ -206,7 +208,9 @@ fn err(msg: impl Into<String>) -> SonaraError {
 }
 
 fn build_model(v: &json::Value) -> Result<GenreModel> {
-    let obj = v.as_object().ok_or_else(|| err("model root must be a JSON object"))?;
+    let obj = v
+        .as_object()
+        .ok_or_else(|| err("model root must be a JSON object"))?;
 
     let format_version = obj
         .lookup("format_version")
@@ -223,37 +227,59 @@ fn build_model(v: &json::Value) -> Result<GenreModel> {
         .and_then(json::Value::as_u32)
         .ok_or_else(|| err("missing/invalid `embedding_version` (expected integer)"))?;
 
-    let labels_val = obj.lookup("labels").ok_or_else(|| err("missing `labels`"))?;
-    let labels_arr = labels_val.as_array().ok_or_else(|| err("`labels` must be an array"))?;
+    let labels_val = obj
+        .lookup("labels")
+        .ok_or_else(|| err("missing `labels`"))?;
+    let labels_arr = labels_val
+        .as_array()
+        .ok_or_else(|| err("`labels` must be an array"))?;
     if labels_arr.is_empty() {
         return Err(err("`labels` must be non-empty"));
     }
     let labels: Vec<String> = labels_arr
         .iter()
-        .map(|l| l.as_str().map(str::to_string).ok_or_else(|| err("every `labels` entry must be a string")))
+        .map(|l| {
+            l.as_str()
+                .map(str::to_string)
+                .ok_or_else(|| err("every `labels` entry must be a string"))
+        })
         .collect::<Result<_>>()?;
 
-    let layers_val = obj.lookup("layers").ok_or_else(|| err("missing `layers`"))?;
-    let layers_arr = layers_val.as_array().ok_or_else(|| err("`layers` must be an array"))?;
+    let layers_val = obj
+        .lookup("layers")
+        .ok_or_else(|| err("missing `layers`"))?;
+    let layers_arr = layers_val
+        .as_array()
+        .ok_or_else(|| err("`layers` must be an array"))?;
     if layers_arr.is_empty() {
         return Err(err("`layers` must be non-empty"));
     }
 
     let mut layers: Vec<Layer> = Vec::with_capacity(layers_arr.len());
     for (li, lv) in layers_arr.iter().enumerate() {
-        let lobj = lv.as_object().ok_or_else(|| err(format!("layer {li} must be an object")))?;
+        let lobj = lv
+            .as_object()
+            .ok_or_else(|| err(format!("layer {li} must be an object")))?;
 
-        let w_val = lobj.lookup("weights").ok_or_else(|| err(format!("layer {li} missing `weights`")))?;
-        let w_rows = w_val.as_array().ok_or_else(|| err(format!("layer {li} `weights` must be an array")))?;
+        let w_val = lobj
+            .lookup("weights")
+            .ok_or_else(|| err(format!("layer {li} missing `weights`")))?;
+        let w_rows = w_val
+            .as_array()
+            .ok_or_else(|| err(format!("layer {li} `weights` must be an array")))?;
         if w_rows.is_empty() {
             return Err(err(format!("layer {li} `weights` must be non-empty")));
         }
         let mut weights: Vec<Vec<Float>> = Vec::with_capacity(w_rows.len());
         let mut row_len: Option<usize> = None;
         for (ri, rv) in w_rows.iter().enumerate() {
-            let cols = rv.as_array().ok_or_else(|| err(format!("layer {li} weights row {ri} must be an array")))?;
+            let cols = rv
+                .as_array()
+                .ok_or_else(|| err(format!("layer {li} weights row {ri} must be an array")))?;
             if cols.is_empty() {
-                return Err(err(format!("layer {li} weights row {ri} must be non-empty")));
+                return Err(err(format!(
+                    "layer {li} weights row {ri} must be non-empty"
+                )));
             }
             match row_len {
                 None => row_len = Some(cols.len()),
@@ -267,16 +293,26 @@ fn build_model(v: &json::Value) -> Result<GenreModel> {
             }
             let row: Vec<Float> = cols
                 .iter()
-                .map(|c| c.as_f32().ok_or_else(|| err(format!("layer {li} weights must be numbers"))))
+                .map(|c| {
+                    c.as_f32()
+                        .ok_or_else(|| err(format!("layer {li} weights must be numbers")))
+                })
                 .collect::<Result<_>>()?;
             weights.push(row);
         }
 
-        let b_val = lobj.lookup("bias").ok_or_else(|| err(format!("layer {li} missing `bias`")))?;
-        let b_arr = b_val.as_array().ok_or_else(|| err(format!("layer {li} `bias` must be an array")))?;
+        let b_val = lobj
+            .lookup("bias")
+            .ok_or_else(|| err(format!("layer {li} missing `bias`")))?;
+        let b_arr = b_val
+            .as_array()
+            .ok_or_else(|| err(format!("layer {li} `bias` must be an array")))?;
         let bias: Vec<Float> = b_arr
             .iter()
-            .map(|c| c.as_f32().ok_or_else(|| err(format!("layer {li} bias must be numbers"))))
+            .map(|c| {
+                c.as_f32()
+                    .ok_or_else(|| err(format!("layer {li} bias must be numbers")))
+            })
             .collect::<Result<_>>()?;
         if bias.len() != weights.len() {
             return Err(err(format!(
@@ -289,11 +325,22 @@ fn build_model(v: &json::Value) -> Result<GenreModel> {
         let act_str = lobj
             .lookup("activation")
             .and_then(json::Value::as_str)
-            .ok_or_else(|| err(format!("layer {li} missing/invalid `activation` (expected string)")))?;
-        let activation = Activation::from_str(act_str)
-            .ok_or_else(|| err(format!("layer {li} unsupported activation '{act_str}' (use relu/softmax/identity)")))?;
+            .ok_or_else(|| {
+                err(format!(
+                    "layer {li} missing/invalid `activation` (expected string)"
+                ))
+            })?;
+        let activation = Activation::from_str(act_str).ok_or_else(|| {
+            err(format!(
+                "layer {li} unsupported activation '{act_str}' (use relu/softmax/identity)"
+            ))
+        })?;
 
-        layers.push(Layer { weights, bias, activation });
+        layers.push(Layer {
+            weights,
+            bias,
+            activation,
+        });
     }
 
     // First layer must consume the embedding.
@@ -327,7 +374,11 @@ fn build_model(v: &json::Value) -> Result<GenreModel> {
         )));
     }
 
-    Ok(GenreModel { labels, layers, embedding_version })
+    Ok(GenreModel {
+        labels,
+        layers,
+        embedding_version,
+    })
 }
 
 // ============================================================
@@ -385,7 +436,9 @@ mod json {
         pub fn as_u32(&self) -> Option<u32> {
             match self {
                 // Accept only integral, non-negative numbers in range.
-                Value::Num(n) if n.fract() == 0.0 && *n >= 0.0 && *n <= u32::MAX as f64 => Some(*n as u32),
+                Value::Num(n) if n.fract() == 0.0 && *n >= 0.0 && *n <= u32::MAX as f64 => {
+                    Some(*n as u32)
+                }
                 _ => None,
             }
         }
@@ -408,12 +461,18 @@ mod json {
     }
 
     pub fn parse(s: &str) -> Result<Value, String> {
-        let mut p = Parser { b: s.as_bytes(), i: 0 };
+        let mut p = Parser {
+            b: s.as_bytes(),
+            i: 0,
+        };
         p.skip_ws();
         let v = p.parse_value()?;
         p.skip_ws();
         if p.i != p.b.len() {
-            return Err(format!("trailing characters after JSON value at byte {}", p.i));
+            return Err(format!(
+                "trailing characters after JSON value at byte {}",
+                p.i
+            ));
         }
         Ok(v)
     }
@@ -442,7 +501,10 @@ mod json {
                 Some(b't') | Some(b'f') => self.parse_bool(),
                 Some(b'n') => self.parse_null(),
                 Some(c) if c == b'-' || c.is_ascii_digit() => self.parse_number(),
-                Some(c) => Err(format!("unexpected character '{}' at byte {}", c as char, self.i)),
+                Some(c) => Err(format!(
+                    "unexpected character '{}' at byte {}",
+                    c as char, self.i
+                )),
                 None => Err("unexpected end of input".to_string()),
             }
         }
@@ -543,7 +605,12 @@ mod json {
                                 // code point (reject unpaired surrogates).
                                 match char::from_u32(cp as u32) {
                                     Some(ch) => s.push(ch),
-                                    None => return Err(format!("invalid \\u escape at byte {}", self.i)),
+                                    None => {
+                                        return Err(format!(
+                                            "invalid \\u escape at byte {}",
+                                            self.i
+                                        ))
+                                    }
                                 }
                                 continue;
                             }
@@ -585,7 +652,12 @@ mod json {
                     b'0'..=b'9' => c - b'0',
                     b'a'..=b'f' => c - b'a' + 10,
                     b'A'..=b'F' => c - b'A' + 10,
-                    _ => return Err(format!("invalid hex digit in \\u escape at byte {}", self.i)),
+                    _ => {
+                        return Err(format!(
+                            "invalid hex digit in \\u escape at byte {}",
+                            self.i
+                        ))
+                    }
                 };
                 cp = cp * 16 + d as u16;
                 self.i += 1;
@@ -660,7 +732,8 @@ mod json {
             if !saw_digit {
                 return Err(format!("malformed number at byte {}", start));
             }
-            let text = std::str::from_utf8(&self.b[start..self.i]).map_err(|_| "invalid number bytes".to_string())?;
+            let text = std::str::from_utf8(&self.b[start..self.i])
+                .map_err(|_| "invalid number bytes".to_string())?;
             text.parse::<f64>()
                 .map(Value::Num)
                 .map_err(|_| format!("could not parse number '{text}'"))
@@ -915,7 +988,13 @@ mod tests {
         let mut rows = String::new();
         for r in 0..2 {
             let vals = (0..48)
-                .map(|c| if c == 0 && r == 1 { "1e0".to_string() } else { "0.0".to_string() })
+                .map(|c| {
+                    if c == 0 && r == 1 {
+                        "1e0".to_string()
+                    } else {
+                        "0.0".to_string()
+                    }
+                })
                 .collect::<Vec<_>>()
                 .join(",");
             rows.push_str(&format!("[{vals}]"));

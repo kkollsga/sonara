@@ -185,14 +185,20 @@ pub struct KeyResult {
     pub confidence: Float,
 }
 
-const NOTE_NAMES: [&str; 12] = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+const NOTE_NAMES: [&str; 12] = [
+    "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
+];
 
 // Temperley MIREX 2005 key profiles — corpus-derived, better for popular music
 // than the original Krumhansl profiles. Corpus-derived profiles are generally
 // recommended over Krumhansl for non-classical music.
 // Source: D. Temperley "What's Key for Key?" (1999/2005)
-const KEY_PROFILE_MAJOR: [Float; 12] = [0.748, 0.060, 0.488, 0.082, 0.670, 0.460, 0.096, 0.715, 0.104, 0.366, 0.057, 0.400];
-const KEY_PROFILE_MINOR: [Float; 12] = [0.712, 0.084, 0.474, 0.618, 0.049, 0.460, 0.105, 0.747, 0.404, 0.067, 0.133, 0.330];
+const KEY_PROFILE_MAJOR: [Float; 12] = [
+    0.748, 0.060, 0.488, 0.082, 0.670, 0.460, 0.096, 0.715, 0.104, 0.366, 0.057, 0.400,
+];
+const KEY_PROFILE_MINOR: [Float; 12] = [
+    0.712, 0.084, 0.474, 0.618, 0.049, 0.460, 0.105, 0.747, 0.404, 0.067, 0.133, 0.330,
+];
 
 // ============================================================
 // Tier 1: Energy
@@ -212,9 +218,9 @@ pub fn energy(
     spectral_bandwidth_mean: Float,
 ) -> Float {
     // Normalize each feature to [0, 1] via empirical music ranges
-    let norm_rms = (rms_mean / 0.5).clamp(0.0, 1.0);              // compressed pop reaches 0.5+
+    let norm_rms = (rms_mean / 0.5).clamp(0.0, 1.0); // compressed pop reaches 0.5+
     let norm_centroid = ((spectral_centroid_mean - 500.0) / 4500.0).clamp(0.0, 1.0);
-    let norm_onset = (onset_density / 10.0).clamp(0.0, 1.0);      // complex rhythms exceed 8
+    let norm_onset = (onset_density / 10.0).clamp(0.0, 1.0); // complex rhythms exceed 8
     let norm_bw = ((spectral_bandwidth_mean - 500.0) / 3500.0).clamp(0.0, 1.0);
 
     // Weighted combination
@@ -241,14 +247,14 @@ pub fn energy(
 pub fn danceability_heuristic(bpm: Float, beats: &[usize], onset_density: Float) -> Float {
     // Beat regularity: coefficient of variation of inter-beat intervals
     let beat_reg = if beats.len() >= 3 {
-        let intervals: Vec<Float> = beats.windows(2)
-            .map(|w| (w[1] - w[0]) as Float)
-            .collect();
+        let intervals: Vec<Float> = beats.windows(2).map(|w| (w[1] - w[0]) as Float).collect();
         let mean_interval = intervals.iter().sum::<Float>() / intervals.len() as Float;
         if mean_interval > 0.0 {
-            let std_interval = (intervals.iter()
+            let std_interval = (intervals
+                .iter()
                 .map(|&i| (i - mean_interval).powi(2))
-                .sum::<Float>() / intervals.len() as Float)
+                .sum::<Float>()
+                / intervals.len() as Float)
                 .sqrt();
             let cv = std_interval / mean_interval;
             1.0 - cv.clamp(0.0, 1.0) // low CV = regular beats = danceable
@@ -292,7 +298,11 @@ pub fn danceability_dfa(y: ArrayView1<Float>, sr: u32) -> Float {
         let end = ((i + 1) * frame_size).min(n_samples);
         let n = (end - start) as Float;
         let mean: Float = raw[start..end].iter().sum::<Float>() / n;
-        let var: Float = raw[start..end].iter().map(|&x| (x - mean).powi(2)).sum::<Float>() / (n - 1.0).max(1.0);
+        let var: Float = raw[start..end]
+            .iter()
+            .map(|&x| (x - mean).powi(2))
+            .sum::<Float>()
+            / (n - 1.0).max(1.0);
         s[i] = var.sqrt();
     }
 
@@ -368,7 +378,11 @@ pub fn danceability_dfa(y: ArrayView1<Float>, sr: u32) -> Float {
     }
 
     let dfa_exponent = dfa_sum / n_valid as Float;
-    let raw_danceability = if dfa_exponent > 0.0 { 1.0 / dfa_exponent } else { 0.0 };
+    let raw_danceability = if dfa_exponent > 0.0 {
+        1.0 / dfa_exponent
+    } else {
+        0.0
+    };
 
     // Normalize to 0-1 (typical range is 0 to ~3)
     (raw_danceability / 3.0).clamp(0.0, 1.0)
@@ -410,7 +424,11 @@ fn residual_error(array: &[Float], start: usize, end: usize) -> Float {
 /// Returns the best-matching key, mode (major/minor), and correlation confidence.
 pub fn detect_key(chroma: &[Float]) -> KeyResult {
     if chroma.len() != 12 {
-        return KeyResult { key: "C", mode: "major", confidence: 0.0 };
+        return KeyResult {
+            key: "C",
+            mode: "major",
+            confidence: 0.0,
+        };
     }
 
     let mut best_key = 0usize;
@@ -466,10 +484,12 @@ pub fn format_key(result: &KeyResult) -> String {
 // Camelot codes indexed by pitch class (C, C#, D, D#, E, F, F#, G, G#, A, A#, B).
 // Minor keys form the "A" ring, major keys the "B" ring. Used by DJs
 // (Mixed In Key / Rekordbox) for harmonic mixing.
-const CAMELOT_MINOR: [&str; 12] =
-    ["5A", "12A", "7A", "2A", "9A", "4A", "11A", "6A", "1A", "8A", "3A", "10A"];
-const CAMELOT_MAJOR: [&str; 12] =
-    ["8B", "3B", "10B", "5B", "12B", "7B", "2B", "9B", "4B", "11B", "6B", "1B"];
+const CAMELOT_MINOR: [&str; 12] = [
+    "5A", "12A", "7A", "2A", "9A", "4A", "11A", "6A", "1A", "8A", "3A", "10A",
+];
+const CAMELOT_MAJOR: [&str; 12] = [
+    "8B", "3B", "10B", "5B", "12B", "7B", "2B", "9B", "4B", "11B", "6B", "1B",
+];
 
 /// Map a note name to its pitch class (0-11), accepting sharp or flat spellings.
 fn pitch_class(tonic: &str) -> Option<usize> {
@@ -550,18 +570,30 @@ pub fn detect_key_candidates(chroma: &[Float]) -> Vec<KeyCandidate> {
     // does (first-encountered maximum wins) — guaranteeing candidate[0] == key.
     let mut scored: Vec<(usize, &'static str, Float)> = Vec::with_capacity(24);
     for shift in 0..12 {
-        scored.push((shift, "major", pearson_correlation(chroma, &KEY_PROFILE_MAJOR, shift)));
-        scored.push((shift, "minor", pearson_correlation(chroma, &KEY_PROFILE_MINOR, shift)));
+        scored.push((
+            shift,
+            "major",
+            pearson_correlation(chroma, &KEY_PROFILE_MAJOR, shift),
+        ));
+        scored.push((
+            shift,
+            "minor",
+            pearson_correlation(chroma, &KEY_PROFILE_MINOR, shift),
+        ));
     }
     scored.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap());
-    scored.into_iter().take(3).map(|(shift, mode, corr)| {
-        let key = NOTE_NAMES[shift];
-        KeyCandidate {
-            key: format!("{} {}", key, mode),
-            camelot: key_camelot(key, mode),
-            score: corr.clamp(0.0, 1.0),
-        }
-    }).collect()
+    scored
+        .into_iter()
+        .take(3)
+        .map(|(shift, mode, corr)| {
+            let key = NOTE_NAMES[shift];
+            KeyCandidate {
+                key: format!("{} {}", key, mode),
+                camelot: key_camelot(key, mode),
+                score: corr.clamp(0.0, 1.0),
+            }
+        })
+        .collect()
 }
 // --- end key candidates ---
 
@@ -591,7 +623,11 @@ fn pearson_correlation(chroma: &[Float], profile: &[Float; 12], shift: usize) ->
     }
 
     let denom = (var_x * var_y).sqrt();
-    if denom > 0.0 { cov / denom } else { 0.0 }
+    if denom > 0.0 {
+        cov / denom
+    } else {
+        0.0
+    }
 }
 
 // ============================================================
@@ -642,10 +678,11 @@ pub fn acousticness(
     spectral_centroid_mean: Float,
     onset_density: Float,
 ) -> Float {
-    let tonal  = (1.0 - (spectral_flatness_mean * 16.0).clamp(0.0, 1.0)).clamp(0.0, 1.0);
-    let hf     = (1.0 - ((spectral_rolloff_mean - 1800.0) / 4000.0).clamp(0.0, 1.0)).clamp(0.0, 1.0);
-    let bright = (1.0 - ((spectral_centroid_mean - 1050.0) / 2300.0).clamp(0.0, 1.0)).clamp(0.0, 1.0);
-    let calm   = (1.0 - (onset_density / 5.2).clamp(0.0, 1.0)).clamp(0.0, 1.0);
+    let tonal = (1.0 - (spectral_flatness_mean * 16.0).clamp(0.0, 1.0)).clamp(0.0, 1.0);
+    let hf = (1.0 - ((spectral_rolloff_mean - 1800.0) / 4000.0).clamp(0.0, 1.0)).clamp(0.0, 1.0);
+    let bright =
+        (1.0 - ((spectral_centroid_mean - 1050.0) / 2300.0).clamp(0.0, 1.0)).clamp(0.0, 1.0);
+    let calm = (1.0 - (onset_density / 5.2).clamp(0.0, 1.0)).clamp(0.0, 1.0);
     (0.30 * tonal + 0.30 * hf + 0.20 * bright + 0.20 * calm).clamp(0.0, 1.0)
 }
 
@@ -708,13 +745,22 @@ pub fn mood_scores(
     dynamic_range_db: Float,
 ) -> MoodScores {
     // Composite drivers, recomputed from raw scalars (cheap, self-contained).
-    let energy_val = energy(rms_mean, spectral_centroid_mean, onset_density, spectral_bandwidth_mean);
+    let energy_val = energy(
+        rms_mean,
+        spectral_centroid_mean,
+        onset_density,
+        spectral_bandwidth_mean,
+    );
     let dance_val = danceability_heuristic(bpm, beats, onset_density);
 
     // Mode term (neutral 0.5/0.5 at low confidence or missing key).
     let (mode_major, mode_minor) = match key_result {
         Some(kr) if kr.confidence >= 0.05 => {
-            if kr.mode == "major" { (1.0, 0.0) } else { (0.0, 1.0) }
+            if kr.mode == "major" {
+                (1.0, 0.0)
+            } else {
+                (0.0, 1.0)
+            }
         }
         _ => (0.5, 0.5),
     };
@@ -728,12 +774,21 @@ pub fn mood_scores(
     let diss = dissonance.map(|d| d.clamp(0.0, 1.0)).unwrap_or(0.0);
     let narrow_dyn = (1.0 - (dynamic_range_db / 20.0)).clamp(0.0, 1.0);
 
-    let happy = (0.35 * mode_major + 0.25 * tempo + 0.20 * brightness + 0.20 * dance_val).clamp(0.0, 1.0);
-    let aggressive = (0.35 * energy_val + 0.30 * onset + 0.20 * diss + 0.15 * mode_minor).clamp(0.0, 1.0);
-    let relaxed = (0.30 * (1.0 - energy_val) + 0.25 * slow + 0.25 * low_onset + 0.20 * narrow_dyn).clamp(0.0, 1.0);
-    let sad = (0.35 * mode_minor + 0.25 * slow + 0.20 * darkness + 0.20 * (1.0 - energy_val)).clamp(0.0, 1.0);
+    let happy =
+        (0.35 * mode_major + 0.25 * tempo + 0.20 * brightness + 0.20 * dance_val).clamp(0.0, 1.0);
+    let aggressive =
+        (0.35 * energy_val + 0.30 * onset + 0.20 * diss + 0.15 * mode_minor).clamp(0.0, 1.0);
+    let relaxed = (0.30 * (1.0 - energy_val) + 0.25 * slow + 0.25 * low_onset + 0.20 * narrow_dyn)
+        .clamp(0.0, 1.0);
+    let sad = (0.35 * mode_minor + 0.25 * slow + 0.20 * darkness + 0.20 * (1.0 - energy_val))
+        .clamp(0.0, 1.0);
 
-    MoodScores { happy, aggressive, relaxed, sad }
+    MoodScores {
+        happy,
+        aggressive,
+        relaxed,
+        sad,
+    }
 }
 
 // ============================================================
@@ -749,9 +804,22 @@ mod tests {
     fn test_energy_loud_vs_quiet() {
         let loud = energy(0.35, 3000.0, 5.0, 2500.0);
         let quiet = energy(0.05, 800.0, 1.0, 600.0);
-        assert!(loud > quiet, "loud energy {} should be > quiet energy {}", loud, quiet);
-        assert!(loud > 0.5, "loud signal energy should be > 0.5, got {}", loud);
-        assert!(quiet < 0.5, "quiet signal energy should be < 0.5, got {}", quiet);
+        assert!(
+            loud > quiet,
+            "loud energy {} should be > quiet energy {}",
+            loud,
+            quiet
+        );
+        assert!(
+            loud > 0.5,
+            "loud signal energy should be > 0.5, got {}",
+            loud
+        );
+        assert!(
+            quiet < 0.5,
+            "quiet signal energy should be < 0.5, got {}",
+            quiet
+        );
     }
 
     #[test]
@@ -777,7 +845,11 @@ mod tests {
         // Irregular beats, weird tempo
         let beats = vec![0, 10, 50, 52, 100, 200];
         let d = danceability_heuristic(45.0, &beats, 1.0);
-        assert!(d < 0.4, "Irregular slow music should not be very danceable, got {}", d);
+        assert!(
+            d < 0.4,
+            "Irregular slow music should not be very danceable, got {}",
+            d
+        );
     }
 
     #[test]
@@ -789,9 +861,19 @@ mod tests {
         let a = logistic(0.70);
         let b = logistic(0.85);
         let c = logistic(0.95);
-        assert!(a < b && b < c, "logistic must be strictly increasing: {} {} {}", a, b, c);
+        assert!(
+            a < b && b < c,
+            "logistic must be strictly increasing: {} {} {}",
+            a,
+            b,
+            c
+        );
         for v in [a, b, c] {
-            assert!((0.0..=1.0).contains(&v), "logistic output {} out of [0,1]", v);
+            assert!(
+                (0.0..=1.0).contains(&v),
+                "logistic output {} out of [0,1]",
+                v
+            );
         }
     }
 
@@ -803,7 +885,11 @@ mod tests {
             (2.0 * std::f32::consts::PI * 440.0 * i as Float / 22050.0).sin()
         });
         let d = danceability_dfa(y.view(), 22050);
-        assert!(d >= 0.0 && d <= 1.0, "DFA danceability should be in [0,1], got {}", d);
+        assert!(
+            d >= 0.0 && d <= 1.0,
+            "DFA danceability should be in [0,1], got {}",
+            d
+        );
     }
 
     #[test]
@@ -814,7 +900,11 @@ mod tests {
         chroma[1] = 0.6; // C#
         chroma[4] = 0.5; // E
         let result = detect_key(&chroma);
-        assert_eq!(result.key, "A", "A major chroma should detect key A, got {}", result.key);
+        assert_eq!(
+            result.key, "A",
+            "A major chroma should detect key A, got {}",
+            result.key
+        );
     }
 
     #[test]
@@ -825,8 +915,16 @@ mod tests {
         chroma[4] = 0.7; // E
         chroma[7] = 0.5; // G
         let result = detect_key(&chroma);
-        assert_eq!(result.key, "C", "C major chroma should detect C, got {}", result.key);
-        assert_eq!(result.mode, "major", "C major chroma should detect major, got {}", result.mode);
+        assert_eq!(
+            result.key, "C",
+            "C major chroma should detect C, got {}",
+            result.key
+        );
+        assert_eq!(
+            result.mode, "major",
+            "C major chroma should detect major, got {}",
+            result.mode
+        );
     }
 
     #[test]
@@ -837,21 +935,41 @@ mod tests {
         chroma[0] = 0.7; // C
         chroma[4] = 0.5; // E
         let result = detect_key(&chroma);
-        assert_eq!(result.key, "A", "A minor chroma should detect A, got {}", result.key);
+        assert_eq!(
+            result.key, "A",
+            "A minor chroma should detect A, got {}",
+            result.key
+        );
     }
 
     #[test]
     fn test_valence_major_fast_bright() {
-        let major_key = KeyResult { key: "C", mode: "major", confidence: 0.5 };
+        let major_key = KeyResult {
+            key: "C",
+            mode: "major",
+            confidence: 0.5,
+        };
         let v = valence(&major_key, 140.0, 3500.0);
-        assert!(v > 0.5, "Major + fast + bright should have high valence, got {}", v);
+        assert!(
+            v > 0.5,
+            "Major + fast + bright should have high valence, got {}",
+            v
+        );
     }
 
     #[test]
     fn test_valence_minor_slow_dark() {
-        let minor_key = KeyResult { key: "A", mode: "minor", confidence: 0.5 };
+        let minor_key = KeyResult {
+            key: "A",
+            mode: "minor",
+            confidence: 0.5,
+        };
         let v = valence(&minor_key, 70.0, 800.0);
-        assert!(v < 0.5, "Minor + slow + dark should have low valence, got {}", v);
+        assert!(
+            v < 0.5,
+            "Minor + slow + dark should have low valence, got {}",
+            v
+        );
     }
 
     // ---- mood (heuristic v1) ----
@@ -863,48 +981,147 @@ mod tests {
 
     #[test]
     fn test_mood_happy_fast_bright_major() {
-        let major = KeyResult { key: "C", mode: "major", confidence: 0.5 };
+        let major = KeyResult {
+            key: "C",
+            mode: "major",
+            confidence: 0.5,
+        };
         let beats = regular_beats();
         // fast, bright, major, high-energy
-        let m = mood_scores(Some(&major), 140.0, 0.4, 3500.0, 4.0, 2500.0, &beats, None, 8.0);
+        let m = mood_scores(
+            Some(&major),
+            140.0,
+            0.4,
+            3500.0,
+            4.0,
+            2500.0,
+            &beats,
+            None,
+            8.0,
+        );
         assert!(m.happy > 0.6, "happy {} should be > 0.6", m.happy);
-        assert!(m.happy > m.sad, "happy {} should exceed sad {}", m.happy, m.sad);
+        assert!(
+            m.happy > m.sad,
+            "happy {} should exceed sad {}",
+            m.happy,
+            m.sad
+        );
         for v in [m.happy, m.aggressive, m.relaxed, m.sad] {
-            assert!((0.0..=1.0).contains(&v) && v.is_finite(), "out of range {}", v);
+            assert!(
+                (0.0..=1.0).contains(&v) && v.is_finite(),
+                "out of range {}",
+                v
+            );
         }
     }
 
     #[test]
     fn test_mood_sad_relaxed_slow_dark_minor() {
-        let minor = KeyResult { key: "A", mode: "minor", confidence: 0.5 };
+        let minor = KeyResult {
+            key: "A",
+            mode: "minor",
+            confidence: 0.5,
+        };
         let beats = regular_beats();
         // slow, dark, minor, low-energy, sparse onsets, narrow dynamics
-        let m = mood_scores(Some(&minor), 70.0, 0.05, 800.0, 1.0, 600.0, &beats, None, 5.0);
+        let m = mood_scores(
+            Some(&minor),
+            70.0,
+            0.05,
+            800.0,
+            1.0,
+            600.0,
+            &beats,
+            None,
+            5.0,
+        );
         assert!(m.sad > 0.6, "sad {} should be > 0.6", m.sad);
-        assert!(m.sad > m.happy, "sad {} should exceed happy {}", m.sad, m.happy);
-        assert!(m.relaxed > m.aggressive, "relaxed {} should exceed aggressive {}", m.relaxed, m.aggressive);
+        assert!(
+            m.sad > m.happy,
+            "sad {} should exceed happy {}",
+            m.sad,
+            m.happy
+        );
+        assert!(
+            m.relaxed > m.aggressive,
+            "relaxed {} should exceed aggressive {}",
+            m.relaxed,
+            m.aggressive
+        );
     }
 
     #[test]
     fn test_mood_aggressive_dense_dissonant() {
-        let minor = KeyResult { key: "E", mode: "minor", confidence: 0.5 };
+        let minor = KeyResult {
+            key: "E",
+            mode: "minor",
+            confidence: 0.5,
+        };
         let beats = regular_beats();
         // high onset density + dissonance + loud/bright → aggressive high
-        let m = mood_scores(Some(&minor), 150.0, 0.45, 4000.0, 9.0, 3000.0, &beats, Some(0.8), 12.0);
-        assert!(m.aggressive > 0.6, "aggressive {} should be > 0.6", m.aggressive);
-        assert!(m.aggressive > m.relaxed, "aggressive {} should exceed relaxed {}", m.aggressive, m.relaxed);
+        let m = mood_scores(
+            Some(&minor),
+            150.0,
+            0.45,
+            4000.0,
+            9.0,
+            3000.0,
+            &beats,
+            Some(0.8),
+            12.0,
+        );
+        assert!(
+            m.aggressive > 0.6,
+            "aggressive {} should be > 0.6",
+            m.aggressive
+        );
+        assert!(
+            m.aggressive > m.relaxed,
+            "aggressive {} should exceed relaxed {}",
+            m.aggressive,
+            m.relaxed
+        );
     }
 
     #[test]
     fn test_mood_range_on_boundaries() {
         let beats = regular_beats();
         // Extreme inputs and a None key must all stay within [0,1].
-        for kr in [None, Some(&KeyResult { key: "C", mode: "major", confidence: 0.0 })] {
+        for kr in [
+            None,
+            Some(&KeyResult {
+                key: "C",
+                mode: "major",
+                confidence: 0.0,
+            }),
+        ] {
             let lo = mood_scores(kr, 0.0, 0.0, 0.0, 0.0, 0.0, &beats, Some(0.0), 0.0);
-            let hi = mood_scores(kr, 400.0, 2.0, 12000.0, 40.0, 9000.0, &beats, Some(2.0), 60.0);
-            for v in [lo.happy, lo.aggressive, lo.relaxed, lo.sad,
-                      hi.happy, hi.aggressive, hi.relaxed, hi.sad] {
-                assert!((0.0..=1.0).contains(&v) && v.is_finite(), "out of range {}", v);
+            let hi = mood_scores(
+                kr,
+                400.0,
+                2.0,
+                12000.0,
+                40.0,
+                9000.0,
+                &beats,
+                Some(2.0),
+                60.0,
+            );
+            for v in [
+                lo.happy,
+                lo.aggressive,
+                lo.relaxed,
+                lo.sad,
+                hi.happy,
+                hi.aggressive,
+                hi.relaxed,
+                hi.sad,
+            ] {
+                assert!(
+                    (0.0..=1.0).contains(&v) && v.is_finite(),
+                    "out of range {}",
+                    v
+                );
             }
         }
     }
@@ -915,9 +1132,12 @@ mod tests {
         // signal a dark centroid and the noisy one a bright centroid.
         let acoustic = acousticness(0.01, 1500.0, 1400.0, 2.0); // tonal, low HF, dark, calm
         let electronic = acousticness(0.5, 7000.0, 3000.0, 6.0); // flat, high HF, bright, busy
-        assert!(acoustic > electronic,
+        assert!(
+            acoustic > electronic,
             "Tonal signal ({}) should be more acoustic than noisy signal ({})",
-            acoustic, electronic);
+            acoustic,
+            electronic
+        );
     }
 
     #[test]
@@ -946,7 +1166,11 @@ mod tests {
 
     #[test]
     fn test_format_key() {
-        let result = KeyResult { key: "F#", mode: "minor", confidence: 0.7 };
+        let result = KeyResult {
+            key: "F#",
+            mode: "minor",
+            confidence: 0.7,
+        };
         assert_eq!(format_key(&result), "F# minor");
     }
 
@@ -954,9 +1178,18 @@ mod tests {
     fn test_camelot_all_minor_keys() {
         // (tonic, expected Camelot code) for the full "A" ring.
         let cases = [
-            ("G#", "1A"), ("D#", "2A"), ("A#", "3A"), ("F", "4A"),
-            ("C", "5A"), ("G", "6A"), ("D", "7A"), ("A", "8A"),
-            ("E", "9A"), ("B", "10A"), ("F#", "11A"), ("C#", "12A"),
+            ("G#", "1A"),
+            ("D#", "2A"),
+            ("A#", "3A"),
+            ("F", "4A"),
+            ("C", "5A"),
+            ("G", "6A"),
+            ("D", "7A"),
+            ("A", "8A"),
+            ("E", "9A"),
+            ("B", "10A"),
+            ("F#", "11A"),
+            ("C#", "12A"),
         ];
         for (tonic, code) in cases {
             assert_eq!(camelot(tonic, "minor"), Some(code), "{tonic} minor");
@@ -977,8 +1210,13 @@ mod tests {
         assert_eq!(cands.len(), 3);
         // First candidate matches detect_key exactly
         let dk = detect_key(&chroma);
-        assert_eq!(cands[0].key, format_key(&dk),
-            "first candidate {} should equal detect_key {}", cands[0].key, format_key(&dk));
+        assert_eq!(
+            cands[0].key,
+            format_key(&dk),
+            "first candidate {} should equal detect_key {}",
+            cands[0].key,
+            format_key(&dk)
+        );
         assert_eq!(cands[0].key, "A minor");
         // Scores strictly descending (non-increasing) and in [0,1]
         for c in &cands {
@@ -988,9 +1226,11 @@ mod tests {
         assert!(cands[1].score >= cands[2].score);
         // Camelot codes valid (match a known code table)
         let valid: std::collections::HashSet<&str> = [
-            "1A","2A","3A","4A","5A","6A","7A","8A","9A","10A","11A","12A",
-            "1B","2B","3B","4B","5B","6B","7B","8B","9B","10B","11B","12B",
-        ].into_iter().collect();
+            "1A", "2A", "3A", "4A", "5A", "6A", "7A", "8A", "9A", "10A", "11A", "12A", "1B", "2B",
+            "3B", "4B", "5B", "6B", "7B", "8B", "9B", "10B", "11B", "12B",
+        ]
+        .into_iter()
+        .collect();
         for c in &cands {
             assert!(valid.contains(c.camelot), "invalid camelot {}", c.camelot);
         }
@@ -1000,9 +1240,18 @@ mod tests {
     fn test_camelot_all_major_keys() {
         // (tonic, expected Camelot code) for the full "B" ring.
         let cases = [
-            ("B", "1B"), ("F#", "2B"), ("C#", "3B"), ("G#", "4B"),
-            ("D#", "5B"), ("A#", "6B"), ("F", "7B"), ("C", "8B"),
-            ("G", "9B"), ("D", "10B"), ("A", "11B"), ("E", "12B"),
+            ("B", "1B"),
+            ("F#", "2B"),
+            ("C#", "3B"),
+            ("G#", "4B"),
+            ("D#", "5B"),
+            ("A#", "6B"),
+            ("F", "7B"),
+            ("C", "8B"),
+            ("G", "9B"),
+            ("D", "10B"),
+            ("A", "11B"),
+            ("E", "12B"),
         ];
         for (tonic, code) in cases {
             assert_eq!(camelot(tonic, "major"), Some(code), "{tonic} major");
@@ -1078,12 +1327,19 @@ mod tests {
         let lufs_loud = loudness_lufs(loud.view(), 22050);
         let lufs_quiet = loudness_lufs(quiet.view(), 22050);
 
-        assert!(lufs_loud > lufs_quiet,
-            "Loud LUFS ({}) should be > quiet LUFS ({})", lufs_loud, lufs_quiet);
+        assert!(
+            lufs_loud > lufs_quiet,
+            "Loud LUFS ({}) should be > quiet LUFS ({})",
+            lufs_loud,
+            lufs_quiet
+        );
         // 10x amplitude = 20 dB difference
         let diff = lufs_loud - lufs_quiet;
-        assert!((diff - 20.0).abs() < 2.0,
-            "LUFS difference {} should be ~20 dB for 10x amplitude ratio", diff);
+        assert!(
+            (diff - 20.0).abs() < 2.0,
+            "LUFS difference {} should be ~20 dB for 10x amplitude ratio",
+            diff
+        );
     }
 
     #[test]
@@ -1094,7 +1350,10 @@ mod tests {
             (2.0 * std::f32::consts::PI * 1000.0 * i as Float / 22050.0).sin()
         });
         let lufs = loudness_lufs(y.view(), 22050);
-        assert!(lufs > -10.0 && lufs < 5.0,
-            "Unit sine LUFS {} should be in reasonable range", lufs);
+        assert!(
+            lufs > -10.0 && lufs < 5.0,
+            "Unit sine LUFS {} should be in reasonable range",
+            lufs
+        );
     }
 }

@@ -15,10 +15,7 @@ pub enum SonaraError {
 
     // ---- Parameter validation ----
     #[error("Invalid parameter `{param}`: {reason}")]
-    InvalidParameter {
-        param: &'static str,
-        reason: String,
-    },
+    InvalidParameter { param: &'static str, reason: String },
 
     #[error("Shape mismatch: expected {expected}, got {got}")]
     ShapeMismatch { expected: String, got: String },

@@ -74,10 +74,7 @@ pub fn mel_to_audio(
 }
 
 /// Convert MFCC back to approximate mel spectrogram via inverse DCT.
-pub fn mfcc_to_mel(
-    mfcc: ArrayView2<Float>,
-    n_mels: usize,
-) -> Result<Array2<Float>> {
+pub fn mfcc_to_mel(mfcc: ArrayView2<Float>, n_mels: usize) -> Result<Array2<Float>> {
     let n_mfcc = mfcc.nrows();
     let n_frames = mfcc.ncols();
 
@@ -94,7 +91,8 @@ pub fn mfcc_to_mel(
                 } else {
                     (2.0 / n_mels as Float).sqrt()
                 };
-                sum += mfcc[(k, t)] * norm
+                sum += mfcc[(k, t)]
+                    * norm
                     * (PI * k as Float * (2.0 * n as Float + 1.0) / (2.0 * n_mels as Float)).cos();
             }
             mel[(n, t)] = sum;

@@ -161,9 +161,11 @@ pub fn vocalness(mel_spec: ArrayView2<Float>, sr: u32, hop_length: usize) -> Flo
     let tonal = (1.0 - fl / FLATNESS_REF).clamp(0.0, 1.0);
 
     // Temporal variance (coefficient of variation) of the vocal-band envelope.
-    let var = vocal_env.iter()
+    let var = vocal_env
+        .iter()
         .map(|&v| (v - mean_vocal) * (v - mean_vocal))
-        .sum::<Float>() / n_frames as Float;
+        .sum::<Float>()
+        / n_frames as Float;
     let cv = var.sqrt() / mean_vocal;
 
     // 4–8 Hz modulation fraction of the envelope's AC power.
@@ -200,7 +202,7 @@ fn modulation_fraction(env: &[Float], mean: Float, sr: u32, hop_length: usize) -
         return 0.0;
     }
     let fs = sr as Float / hop_length as Float; // envelope frame rate (Hz)
-    // Need the band below Nyquist of the envelope signal.
+                                                // Need the band below Nyquist of the envelope signal.
     if fs <= 16.0 {
         return 0.0;
     }
@@ -227,7 +229,7 @@ fn modulation_fraction(env: &[Float], mean: Float, sr: u32, hop_length: usize) -
         let x = v - mean;
         total_ac += x * x;
         let y = b0 * x + z1;
-        z1 = z2 - a1 * y;      // b1 == 0
+        z1 = z2 - a1 * y; // b1 == 0
         z2 = b2 * x - a2 * y;
         band_energy += y * y;
     }
@@ -324,7 +326,9 @@ mod tests {
             if t % hat_period.max(1) < 2 {
                 for m in 0..n_mels {
                     let fc = mel_center(m, n_mels, sr);
-                    if fc > 5000.0 { mel[(m, t)] += 3.0; }
+                    if fc > 5000.0 {
+                        mel[(m, t)] += 3.0;
+                    }
                 }
             }
         }
@@ -340,7 +344,7 @@ mod tests {
         let n_frames = 430;
         let sr = 22050;
         let fr = sr as Float / 512.0; // frame rate ~43 Hz
-        // Formant-ish harmonic peaks in the vocal band.
+                                      // Formant-ish harmonic peaks in the vocal band.
         let freqs = [250.0_f32, 500.0, 1000.0, 2000.0, 3000.0];
         // 5 Hz amplitude modulation (syllabic), never fully zero.
         let amp = |t: usize| {
@@ -359,7 +363,13 @@ mod tests {
         for (nm, nf) in [(1, 1), (4, 4), (128, 2), (64, 500)] {
             let mel = Array2::<Float>::from_elem((nm, nf), 1.0);
             let v = vocalness(mel.view(), 22050, 512);
-            assert!(v >= 0.0 && v <= 1.0 && v.is_finite(), "v={} for {}x{}", v, nm, nf);
+            assert!(
+                v >= 0.0 && v <= 1.0 && v.is_finite(),
+                "v={} for {}x{}",
+                v,
+                nm,
+                nf
+            );
         }
     }
 
@@ -388,7 +398,7 @@ mod tests {
         let sr = 22050;
         let fr = sr as Float / 512.0;
         let period = (fr / 2.0) as usize; // 2 Hz
-        // Broadband bursts across the whole spectrum incl. vocal band.
+                                          // Broadband bursts across the whole spectrum incl. vocal band.
         let mut mel = ndarray::Array2::<Float>::from_elem((n_mels, n_frames), 0.02);
         for t in 0..n_frames {
             if t % period.max(1) < 3 {
@@ -399,7 +409,11 @@ mod tests {
         }
         let v = vocalness(mel.view(), sr, 512);
         assert!(v >= 0.0 && v <= 1.0 && v.is_finite());
-        assert!(v < 0.45, "broadband pulse-train vocalness {} should stay below vocal range", v);
+        assert!(
+            v < 0.45,
+            "broadband pulse-train vocalness {} should stay below vocal range",
+            v
+        );
     }
 
     #[test]
@@ -422,8 +436,17 @@ mod tests {
         let shallow = score(0.02);
         let mid = score(0.3);
         let deep = score(0.8);
-        assert!(shallow < 0.3, "2% depth should read as constant, got {shallow}");
-        assert!(mid <= deep + 1e-3, "depth response should be monotone: {mid} vs {deep}");
-        assert!(deep > 0.6, "80% depth harmonic modulation should be vocal-like, got {deep}");
+        assert!(
+            shallow < 0.3,
+            "2% depth should read as constant, got {shallow}"
+        );
+        assert!(
+            mid <= deep + 1e-3,
+            "depth response should be monotone: {mid} vs {deep}"
+        );
+        assert!(
+            deep > 0.6,
+            "80% depth harmonic modulation should be vocal-like, got {deep}"
+        );
     }
 }

@@ -79,20 +79,24 @@ pub fn plimit_intervals(p: usize, bins_per_octave: usize) -> Array1<Float> {
 
     // For up to 3 primes, enumerate directly
     fn fold_octave(mut v: Float) -> Float {
-        while v >= 2.0 { v /= 2.0; }
-        while v < 1.0 { v *= 2.0; }
+        while v >= 2.0 {
+            v /= 2.0;
+        }
+        while v < 1.0 {
+            v *= 2.0;
+        }
         v
     }
 
     match n_primes {
-        0 => {},
+        0 => {}
         1 => {
             for &a in &powers_range {
                 let r = (primes[0] as Float).powi(a);
                 let f = fold_octave(r);
                 candidates.insert((f * 1e10).round() as i64);
             }
-        },
+        }
         2 => {
             for &a in &powers_range {
                 for &b in &powers_range {
@@ -103,13 +107,15 @@ pub fn plimit_intervals(p: usize, bins_per_octave: usize) -> Array1<Float> {
                     }
                 }
             }
-        },
+        }
         _ => {
             for &a in &powers_range {
                 for &b in &powers_range {
                     for &c in &powers_range {
                         let mut r = (primes[0] as Float).powi(a) * (primes[1] as Float).powi(b);
-                        if n_primes > 2 { r *= (primes[2] as Float).powi(c); }
+                        if n_primes > 2 {
+                            r *= (primes[2] as Float).powi(c);
+                        }
                         if r > 0.0 && r.is_finite() && r < 1e12 && r > 1e-12 {
                             let f = fold_octave(r);
                             candidates.insert((f * 1e10).round() as i64);
@@ -167,7 +173,10 @@ mod tests {
             assert!(v >= 0.99 && v < 2.01, "interval {v} out of [1, 2)");
         }
         // First should be 1.0 (unison)
-        assert!((intervals[0] - 1.0).abs() < 0.01, "first interval should be ~1.0");
+        assert!(
+            (intervals[0] - 1.0).abs() < 0.01,
+            "first interval should be ~1.0"
+        );
     }
 
     #[test]

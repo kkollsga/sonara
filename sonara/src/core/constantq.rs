@@ -19,7 +19,7 @@ use num_complex::Complex;
 
 use crate::core::{convert, fft, spectrum};
 use crate::dsp::windows;
-use crate::error::{SonaraError, Result};
+use crate::error::{Result, SonaraError};
 use crate::types::*;
 
 // ============================================================
@@ -41,7 +41,16 @@ pub fn cqt(
     bins_per_octave: usize,
     filter_scale: Float,
 ) -> Result<Array2<ComplexFloat>> {
-    vqt(y, sr, hop_length, fmin, n_bins, bins_per_octave, filter_scale, 0.0)
+    vqt(
+        y,
+        sr,
+        hop_length,
+        fmin,
+        n_bins,
+        bins_per_octave,
+        filter_scale,
+        0.0,
+    )
 }
 
 /// Variable-Q Transform.
@@ -137,10 +146,7 @@ pub fn vqt(
     let min_frames = octave_results.iter().map(|(_, nf)| *nf).min().unwrap_or(0);
 
     if min_frames == 0 {
-        return Err(SonaraError::InsufficientData {
-            needed: 1,
-            got: 0,
-        });
+        return Err(SonaraError::InsufficientData { needed: 1, got: 0 });
     }
 
     // Stack octaves into output matrix
@@ -174,7 +180,15 @@ pub fn pseudo_cqt(
     bins_per_octave: usize,
     filter_scale: Float,
 ) -> Result<Spectrogram> {
-    let cq = cqt(y, sr, hop_length, fmin, n_bins, bins_per_octave, filter_scale)?;
+    let cq = cqt(
+        y,
+        sr,
+        hop_length,
+        fmin,
+        n_bins,
+        bins_per_octave,
+        filter_scale,
+    )?;
     Ok(cq.mapv(|c| c.norm()))
 }
 
@@ -193,7 +207,15 @@ pub fn hybrid_cqt(
 ) -> Result<Array2<ComplexFloat>> {
     // For simplicity, delegate to full CQT
     // (a further optimization would split at a filter-length threshold — implement if profiling shows need)
-    cqt(y, sr, hop_length, fmin, n_bins, bins_per_octave, filter_scale)
+    cqt(
+        y,
+        sr,
+        hop_length,
+        fmin,
+        n_bins,
+        bins_per_octave,
+        filter_scale,
+    )
 }
 
 /// Inverse Constant-Q Transform.
@@ -251,7 +273,14 @@ pub fn icqt(
 
     // ISTFT to get audio
     let window = WindowSpec::Named("hann".into());
-    spectrum::istft(stft_matrix.view(), Some(hop_length), None, &window, true, None)
+    spectrum::istft(
+        stft_matrix.view(),
+        Some(hop_length),
+        None,
+        &window,
+        true,
+        None,
+    )
 }
 
 /// Griffin-Lim for CQT magnitude reconstruction.
@@ -265,23 +294,29 @@ pub fn griffinlim_cqt(
 ) -> Result<AudioBuffer> {
     // Initialize with random phase
     let mut rng: u64 = 42;
-    let mut cq_est = Array2::<ComplexFloat>::from_shape_fn(
-        (cq_mag.nrows(), cq_mag.ncols()),
-        |(i, j)| {
+    let mut cq_est =
+        Array2::<ComplexFloat>::from_shape_fn((cq_mag.nrows(), cq_mag.ncols()), |(i, j)| {
             rng ^= rng << 13;
             rng ^= rng >> 7;
             rng ^= rng << 17;
             let angle = (rng as Float / u64::MAX as Float) * 2.0 * PI;
             Complex::new(cq_mag[(i, j)] * angle.cos(), cq_mag[(i, j)] * angle.sin())
-        },
-    );
+        });
 
     for _ in 0..n_iter {
         // ICQT → time domain
         let y = icqt(cq_est.view(), sr, hop_length, fmin, bins_per_octave, 1.0)?;
 
         // CQT → frequency domain
-        let rebuilt = cqt(y.view(), sr, hop_length, fmin, cq_mag.nrows(), bins_per_octave, 1.0)?;
+        let rebuilt = cqt(
+            y.view(),
+            sr,
+            hop_length,
+            fmin,
+            cq_mag.nrows(),
+            bins_per_octave,
+            1.0,
+        )?;
 
         // Replace magnitude, keep phase
         let cols = rebuilt.ncols().min(cq_mag.ncols());
@@ -322,13 +357,16 @@ fn cqt_response(
 
     // Compute filter lengths
     let q = filter_scale / alpha;
-    let lengths: Vec<Float> = freqs.iter().map(|&f| {
-        if gamma > 0.0 {
-            q * sr / (f + gamma / alpha)
-        } else {
-            q * sr / f
-        }
-    }).collect();
+    let lengths: Vec<Float> = freqs
+        .iter()
+        .map(|&f| {
+            if gamma > 0.0 {
+                q * sr / (f + gamma / alpha)
+            } else {
+                q * sr / f
+            }
+        })
+        .collect();
 
     // FFT size: power of 2, at least max(longest_filter, 2 * hop_length)
     let max_len = lengths.iter().copied().fold(0.0_f32, Float::max).ceil() as usize;
@@ -340,7 +378,13 @@ fn cqt_response(
     // Compute STFT of the signal
     let window = WindowSpec::Named("ones".into()); // rectangular — CQ filters handle windowing
     let stft_matrix = spectrum::stft(
-        y, n_fft, Some(hop_length), Some(n_fft), &window, true, PadMode::Constant,
+        y,
+        n_fft,
+        Some(hop_length),
+        Some(n_fft),
+        &window,
+        true,
+        PadMode::Constant,
     )?;
 
     let n_frames = stft_matrix.ncols();
@@ -402,10 +446,8 @@ fn build_cq_filterbank(
         for j in 0..length_int {
             let t = j as Float / sr;
             let phase = 2.0 * PI * freq * t;
-            filter_td[start + j] = Complex::new(
-                win[j] * phase.cos() / length,
-                win[j] * phase.sin() / length,
-            );
+            filter_td[start + j] =
+                Complex::new(win[j] * phase.cos() / length, win[j] * phase.sin() / length);
         }
 
         // FFT of the filter using rfft (fast) on the real and imaginary parts separately
@@ -413,15 +455,14 @@ fn build_cq_filterbank(
         let mut re_part: Vec<Float> = filter_td.iter().map(|c| c.re).collect();
         let mut im_part: Vec<Float> = filter_td.iter().map(|c| c.im).collect();
 
-        let re_fft = fft::rfft_alloc(&mut re_part).map_err(|_| SonaraError::Fft("filter rfft re".into()))?;
-        let im_fft = fft::rfft_alloc(&mut im_part).map_err(|_| SonaraError::Fft("filter rfft im".into()))?;
+        let re_fft =
+            fft::rfft_alloc(&mut re_part).map_err(|_| SonaraError::Fft("filter rfft re".into()))?;
+        let im_fft =
+            fft::rfft_alloc(&mut im_part).map_err(|_| SonaraError::Fft("filter rfft im".into()))?;
 
         for k in 0..n_fft_bins {
             // F(complex_filter) = F(re) + j * F(im)
-            basis[(i, k)] = Complex::new(
-                re_fft[k].re - im_fft[k].im,
-                re_fft[k].im + im_fft[k].re,
-            );
+            basis[(i, k)] = Complex::new(re_fft[k].re - im_fft[k].im, re_fft[k].im + im_fft[k].re);
         }
     }
 
@@ -438,9 +479,7 @@ mod tests {
 
     fn sine_signal(freq: Float, sr: u32, duration: Float) -> Array1<Float> {
         let n = (sr as Float * duration) as usize;
-        Array1::from_shape_fn(n, |i| {
-            (2.0 * PI * freq * i as Float / sr as Float).sin()
-        })
+        Array1::from_shape_fn(n, |i| (2.0 * PI * freq * i as Float / sr as Float).sin())
     }
 
     #[test]
@@ -459,9 +498,12 @@ mod tests {
         // Find the bin with maximum energy
         let mag = c.mapv(|v| v.norm());
         let avg_mag: Array1<Float> = mag.mean_axis(Axis(1)).unwrap();
-        let max_bin = avg_mag.iter().enumerate()
+        let max_bin = avg_mag
+            .iter()
+            .enumerate()
             .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
-            .unwrap().0;
+            .unwrap()
+            .0;
 
         // A4 = 440 Hz, with fmin=32.7 (C1) and 12 bins/octave,
         // bin for 440 Hz ≈ 12 * log2(440/32.7) ≈ 44.8
@@ -506,7 +548,10 @@ mod tests {
         let c1 = vqt(y.view(), 22050, 512, None, 36, 12, 1.0, 5.0).unwrap();
         // Different gamma should produce different results
         let diff: Float = (&c0 - &c1).mapv(|c| c.norm()).sum();
-        assert!(diff > 0.0, "different gamma should produce different output");
+        assert!(
+            diff > 0.0,
+            "different gamma should produce different output"
+        );
     }
 
     #[test]
