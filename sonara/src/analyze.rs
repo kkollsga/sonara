@@ -40,6 +40,40 @@ use crate::util::utils;
 /// Minimum number of frames to justify rayon thread overhead.
 const PARALLEL_THRESHOLD: usize = 32;
 
+#[inline]
+fn validated_zero_crossing_rate(y: ndarray::ArrayView1<Float>) -> Result<Float> {
+    let mut non_finite = false;
+    let mut crossings = 0_usize;
+    if let Some(samples) = y.as_slice() {
+        for pair in samples.windows(2) {
+            non_finite |= !pair[0].is_finite();
+            crossings += usize::from((pair[0] > 0.0) != (pair[1] > 0.0));
+        }
+        non_finite |= !samples[samples.len() - 1].is_finite();
+    } else {
+        let mut samples = y.iter().copied();
+        let mut previous = samples
+            .next()
+            .expect("public signal validation rejects empty input");
+        non_finite |= !previous.is_finite();
+        for sample in samples {
+            non_finite |= !sample.is_finite();
+            crossings += usize::from((previous > 0.0) != (sample > 0.0));
+            previous = sample;
+        }
+    }
+    if non_finite {
+        let index = y
+            .iter()
+            .position(|sample| !sample.is_finite())
+            .expect("non-finite reduction must identify a sample");
+        return Err(SonaraError::InvalidAudio(format!(
+            "signal sample at index {index} is not finite"
+        )));
+    }
+    Ok(crossings as Float / y.len() as Float)
+}
+
 // ============================================================
 // Analysis mode & feature selection
 // ============================================================
@@ -89,6 +123,83 @@ impl Default for AnalysisMode {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct FeatureSpec {
+    name: &'static str,
+    needs_extended: bool,
+    opt_in_only: bool,
+    full_only: bool,
+}
+
+const fn feature(
+    name: &'static str,
+    needs_extended: bool,
+    opt_in_only: bool,
+    full_only: bool,
+) -> FeatureSpec {
+    FeatureSpec {
+        name,
+        needs_extended,
+        opt_in_only,
+        full_only,
+    }
+}
+
+/// Canonical public feature registry. Validation, mode routing, provenance,
+/// and Python configuration all resolve names through this table.
+const FEATURE_REGISTRY: &[FeatureSpec] = &[
+    feature("bpm", false, false, false),
+    feature("beats", false, false, false),
+    feature("onsets", false, false, false),
+    feature("rms", false, false, false),
+    feature("dynamic_range", false, false, false),
+    feature("centroid", false, false, false),
+    feature("zcr", false, false, false),
+    feature("onset_density", false, false, false),
+    feature("bandwidth", true, false, false),
+    feature("rolloff", true, false, false),
+    feature("flatness", true, false, false),
+    feature("contrast", true, false, false),
+    feature("mfcc", true, false, false),
+    feature("chroma", true, false, false),
+    feature("chords", true, false, false),
+    feature("dissonance", true, false, false),
+    feature("energy", true, false, false),
+    feature("danceability", true, false, false),
+    feature("key", true, false, false),
+    feature("valence", true, false, false),
+    feature("acousticness", true, false, false),
+    feature("tempo_curve", true, false, true),
+    feature("time_signature", true, false, true),
+    feature("beatgrid", false, true, false),
+    feature("structure", true, true, false),
+    feature("embedding", true, true, false),
+    feature("fingerprint", false, true, false),
+    feature("loudness", false, true, false),
+    feature("silence", false, true, false),
+    feature("key_candidates", true, true, false),
+    feature("vocalness", true, true, false),
+    feature("mood", true, true, false),
+    feature("instrumentalness", true, true, false),
+    feature("tags", false, true, false),
+];
+
+fn feature_spec(name: &str) -> Option<&'static FeatureSpec> {
+    FEATURE_REGISTRY
+        .iter()
+        .find(|feature| feature.name.eq_ignore_ascii_case(name))
+}
+
+/// Resolve a public feature name to its canonical lowercase spelling.
+pub fn canonical_feature_name(name: &str) -> Option<&'static str> {
+    feature_spec(name).map(|feature| feature.name)
+}
+
+/// Iterate over every supported public feature name in canonical order.
+pub fn analysis_feature_names() -> impl Iterator<Item = &'static str> {
+    FEATURE_REGISTRY.iter().map(|feature| feature.name)
+}
+
 /// Configuration for a single analysis run.
 #[derive(Debug, Clone)]
 pub struct AnalysisConfig {
@@ -113,7 +224,7 @@ pub struct AnalysisConfig {
     /// **Rhythm analysis (Full mode or explicit request):**
     /// `tempo_curve`, `time_signature`
     ///
-    /// **Opt-in only (never enabled by any mode — see `OPT_IN_ONLY_FEATURES`):**
+    /// **Opt-in only (never enabled by any mode — see `FEATURE_REGISTRY`):**
     /// `beatgrid` (grid offset, downbeats, grid stability),
     /// `structure` (energy curve, segments, intro/outro, energy level),
     /// `embedding` (similarity vector; auto-pulls the features it is built from),
@@ -166,8 +277,53 @@ impl Default for AnalysisConfig {
 }
 
 impl AnalysisConfig {
+    fn validate_features(&self) -> Result<()> {
+        let Some(features) = self.features.as_ref() else {
+            return Ok(());
+        };
+        let mut invalid: Vec<&str> = features
+            .iter()
+            .map(String::as_str)
+            .filter(|name| canonical_feature_name(name).is_none())
+            .collect();
+        if invalid.is_empty() {
+            return Ok(());
+        }
+        invalid.sort_unstable();
+        Err(SonaraError::InvalidParameter {
+            param: "features",
+            reason: format!(
+                "unknown feature(s): {}; valid features: {}",
+                invalid.join(", "),
+                analysis_feature_names().collect::<Vec<_>>().join(", ")
+            ),
+        })
+    }
+
+    fn feature_requested(&self, name: &str) -> bool {
+        self.features.as_ref().is_some_and(|features| {
+            features
+                .iter()
+                .any(|feature| feature.eq_ignore_ascii_case(name))
+        })
+    }
+
+    fn requested_feature_names(&self) -> Option<Vec<String>> {
+        self.features.as_ref().map(|features| {
+            let mut names: Vec<String> = features
+                .iter()
+                .filter_map(|name| canonical_feature_name(name))
+                .map(str::to_owned)
+                .collect();
+            names.sort_unstable();
+            names.dedup();
+            names
+        })
+    }
+
     /// Check if a feature should be computed.
     fn wants(&self, name: &str) -> bool {
+        let spec = feature_spec(name).expect("internal feature name must be registered");
         // A genre or vocalness model needs the full similarity embedding, which
         // is assembled from the tonal/perceptual features listed in
         // EMBEDDING_DEPS — so a set model implies each of them regardless of
@@ -175,18 +331,18 @@ impl AnalysisConfig {
         if self.has_embedding_model() && EMBEDDING_DEPS.contains(&name) {
             return true;
         }
-        if let Some(ref features) = self.features {
+        if self.features.is_some() {
             // Explicit feature list — check if requested
-            if features.contains(name) {
+            if self.feature_requested(name) {
                 return true;
             }
             // Requesting "embedding" implies the features it is assembled from.
-            features.contains("embedding") && EMBEDDING_DEPS.contains(&name)
+            self.feature_requested("embedding") && EMBEDDING_DEPS.contains(&name)
         } else {
             // Opt-in-only features are never enabled by a mode's defaults —
             // not even Full — only by an explicit `features=[...]` request
             // (performance-first policy).
-            if OPT_IN_ONLY_FEATURES.contains(&name) {
+            if spec.opt_in_only {
                 return false;
             }
             // Mode-based defaults
@@ -194,7 +350,7 @@ impl AnalysisConfig {
                 AnalysisMode::Compact => false,
                 // Expensive rhythm analysis features are Full-only
                 // (metrogram is O(n³) and costs ~445ms for a 3-min track).
-                AnalysisMode::Playlist => !matches!(name, "tempo_curve" | "time_signature"),
+                AnalysisMode::Playlist => !spec.full_only,
                 AnalysisMode::Full => true,
             }
         }
@@ -223,67 +379,17 @@ impl AnalysisConfig {
             return true;
         }
         if let Some(ref features) = self.features {
-            // If any non-core feature is requested
-            const EXTENDED_FEATURES: &[&str] = &[
-                "bandwidth",
-                "rolloff",
-                "flatness",
-                "contrast",
-                "mfcc",
-                "chroma",
-                "chords",
-                "dissonance",
-                "energy",
-                "danceability",
-                "key",
-                "valence",
-                "acousticness",
-                // mood needs chroma/key (extended pass).
-                "mood",
-                // --- structure ---
-                "structure",
-                // key_candidates needs the chroma filterbank (extended pass).
-                // silence derives from the always-computed RMS frames and does
-                // NOT require the extended pass.
-                "key_candidates",
-                // vocalness/instrumentalness (heuristic v2, 0.2.4) derive from
-                // the mid-band spectral-contrast + flatness means, both computed
-                // only in the extended pass — so they now require it (silence,
-                // by contrast, still does not).
-                "vocalness",
-                "instrumentalness",
-                // --- similarity ---: embedding needs the playlist-level features
-                "embedding",
-            ];
-            EXTENDED_FEATURES.iter().any(|&f| features.contains(f))
+            features.iter().any(|name| {
+                feature_spec(name)
+                    .map(|feature| feature.needs_extended)
+                    .unwrap_or(false)
+            })
         } else {
             self.mode != AnalysisMode::Compact
         }
     }
 }
 
-/// Feature names that are only ever computed when explicitly requested via
-/// `features=[...]`, never enabled by an analysis mode's defaults — not even
-/// Full. Every new analysis feature belongs here unless it is provably free
-/// (performance-first policy).
-const OPT_IN_ONLY_FEATURES: &[&str] = &[
-    "loudness",
-    "beatgrid",
-    "structure",
-    "embedding",
-    "fingerprint",
-    "silence",
-    "key_candidates",
-    // vocalness/instrumentalness: heuristic v2 (not ML), contrast-based.
-    "vocalness",
-    // Heuristic v1 (not ML): mood_* affinities.
-    "mood",
-    "instrumentalness",
-    // File metadata passthrough — read by analyze_file/analyze_batch only, never
-    // by analyze_signal. NOT in EXTENDED_FEATURES: tags must not trigger the
-    // extended DSP pass.
-    "tags",
-];
 // --- similarity ---
 /// Feature names the similarity embedding is assembled from. Requesting
 /// "embedding" implies each of these (see `AnalysisConfig::wants`). The spectral
@@ -652,6 +758,7 @@ struct FrameResult {
 
 /// Analyze a track from a file path with the given configuration.
 pub fn analyze_file(path: &Path, sr: u32, config: &AnalysisConfig) -> Result<TrackAnalysis> {
+    config.validate_features()?;
     // Tags are file-only metadata (see `TrackTags`): read them during load when
     // requested, then post-fill the result. When not requested, `load_with_tags`
     // does zero extra work — identical to the plain `load` fast path.
@@ -668,8 +775,21 @@ pub fn analyze_signal(
     sr: u32,
     config: &AnalysisConfig,
 ) -> Result<TrackAnalysis> {
+    config.validate_features()?;
+    if sr == 0 {
+        return Err(SonaraError::InvalidParameter {
+            param: "sr",
+            reason: "sample rate must be greater than zero".into(),
+        });
+    }
+    if y.is_empty() {
+        return Err(SonaraError::InvalidAudio(
+            "signal must contain at least one sample".into(),
+        ));
+    }
+    let zero_crossing_rate = validated_zero_crossing_rate(y)?;
     let extended = config.needs_extended();
-    analyze_signal_inner(y, sr, extended, config)
+    analyze_signal_inner(y, sr, extended, zero_crossing_rate, config)
 }
 
 /// Analyze multiple files in parallel.
@@ -722,6 +842,7 @@ fn analyze_signal_inner(
     y: ndarray::ArrayView1<Float>,
     sr: u32,
     extended: bool,
+    zero_crossing_rate: Float,
     config: &AnalysisConfig,
 ) -> Result<TrackAnalysis> {
     // Fail fast (before any heavy DSP) if a supplied genre model was trained
@@ -1063,10 +1184,10 @@ fn analyze_signal_inner(
                 let mut band_vals: Vec<Float> = (sb..eb).map(|f| mag_col[f].max(1e-10)).collect();
                 // Partial sort: O(n) instead of O(n log n)
                 let q_idx = ((bn as Float * contrast_quantile) as usize).min(bn - 1);
-                band_vals.select_nth_unstable_by(q_idx, |a, b| a.partial_cmp(b).unwrap());
+                band_vals.select_nth_unstable_by(q_idx, Float::total_cmp);
                 let valley = band_vals[q_idx];
                 let peak_idx = (bn - 1).saturating_sub(q_idx);
-                band_vals.select_nth_unstable_by(peak_idx, |a, b| a.partial_cmp(b).unwrap());
+                band_vals.select_nth_unstable_by(peak_idx, Float::total_cmp);
                 let peak = band_vals[peak_idx];
                 contrast_bands_out[b] = peak.log10() - valley.log10();
             }
@@ -1118,9 +1239,7 @@ fn analyze_signal_inner(
 
             // Sort by magnitude descending, keep top MAX_PEAKS
             let mut indices: Vec<usize> = (0..all_peaks_freq.len()).collect();
-            indices.sort_unstable_by(|&a, &b| {
-                all_peaks_mag[b].partial_cmp(&all_peaks_mag[a]).unwrap()
-            });
+            indices.sort_unstable_by(|&a, &b| all_peaks_mag[b].total_cmp(&all_peaks_mag[a]));
             indices.truncate(MAX_PEAKS);
             let n_peaks = indices.len();
 
@@ -1285,8 +1404,7 @@ fn analyze_signal_inner(
     // Zero crossings (trivial, time-domain)
     // ================================================================
 
-    let zc = audio::zero_crossings(y, 0.0);
-    let zcr = zc.iter().filter(|&&v| v).count() as Float / y.len() as Float;
+    let zcr = zero_crossing_rate;
 
     // ================================================================
     // LUFS integrated loudness (ITU-R BS.1770-4, K-weighted)
@@ -1398,7 +1516,7 @@ fn analyze_signal_inner(
     let rms_nonzero: Vec<Float> = rms_frames.iter().copied().filter(|&v| v > 1e-10).collect();
     let dynamic_range_db = if rms_nonzero.len() > 10 {
         let mut sorted = rms_nonzero.clone();
-        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        sorted.sort_by(Float::total_cmp);
         let p5 = sorted[sorted.len() * 5 / 100];
         let p95 = sorted[sorted.len() * 95 / 100];
         if p5 > 0.0 {
@@ -1659,7 +1777,7 @@ fn analyze_signal_inner(
     };
 
     // --- fingerprint ---
-    // Strictly opt-in (see OPT_IN_ONLY_FEATURES): never runs unless
+    // Strictly opt-in (see FEATURE_REGISTRY): never runs unless
     // the caller explicitly requested the "fingerprint" feature, so default modes
     // pay exactly zero cost. Operates on its own downsampled mono copy of `y`.
     let fingerprint = if config.wants("fingerprint") {
@@ -1754,7 +1872,7 @@ fn analyze_signal_inner(
     // term nudges harsh/broadband material further up. instrumentalness (still
     // the inverse) shares the value; we compute it whenever either is wanted and
     // split the emission. Requires spectral_contrast_mean + spectral_flatness_mean
-    // (extended pass) — hence both are in EXTENDED_FEATURES. See `crate::vocal`
+    // (extended pass) — hence both are extended in FEATURE_REGISTRY. See `crate::vocal`
     // for the superseded v1 mel-based heuristic.
     let vocalness_val = if config.wants("vocalness") || config.wants("instrumentalness") {
         // Peak-to-valley contrast at C_HI reads as fully instrumental, at C_LO as
@@ -1803,11 +1921,7 @@ fn analyze_signal_inner(
             sample_rate: sr,
             hop_length,
             mode: config.mode,
-            requested_features: config.features.as_ref().map(|f| {
-                let mut v: Vec<String> = f.iter().cloned().collect();
-                v.sort();
-                v
-            }),
+            requested_features: config.requested_feature_names(),
             genre_model_id: config.genre_model.as_ref().and_then(|m| m.id.clone()),
             vocalness_model_id: config
                 .vocalness_model
@@ -2085,6 +2199,174 @@ mod tests {
         assert!(result.spectral_bandwidth_mean.is_none());
         assert!(result.mfcc_mean.is_none());
         assert!(result.energy.is_none());
+    }
+
+    #[test]
+    fn test_public_signal_validation_rejects_invalid_audio_in_every_mode() {
+        for mode in [AnalysisMode::Compact, AnalysisMode::Full] {
+            let config = AnalysisConfig {
+                mode,
+                ..Default::default()
+            };
+            let empty = Array1::<Float>::zeros(0);
+            assert!(matches!(
+                analyze_signal(empty.view(), 22050, &config),
+                Err(SonaraError::InvalidAudio(_))
+            ));
+
+            let valid = Array1::<Float>::zeros(2048);
+            assert!(matches!(
+                analyze_signal(valid.view(), 0, &config),
+                Err(SonaraError::InvalidParameter { param: "sr", .. })
+            ));
+
+            for invalid in [Float::NAN, Float::INFINITY, Float::NEG_INFINITY] {
+                let mut signal = valid.clone();
+                signal[17] = invalid;
+                assert!(matches!(
+                    analyze_signal(signal.view(), 22050, &config),
+                    Err(SonaraError::InvalidAudio(_))
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn test_validated_zero_crossing_rate_preserves_existing_semantics() {
+        let signals = [
+            vec![0.0],
+            vec![-1.0, 0.0, 1.0, 0.0, -1.0],
+            vec![1.0, -1.0, 1.0, -1.0],
+            vec![0.0, 0.0, 0.0, 0.0],
+        ];
+        for samples in signals {
+            let signal = Array1::from_vec(samples);
+            let expected = audio::zero_crossings(signal.view(), 0.0)
+                .iter()
+                .filter(|&&crossing| crossing)
+                .count() as Float
+                / signal.len() as Float;
+            assert_eq!(
+                validated_zero_crossing_rate(signal.view()).unwrap(),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn test_feature_registry_validates_routes_and_canonicalizes() {
+        let expected = [
+            "bpm",
+            "beats",
+            "onsets",
+            "rms",
+            "dynamic_range",
+            "centroid",
+            "zcr",
+            "onset_density",
+            "bandwidth",
+            "rolloff",
+            "flatness",
+            "contrast",
+            "mfcc",
+            "chroma",
+            "chords",
+            "dissonance",
+            "energy",
+            "danceability",
+            "key",
+            "valence",
+            "acousticness",
+            "tempo_curve",
+            "time_signature",
+            "beatgrid",
+            "structure",
+            "embedding",
+            "fingerprint",
+            "loudness",
+            "silence",
+            "key_candidates",
+            "vocalness",
+            "mood",
+            "instrumentalness",
+            "tags",
+        ];
+        assert_eq!(analysis_feature_names().collect::<Vec<_>>(), expected);
+        let unique: HashSet<_> = analysis_feature_names().collect();
+        assert_eq!(unique.len(), expected.len());
+
+        let config = AnalysisConfig {
+            features: Some(expected.iter().map(|name| name.to_string()).collect()),
+            ..Default::default()
+        };
+        config.validate_features().unwrap();
+        for name in expected {
+            assert!(config.wants(name), "feature did not route: {name}");
+        }
+        assert_eq!(config.requested_feature_names().unwrap(), {
+            let mut names: Vec<String> = expected.iter().map(|name| name.to_string()).collect();
+            names.sort_unstable();
+            names
+        });
+
+        let mixed = AnalysisConfig {
+            features: Some(
+                ["KeY", "EnErGy"]
+                    .iter()
+                    .map(|name| name.to_string())
+                    .collect(),
+            ),
+            ..Default::default()
+        };
+        mixed.validate_features().unwrap();
+        assert!(mixed.wants("key"));
+        assert!(mixed.wants("energy"));
+        assert_eq!(
+            mixed.requested_feature_names().as_deref(),
+            Some(&["energy".to_string(), "key".to_string()][..])
+        );
+    }
+
+    #[test]
+    fn test_unknown_feature_reports_canonical_allowed_list() {
+        let config = AnalysisConfig {
+            features: Some(["keyy".to_string()].into_iter().collect()),
+            ..Default::default()
+        };
+        let y = Array1::<Float>::zeros(2048);
+        match analyze_signal(y.view(), 22050, &config) {
+            Err(SonaraError::InvalidParameter { param, reason }) => {
+                assert_eq!(param, "features");
+                assert!(reason.contains("unknown feature(s): keyy"), "{reason}");
+                assert!(reason.contains("valid features: bpm, beats"), "{reason}");
+            }
+            Err(other) => panic!("expected invalid feature error, got {other}"),
+            Ok(_) => panic!("expected invalid feature error, got Ok"),
+        }
+    }
+
+    #[test]
+    fn test_mixed_case_features_emit_finite_results() {
+        let y = sine(440.0, 22050, 2.0);
+        let config = AnalysisConfig {
+            features: Some(
+                ["KeY", "EnErGy"]
+                    .iter()
+                    .map(|name| name.to_string())
+                    .collect(),
+            ),
+            ..Default::default()
+        };
+        let result = analyze_signal(y.view(), 22050, &config).unwrap();
+        assert!(result.energy.is_some_and(Float::is_finite));
+        assert!(result.key.is_some());
+        assert!(result.duration_sec.is_finite());
+        assert!(result.bpm.is_finite());
+        assert!(result.rms_mean.is_finite());
+        assert_eq!(
+            result.provenance.requested_features.as_deref(),
+            Some(&["energy".to_string(), "key".to_string()][..])
+        );
     }
 
     fn fixture(name: &str) -> std::path::PathBuf {

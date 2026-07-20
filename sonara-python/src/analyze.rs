@@ -300,11 +300,9 @@ fn parse_config(
             mode
         ))
     })?;
-    let features = features.map(|f| {
-        f.into_iter()
-            .map(|s| s.to_lowercase())
-            .collect::<HashSet<_>>()
-    });
+    // Rust owns canonical feature-name validation and case normalization so
+    // every binding and direct core caller observes the same contract.
+    let features = features.map(|f| f.into_iter().collect::<HashSet<_>>());
     // Load the bring-your-own genre model once per call (path → validated model),
     // mapping a load/validation failure to the standard SonaraError → PyErr path.
     // The embedding_version match is enforced later, at analysis time.

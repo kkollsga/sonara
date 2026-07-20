@@ -360,6 +360,56 @@ test("analyze_signal carries provenance", _check_provenance_fields)
 test("provenance records feature override (sorted)", _check_provenance_feature_override)
 
 
+def _check_invalid_signal_contract():
+    for mode in ("compact", "full"):
+        cases = [
+            (np.array([], dtype=np.float32), 22050, "empty"),
+            (np.zeros(2048, dtype=np.float32), 0, "zero sample rate"),
+        ]
+        for value, bad_sr, label in cases:
+            try:
+                sonara.analyze_signal(value, sr=bad_sr, mode=mode)
+                raise AssertionError(f"{mode} accepted {label}")
+            except ValueError:
+                pass
+        for invalid in (np.nan, np.inf, -np.inf):
+            value = np.zeros(2048, dtype=np.float32)
+            value[17] = invalid
+            try:
+                sonara.analyze_signal(value, sr=22050, mode=mode)
+                raise AssertionError(f"{mode} accepted non-finite sample {invalid}")
+            except ValueError as exc:
+                assert "not finite" in str(exc), exc
+
+
+def _check_feature_registry_contract():
+    try:
+        sonara.analyze_signal(y_clicks, sr=22050, features=["keyy"])
+        raise AssertionError("unknown feature typo must fail")
+    except ValueError as exc:
+        message = str(exc)
+        assert "unknown feature(s): keyy" in message, message
+        assert "valid features: bpm, beats" in message, message
+
+    r = sonara.analyze_signal(
+        y_clicks,
+        sr=22050,
+        mode="compact",
+        features=["KeY", "EnErGy"],
+    )
+    assert r["provenance"]["requested_features"] == ["energy", "key"], r
+    assert "key" in r and isinstance(r["key"], str), r
+    assert np.isfinite(r["energy"]), r
+    for name in ("duration_sec", "bpm", "rms_mean", "spectral_centroid_mean"):
+        assert np.isfinite(r[name]), (name, r[name])
+
+
+test("analyze_signal rejects empty/zero-rate/non-finite inputs",
+     _check_invalid_signal_contract)
+test("feature registry rejects typos and canonicalizes mixed case",
+     _check_feature_registry_contract)
+
+
 def _check_chord_events():
     r = sonara.analyze_signal(y_clicks, sr=22050, mode="playlist")
     assert "chord_sequence" in r, "playlist mode should compute chords"
