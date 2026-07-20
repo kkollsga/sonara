@@ -248,13 +248,13 @@ def _bundled_model_stable():
     path = vocal_model.bundled_path()
     assert os.path.exists(path), path
     m = vocal_model.load(path)
-    assert m.id == "sonara-vocalness-v1"
+    assert m.id == "sonara-vocalness-v2"
     r = sonara.analyze_signal(sig, sr=22050, vocalness_model="bundled")
-    assert r["provenance"].get("vocalness_model_id") == "sonara-vocalness-v1"
+    assert r["provenance"].get("vocalness_model_id") == "sonara-vocalness-v2"
     # Rust-crate embedded copy (sonara/models/) must match the package data
     # copy when the repo layout is present.
     crate_copy = os.path.join(os.path.dirname(__file__), "..", "..",
-                              "sonara", "models", "vocalness_v1.json")
+                              "sonara", "models", "vocalness_v2.json")
     if os.path.exists(crate_copy):
         with open(crate_copy, "rb") as a, open(path, "rb") as b:
             assert a.read() == b.read(), "crate and package model copies diverged"

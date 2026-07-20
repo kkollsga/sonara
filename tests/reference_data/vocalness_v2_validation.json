@@ -1,0 +1,48 @@
+{
+  "validation_version": 1,
+  "model_id": "sonara-vocalness-v2",
+  "model_sha256": "0d629a0449e0890b021fa06f962471c79afdd79bcaed8d0025f9cc0991626847",
+  "frozen_fixture_sha256": "a989f60e644bae26975035152b5fcd615a0ccd757909ad8a48d3e6dd04115197",
+  "training": {
+    "fresh_examples": 906,
+    "cached_sibling_examples": 173,
+    "frozen_hash_exclusions": 11,
+    "frozen_hash_set_sha256": "6498085bfa85b5ec1f56b7cb55f95a635d24c4a8c09f607181a51d0345522f06",
+    "hidden": 32,
+    "epochs": 3500,
+    "seed": 15,
+    "l2": 0.001
+  },
+  "disjoint_evaluation": {
+    "fresh": {
+      "examples": 199,
+      "vocal": 92,
+      "instrumental": 107,
+      "v1_auc": 0.943011,
+      "v2_auc": 0.947278,
+      "v1_false_negatives": 5,
+      "v2_false_negatives": 7,
+      "v1_false_positives": 18,
+      "v2_false_positives": 18
+    },
+    "cached": {
+      "examples": 90,
+      "vocal": 53,
+      "instrumental": 37,
+      "v1_auc": 0.696583,
+      "v2_auc": 0.864865,
+      "v1_false_negatives": 11,
+      "v2_false_negatives": 6,
+      "v1_false_positives": 17,
+      "v2_false_positives": 10
+    },
+    "broad_fresh_v2": {
+      "examples": 205,
+      "vocal": 96,
+      "instrumental": 109,
+      "auc": 0.9477,
+      "false_negatives": 6,
+      "false_positives": 19
+    }
+  }
+}

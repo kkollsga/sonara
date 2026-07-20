@@ -23,7 +23,11 @@ STANDARD_TESTS = (
     "test_genre",
     "test_vocalness_model",
 )
-FIDELITY_TESTS = {"test_tonal_batch", "test_vocalness_real"}
+FIDELITY_TESTS = {
+    "test_tonal_batch",
+    "test_vocalness_frozen",
+    "test_vocalness_real",
+}
 CONTRACT_FILES = (
     ".github/workflows/ci.yml",
     "CONTRIBUTING.md",

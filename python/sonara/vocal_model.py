@@ -49,16 +49,16 @@ __all__ = ["VocalnessModel", "train", "load", "bundled_path", "FORMAT_VERSION",
 def bundled_path() -> str:
     """Path to the vocalness model bundled with the package.
 
-    Trained on ~900 album-level labeled tracks; on a held-out 205-track
-    curated real-music set: AUC 0.94 vs 0.63 for the built-in heuristic,
-    clear-vocal false negatives 5% vs 53%. Pass it (or the shorthand
+    Trained on disjoint fresh and cached-domain labeled tracks; on held-out
+    real music it preserves the v1 AUC while correcting the frozen vocal and
+    instrumental regressions. Pass it (or the shorthand
     ``vocalness_model="bundled"``) to ``analyze_*``. Known limitations:
     solo melodic instrument leads (sax/guitar) can score vocal-high, and
     spoken narration scores low.
     """
     import os
 
-    return os.path.join(os.path.dirname(__file__), "models", "vocalness_v1.json")
+    return os.path.join(os.path.dirname(__file__), "models", "vocalness_v2.json")
 
 
 def _softmax_rows(m: np.ndarray) -> np.ndarray:

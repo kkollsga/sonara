@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "domains": {
+    "vocalness": {
+      "paths": [
+        "sonara/src/vocal_model.rs",
+        "sonara/models/vocalness_*.json",
+        "python/sonara/vocal_model.py",
+        "python/sonara/models/vocalness_*.json",
+        "tests/reference_data/vocalness_*.json"
+      ],
+      "command": ["{python}", "tests/python/test_vocalness_frozen.py"]
+    },
+    "tonal": {
+      "paths": ["sonara/src/tonal.rs", "sonara/src/chord.rs"],
+      "blocked": "the local tonal batch script is a report-only sanity check, not a labeled fidelity gate"
+    },
+    "bpm": {
+      "paths": ["sonara/src/beat.rs", "sonara/tests/bpm_accuracy.rs"],
+      "blocked": "no mandatory labeled real-music BPM gate is available"
+    },
+    "beatgrid": {
+      "paths": ["sonara/src/beatgrid.rs"],
+      "blocked": "no mandatory labeled real-music beat-grid gate is available"
+    },
+    "similarity": {
+      "paths": ["sonara/src/similarity.rs"],
+      "blocked": "no mandatory labeled real-music similarity gate is available"
+    }
+  }
+}
