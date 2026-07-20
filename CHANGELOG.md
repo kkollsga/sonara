@@ -2,6 +2,39 @@
 
 All notable changes to sonara are documented in this file.
 
+## [0.2.9] - 2026-07-20
+
+### Validated on real music
+
+The bundled `sonara-vocalness-v2` model passes the frozen acceptance set
+exactly (5/5 vocals above 0.35 and 6/6 controls below 0.35). On the broader
+205-track labeled set it scores AUC 0.9477, with 6/96 vocal false negatives
+and 19/109 instrumental false positives at that threshold. On disjoint data,
+v1 to v2 AUC improves from 0.943011 to 0.947278 for fresh analysis and from
+0.696583 to 0.864865 for cached embeddings.
+
+### Added
+
+- Linux x86_64, macOS x86_64 and arm64, and Windows x64 abi3 wheels, verified
+  by native clean-install smoke tests alongside the sdist.
+- A content-hash-pinned vocalness acceptance fixture and fail-closed fidelity
+  routing for accuracy-sensitive changes.
+
+### Changed
+
+- Python validation now uses one canonical 11-script suite locally and on all
+  CI platforms, with UTF-8 subprocess output on Windows.
+- NumPy is now declared as a supported runtime dependency.
+
+### Fixed
+
+- Rust and Python model inference reject non-finite inputs, intermediates, and
+  probabilities instead of allowing invalid values to escape.
+- Public signal APIs reject non-finite samples and invalid parameter ranges;
+  feature lookup rejects unknown and misspelled names.
+- The bundled vocalness artifact is now the hash-gated v2 model in both Rust
+  and Python.
+
 ## [0.2.8] - 2026-07-20
 
 ### Validated on real music
