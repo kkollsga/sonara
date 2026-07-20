@@ -194,6 +194,56 @@ def _bad_model_json_rejected():
 
 test("id-less / malformed model rejected", _bad_model_json_rejected)
 
+
+def _non_finite_model_state_rejected_everywhere():
+    zeros = ",".join(["0"] * DIM)
+    overflow_json = (
+        '{"format_version":1,'
+        f'"embedding_version":{sonara.SIMILARITY_VERSION},'
+        '"id":"overflow","labels":["instrumental","vocal"],"layers":['
+        f'{{"weights":[[{zeros}],[{zeros}]],'
+        '"bias":[1e999,1e999],"activation":"softmax"}]}'
+    )
+    path = os.path.join(tmp, "overflow.json")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(overflow_json)
+    try:
+        vocal_model.load(path)
+        raise AssertionError("numpy loader must reject overflow")
+    except ValueError:
+        pass
+    try:
+        sonara.analyze_signal(sig, sr=22050, vocalness_model=path)
+        raise AssertionError("Rust loader must reject overflow")
+    except ValueError:
+        pass
+
+    model = vocal_model.train(X, y, model_id="mutable", epochs=1)
+    model.layers[-1]["b"][0] = np.inf
+    try:
+        model.predict_vocalness(np.zeros(DIM))
+        raise AssertionError("mutated non-finite model must not predict")
+    except ValueError:
+        pass
+    try:
+        model.save(os.path.join(tmp, "nonfinite.json"))
+        raise AssertionError("non-finite model must not serialize")
+    except (ValueError, OverflowError):
+        pass
+
+    bad_x = X.copy()
+    bad_x[0, 0] = -np.inf
+    try:
+        vocal_model.train(bad_x, y, model_id="bad-training")
+        raise AssertionError("training data must be finite")
+    except ValueError:
+        pass
+
+
+test("non-finite model state rejected by numpy and Rust",
+     _non_finite_model_state_rejected_everywhere)
+
+
 def _bundled_model_stable():
     path = vocal_model.bundled_path()
     assert os.path.exists(path), path

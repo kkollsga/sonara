@@ -48,17 +48,68 @@ __all__ = ["GenreModel", "train", "load", "FORMAT_VERSION"]
 
 def _softmax(v: np.ndarray) -> np.ndarray:
     """Numerically stable softmax of a 1-D vector."""
+    if not np.all(np.isfinite(v)):
+        raise ValueError("softmax logits must be finite")
     z = v - np.max(v)
     e = np.exp(z)
     s = e.sum()
-    return e / s if s > 0 else e
+    if not np.isfinite(s) or s <= 0:
+        raise ValueError("softmax normalization must be finite and positive")
+    probabilities = e / s
+    if (not np.all(np.isfinite(probabilities))
+            or not np.isclose(probabilities.sum(), 1.0, atol=1e-8)):
+        raise ValueError("softmax probabilities must be finite and normalized")
+    return probabilities
 
 
 def _softmax_rows(m: np.ndarray) -> np.ndarray:
     """Row-wise stable softmax of a 2-D array."""
+    if not np.all(np.isfinite(m)):
+        raise ValueError("softmax logits must be finite")
     z = m - m.max(axis=1, keepdims=True)
     e = np.exp(z)
-    return e / e.sum(axis=1, keepdims=True)
+    sums = e.sum(axis=1, keepdims=True)
+    if not np.all(np.isfinite(sums)) or np.any(sums <= 0):
+        raise ValueError("softmax normalization must be finite and positive")
+    probabilities = e / sums
+    if not np.all(np.isfinite(probabilities)):
+        raise ValueError("softmax probabilities must be finite")
+    return probabilities
+
+
+def _validated_layers(layers, label_count):
+    if not layers:
+        raise ValueError("layers must be non-empty")
+    validated = []
+    expected_in = _EMBEDDING_DIM
+    for index, layer in enumerate(layers):
+        try:
+            w = np.asarray(layer["W"], dtype=np.float64)
+            b = np.asarray(layer["b"], dtype=np.float64).ravel()
+            activation = str(layer["activation"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f"invalid layer {index}: {exc}") from exc
+        if w.ndim != 2 or w.shape[0] != expected_in or w.shape[1] == 0:
+            raise ValueError(
+                f"layer {index} weights must have shape ({expected_in}, out_dim); got {w.shape}"
+            )
+        if b.shape != (w.shape[1],):
+            raise ValueError(
+                f"layer {index} bias shape {b.shape} must be ({w.shape[1]},)"
+            )
+        if not np.all(np.isfinite(w)) or not np.all(np.isfinite(b)):
+            raise ValueError(f"layer {index} parameters must be finite")
+        if activation not in {"relu", "softmax", "identity"}:
+            raise ValueError(f"layer {index} has unsupported activation {activation!r}")
+        validated.append({"W": w.copy(), "b": b.copy(), "activation": activation})
+        expected_in = w.shape[1]
+    if validated[-1]["activation"] != "softmax":
+        raise ValueError("last layer activation must be 'softmax'")
+    if expected_in != label_count:
+        raise ValueError(
+            f"last layer out_dim {expected_in} must equal label count {label_count}"
+        )
+    return validated
 
 
 class GenreModel:
@@ -71,7 +122,9 @@ class GenreModel:
 
     def __init__(self, labels, layers, embedding_version, model_id=None):
         self.labels = [str(x) for x in labels]
-        self.layers = layers
+        if not self.labels:
+            raise ValueError("labels must be non-empty")
+        self.layers = _validated_layers(layers, len(self.labels))
         self.embedding_version = int(embedding_version)
         # Optional model identity: when set it is written as JSON "id" and
         # surfaced by analysis as provenance.genre_model_id, letting cache
@@ -87,15 +140,24 @@ class GenreModel:
         the predicted label matches ``analyze_*(genre_model=...)`` on the same
         embedding.
         """
-        v = np.asarray(x, dtype=np.float64).ravel()
+        source = np.asarray(x, dtype=np.float64).ravel()
+        v = np.zeros(self.layers[0]["W"].shape[0], dtype=np.float64)
+        n = min(source.size, v.size)
+        v[:n] = np.where(np.isfinite(source[:n]), source[:n], 0.0)
         for layer in self.layers:
             v = v @ layer["W"] + layer["b"]
+            if not np.all(np.isfinite(v)):
+                raise ValueError("inference produced non-finite layer output")
             act = layer["activation"]
             if act == "relu":
                 v = np.maximum(v, 0.0)
             elif act == "softmax":
                 v = _softmax(v)
             # "identity": pass through
+            if not np.all(np.isfinite(v)):
+                raise ValueError("inference produced non-finite activation")
+        if not np.isclose(v.sum(), 1.0, atol=1e-8):
+            raise ValueError("model probabilities must be normalized")
         idx = int(np.argmax(v))
         return self.labels[idx], float(v[idx])
 
@@ -122,7 +184,7 @@ class GenreModel:
     def save(self, path):
         """Write the model as JSON to ``path`` (the format ``analyze_*`` loads)."""
         with open(path, "w", encoding="utf-8") as f:
-            json.dump(self.to_dict(), f)
+            json.dump(self.to_dict(), f, allow_nan=False)
         return path
 
 
@@ -180,6 +242,8 @@ def train(X, y, *, hidden=0, epochs=300, lr=0.1, seed=0, l2=0.0, embedding_versi
         raise ValueError(
             f"X must have shape (n, {_EMBEDDING_DIM}); got {X.shape}"
         )
+    if not np.all(np.isfinite(X)):
+        raise ValueError("X must contain only finite values")
     y = [str(v) for v in y]
     if len(y) != X.shape[0]:
         raise ValueError(f"len(y) ({len(y)}) must equal X.shape[0] ({X.shape[0]})")

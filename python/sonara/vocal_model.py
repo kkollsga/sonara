@@ -62,9 +62,48 @@ def bundled_path() -> str:
 
 
 def _softmax_rows(m: np.ndarray) -> np.ndarray:
+    if not np.all(np.isfinite(m)):
+        raise ValueError("softmax logits must be finite")
     z = m - m.max(axis=1, keepdims=True)
     e = np.exp(z)
-    return e / e.sum(axis=1, keepdims=True)
+    sums = e.sum(axis=1, keepdims=True)
+    if not np.all(np.isfinite(sums)) or np.any(sums <= 0):
+        raise ValueError("softmax normalization must be finite and positive")
+    probabilities = e / sums
+    if not np.all(np.isfinite(probabilities)):
+        raise ValueError("softmax probabilities must be finite")
+    return probabilities
+
+
+def _validated_layers(layers):
+    if not layers:
+        raise ValueError("layers must be non-empty")
+    validated = []
+    expected_in = _EMBEDDING_DIM
+    for index, layer in enumerate(layers):
+        try:
+            w = np.asarray(layer["W"], dtype=np.float64)
+            b = np.asarray(layer["b"], dtype=np.float64).ravel()
+            activation = str(layer["activation"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f"invalid layer {index}: {exc}") from exc
+        if w.ndim != 2 or w.shape[0] != expected_in or w.shape[1] == 0:
+            raise ValueError(
+                f"layer {index} weights must have shape ({expected_in}, out_dim); got {w.shape}"
+            )
+        if b.shape != (w.shape[1],):
+            raise ValueError(
+                f"layer {index} bias shape {b.shape} must be ({w.shape[1]},)"
+            )
+        if not np.all(np.isfinite(w)) or not np.all(np.isfinite(b)):
+            raise ValueError(f"layer {index} parameters must be finite")
+        if activation not in {"relu", "softmax", "identity"}:
+            raise ValueError(f"layer {index} has unsupported activation {activation!r}")
+        validated.append({"W": w.copy(), "b": b.copy(), "activation": activation})
+        expected_in = w.shape[1]
+    if validated[-1]["activation"] != "softmax" or expected_in != 2:
+        raise ValueError("last layer must be a two-output softmax")
+    return validated
 
 
 class VocalnessModel:
@@ -74,24 +113,40 @@ class VocalnessModel:
         self.id = str(model_id)
         if not self.id.strip():
             raise ValueError("model_id must be a non-empty string")
-        self.layers = layers  # [{"W": (in, out), "b": (out,), "activation": str}]
+        self.layers = _validated_layers(layers)
         self.embedding_version = int(embedding_version)
 
     def predict_vocalness(self, x) -> float:
         """P(vocal) for one embedding vector, in ``[0, 1]`` (numpy parity
         with the Rust ``VocalnessModel::predict_vocalness``)."""
-        v = np.asarray(x, dtype=np.float64).ravel()
-        v = np.where(np.isfinite(v), v, 0.0)
+        source = np.asarray(x, dtype=np.float64).ravel()
+        v = np.zeros(self.layers[0]["W"].shape[0], dtype=np.float64)
+        n = min(source.size, v.size)
+        v[:n] = np.where(np.isfinite(source[:n]), source[:n], 0.0)
         for layer in self.layers:
             v = v @ layer["W"] + layer["b"]
+            if not np.all(np.isfinite(v)):
+                raise ValueError("inference produced non-finite layer output")
             act = layer["activation"]
             if act == "relu":
                 v = np.maximum(v, 0.0)
             elif act == "softmax":
+                if not np.all(np.isfinite(v)):
+                    raise ValueError("softmax logits must be finite")
                 z = v - np.max(v)
                 e = np.exp(z)
-                v = e / e.sum()
-        return float(np.clip(v[1], 0.0, 1.0))
+                total = e.sum()
+                if not np.isfinite(total) or total <= 0:
+                    raise ValueError("softmax normalization must be finite and positive")
+                v = e / total
+            if not np.all(np.isfinite(v)):
+                raise ValueError("inference produced non-finite activation")
+        if not np.isclose(v.sum(), 1.0, atol=1e-8):
+            raise ValueError("model probabilities must be normalized")
+        probability = float(v[1])
+        if not np.isfinite(probability) or not 0.0 <= probability <= 1.0:
+            raise ValueError("vocalness probability must be finite and in [0,1]")
+        return probability
 
     def to_dict(self):
         return {
@@ -113,7 +168,7 @@ class VocalnessModel:
     def save(self, path):
         """Write the model as JSON to ``path`` (loadable by ``analyze_*``)."""
         with open(path, "w", encoding="utf-8") as f:
-            json.dump(self.to_dict(), f)
+            json.dump(self.to_dict(), f, allow_nan=False)
         return path
 
 
@@ -164,7 +219,8 @@ def train(X, y, *, model_id, hidden=16, epochs=2000, lr=0.05, seed=0, l2=1e-3,
     X = np.asarray(X, dtype=np.float64)
     if X.ndim != 2 or X.shape[1] != _EMBEDDING_DIM:
         raise ValueError(f"X must have shape (n, {_EMBEDDING_DIM}); got {X.shape}")
-    X = np.where(np.isfinite(X), X, 0.0)
+    if not np.all(np.isfinite(X)):
+        raise ValueError("X must contain only finite values")
     yi = np.array([1 if bool(v) else 0 for v in y], dtype=np.int64)
     if len(yi) != X.shape[0]:
         raise ValueError(f"len(y) ({len(yi)}) must equal X.shape[0] ({X.shape[0]})")

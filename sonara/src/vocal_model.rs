@@ -56,12 +56,23 @@ impl VocalnessModel {
 
     /// P(vocal) for an embedding vector, in `[0, 1]`.
     pub fn predict_vocalness(&self, embedding: &[Float]) -> Float {
-        let probs = self.inner.predict_probs(embedding);
-        probs
+        self.try_predict_vocalness(embedding).unwrap_or(0.0)
+    }
+
+    /// Fallible P(vocal) inference for analysis paths that must surface
+    /// malformed model state rather than emitting a non-finite value.
+    pub fn try_predict_vocalness(&self, embedding: &[Float]) -> Result<Float> {
+        let probs = self.inner.try_predict_probs(embedding)?;
+        let probability = probs
             .get(self.vocal_idx)
             .copied()
-            .unwrap_or(0.0)
-            .clamp(0.0, 1.0)
+            .ok_or_else(|| SonaraError::ModelError("vocalness output is missing".into()))?;
+        if !probability.is_finite() || !(0.0..=1.0).contains(&probability) {
+            return Err(SonaraError::ModelError(
+                "vocalness probability must be finite and in [0,1]".into(),
+            ));
+        }
+        Ok(probability)
     }
 
     fn validate(inner: GenreModel) -> Result<Self> {
@@ -228,5 +239,24 @@ mod tests {
         emb[7] = Float::INFINITY;
         let p = m.predict_vocalness(&emb);
         assert!(p.is_finite() && (0.0..=1.0).contains(&p));
+    }
+
+    #[test]
+    fn test_fallible_prediction_rejects_non_finite_model_output() {
+        let mut model = from_json_str(&model_json(
+            "\"vocal-test-v1\"",
+            r#"["instrumental","vocal"]"#,
+        ))
+        .unwrap();
+        let layer = model.inner.layers.last_mut().unwrap();
+        layer.bias[0] = Float::MAX;
+        layer.weights[0][0] = Float::MAX;
+
+        let embedding = [2.0; 48];
+        assert!(matches!(
+            model.try_predict_vocalness(&embedding),
+            Err(SonaraError::ModelError(_))
+        ));
+        assert!(model.predict_vocalness(&embedding).is_finite());
     }
 }

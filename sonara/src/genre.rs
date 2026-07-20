@@ -101,8 +101,27 @@ impl Layer {
         self.weights.len()
     }
 
-    /// Apply the layer to `x` (length must equal `in_dim`).
-    fn forward(&self, x: &[Float]) -> Vec<Float> {
+    /// Apply the layer to `x`, rejecting malformed or non-finite model state.
+    fn try_forward(&self, x: &[Float]) -> Result<Vec<Float>> {
+        if x.len() != self.in_dim() {
+            return Err(err(format!(
+                "inference input length {} does not match layer in_dim {}",
+                x.len(),
+                self.in_dim()
+            )));
+        }
+        if self.bias.len() != self.out_dim() {
+            return Err(err("inference layer bias/output dimensions do not match"));
+        }
+        if self
+            .weights
+            .iter()
+            .flatten()
+            .chain(self.bias.iter())
+            .any(|v| !v.is_finite())
+        {
+            return Err(err("inference layer contains a non-finite parameter"));
+        }
         let mut out: Vec<Float> = self
             .weights
             .iter()
@@ -115,6 +134,9 @@ impl Layer {
                 acc
             })
             .collect();
+        if out.iter().any(|v| !v.is_finite()) {
+            return Err(err("inference produced a non-finite layer output"));
+        }
         match self.activation {
             Activation::Relu => {
                 for v in out.iter_mut() {
@@ -124,16 +146,22 @@ impl Layer {
                 }
             }
             Activation::Identity => {}
-            Activation::Softmax => softmax_in_place(&mut out),
+            Activation::Softmax => softmax_in_place(&mut out)?,
         }
-        out
+        if out.iter().any(|v| !v.is_finite()) {
+            return Err(err("inference produced a non-finite activation"));
+        }
+        Ok(out)
     }
 }
 
 /// Numerically stable softmax (subtract max before exponentiating).
-fn softmax_in_place(v: &mut [Float]) {
+fn softmax_in_place(v: &mut [Float]) -> Result<()> {
     if v.is_empty() {
-        return;
+        return Err(err("softmax requires at least one value"));
+    }
+    if v.iter().any(|x| !x.is_finite()) {
+        return Err(err("softmax logits must be finite"));
     }
     let max = v.iter().copied().fold(Float::NEG_INFINITY, Float::max);
     let mut sum = 0.0;
@@ -141,11 +169,19 @@ fn softmax_in_place(v: &mut [Float]) {
         *x = (*x - max).exp();
         sum += *x;
     }
-    if sum > 0.0 {
-        for x in v.iter_mut() {
-            *x /= sum;
-        }
+    if !sum.is_finite() || sum <= 0.0 {
+        return Err(err("softmax normalization is not finite and positive"));
     }
+    for x in v.iter_mut() {
+        *x /= sum;
+    }
+    let normalized_sum: Float = v.iter().sum();
+    if v.iter().any(|x| !x.is_finite() || !(0.0..=1.0).contains(x))
+        || (normalized_sum - 1.0).abs() > 1e-4
+    {
+        return Err(err("softmax probabilities are not finite and normalized"));
+    }
+    Ok(())
 }
 
 /// A loaded, validated genre classifier over the similarity embedding.
@@ -169,7 +205,14 @@ impl GenreModel {
     /// or longer vector is zero-padded / truncated to the first layer's `in_dim`
     /// so inference never panics.
     pub fn predict(&self, embedding: &[Float]) -> (String, Float) {
-        let x = self.predict_probs(embedding);
+        self.try_predict(embedding)
+            .unwrap_or_else(|_| (String::from("unknown"), 0.0))
+    }
+
+    /// Fallible classification used by analysis paths that must surface
+    /// malformed model state instead of silently emitting invalid output.
+    pub fn try_predict(&self, embedding: &[Float]) -> Result<(String, Float)> {
+        let x = self.try_predict_probs(embedding)?;
         // Last layer is softmax → argmax gives the predicted label. Break
         // exact ties by lowest label index, matching numpy.argmax.
         let (idx, &conf) = x
@@ -181,13 +224,13 @@ impl GenreModel {
                     .unwrap_or(std::cmp::Ordering::Equal)
                     .then_with(|| idx_b.cmp(idx_a))
             })
-            .unwrap_or((0, &0.0));
+            .ok_or_else(|| err("model produced no class probabilities"))?;
         let label = self
             .labels
             .get(idx)
             .cloned()
             .unwrap_or_else(|| String::from("unknown"));
-        (label, conf)
+        Ok((label, conf))
     }
 
     /// Run the network and return the full softmax probability vector
@@ -195,15 +238,38 @@ impl GenreModel {
     /// `in_dim` (zero-padded / truncated, non-finite values zeroed) so
     /// inference never panics.
     pub fn predict_probs(&self, embedding: &[Float]) -> Vec<Float> {
+        self.try_predict_probs(embedding).unwrap_or_else(|_| {
+            if self.labels.is_empty() {
+                Vec::new()
+            } else {
+                vec![1.0 / self.labels.len() as Float; self.labels.len()]
+            }
+        })
+    }
+
+    /// Fallible probability inference with finite/normalization checks.
+    pub fn try_predict_probs(&self, embedding: &[Float]) -> Result<Vec<Float>> {
         let in_dim = self.layers.first().map(|l| l.in_dim()).unwrap_or(0);
+        if in_dim == 0 || self.layers.is_empty() {
+            return Err(err("model has no usable inference layers"));
+        }
         let mut x: Vec<Float> = vec![0.0; in_dim];
         for (slot, &v) in x.iter_mut().zip(embedding.iter()) {
             *slot = if v.is_finite() { v } else { 0.0 };
         }
         for layer in &self.layers {
-            x = layer.forward(&x);
+            x = layer.try_forward(&x)?;
         }
-        x
+        if x.len() != self.labels.len() {
+            return Err(err("model probability/label dimensions do not match"));
+        }
+        let sum: Float = x.iter().sum();
+        if x.iter().any(|p| !p.is_finite() || !(0.0..=1.0).contains(p))
+            || (sum - 1.0).abs() > 1e-4
+        {
+            return Err(err("model probabilities are not finite and normalized"));
+        }
+        Ok(x)
     }
 }
 
@@ -318,7 +384,7 @@ fn build_model(v: &json::Value) -> Result<GenreModel> {
                 .iter()
                 .map(|c| {
                     c.as_f32()
-                        .ok_or_else(|| err(format!("layer {li} weights must be numbers")))
+                        .ok_or_else(|| err(format!("layer {li} weights must be finite numbers")))
                 })
                 .collect::<Result<_>>()?;
             weights.push(row);
@@ -334,7 +400,7 @@ fn build_model(v: &json::Value) -> Result<GenreModel> {
             .iter()
             .map(|c| {
                 c.as_f32()
-                    .ok_or_else(|| err(format!("layer {li} bias must be numbers")))
+                    .ok_or_else(|| err(format!("layer {li} bias must be finite numbers")))
             })
             .collect::<Result<_>>()?;
         if bias.len() != weights.len() {
@@ -463,7 +529,10 @@ mod json {
         }
         pub fn as_f32(&self) -> Option<Float> {
             match self {
-                Value::Num(n) => Some(*n as Float),
+                Value::Num(n) if n.is_finite() => {
+                    let value = *n as Float;
+                    value.is_finite().then_some(value)
+                }
                 _ => None,
             }
         }
@@ -934,6 +1003,50 @@ mod tests {
             r#"{"format_version": 1, "embedding_version": 2, "labels": ["a"],
                 "layers": [{"weights": [["x"]], "bias": [0.0], "activation": "softmax"}]}"#,
         );
+    }
+
+    #[test]
+    fn test_reject_overflowing_model_numbers() {
+        let json = two_class_json(crate::similarity::SIMILARITY_VERSION)
+            .replace("[0.0, 2.0]", "[1e999, 1e999]");
+        assert_model_err(&json);
+
+        let zeros47 = "0,".repeat(47);
+        let zeros47 = zeros47.trim_end_matches(',');
+        let zeros48 = "0,".repeat(48);
+        let zeros48 = zeros48.trim_end_matches(',');
+        let json = format!(
+            r#"{{"format_version":1,"embedding_version":{v},"labels":["a","b"],
+                "layers":[{{"weights":[[1e999,{z47}],[{z48}]],"bias":[0,0],"activation":"softmax"}}]}}"#,
+            v = crate::similarity::SIMILARITY_VERSION,
+            z47 = zeros47,
+            z48 = zeros48
+        );
+        assert_model_err(&json);
+    }
+
+    #[test]
+    fn test_fallible_inference_rejects_non_finite_layer_output() {
+        let mut model =
+            from_json_str(&two_class_json(crate::similarity::SIMILARITY_VERSION)).unwrap();
+        model.layers[0].weights[0][0] = Float::MAX;
+        model.layers[0].bias[0] = Float::MAX;
+        let embedding = [2.0; EMBEDDING_DIM];
+
+        assert!(matches!(
+            model.try_predict_probs(&embedding),
+            Err(SonaraError::ModelError(_))
+        ));
+        assert!(matches!(
+            model.try_predict(&embedding),
+            Err(SonaraError::ModelError(_))
+        ));
+
+        // Compatibility methods remain finite and non-panicking.
+        let probabilities = model.predict_probs(&embedding);
+        assert!(probabilities.iter().all(|p| p.is_finite()));
+        let (_, confidence) = model.predict(&embedding);
+        assert!(confidence.is_finite());
     }
 
     #[test]

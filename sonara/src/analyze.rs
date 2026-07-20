@@ -1909,14 +1909,14 @@ fn analyze_signal_inner(
         // Run the user-supplied genre model, if any (the version match was
         // verified up front). Populate genre + genre_confidence.
         if let Some(ref model) = config.genre_model {
-            let (label, conf) = model.predict(&emb);
+            let (label, conf) = model.try_predict(&emb)?;
             result.genre = Some(label);
             result.genre_confidence = Some(conf);
         }
         // Run the user-supplied vocalness model, if any: its calibrated
         // P(vocal) overrides the built-in heuristic (and its inverse).
         if let Some(ref model) = config.vocalness_model {
-            let v = model.predict_vocalness(&emb);
+            let v = model.try_predict_vocalness(&emb)?;
             result.vocalness = Some(v);
             result.instrumentalness = Some((1.0 - v).clamp(0.0, 1.0));
         }

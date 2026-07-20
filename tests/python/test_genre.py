@@ -208,6 +208,57 @@ test("tied logits choose first label in numpy and Rust",
      _tied_logits_choose_first_label_in_python_and_rust)
 
 
+def _non_finite_model_state_rejected_everywhere():
+    zeros = ",".join(["0"] * DIM)
+    overflow_json = (
+        '{"format_version":1,'
+        f'"embedding_version":{sonara.SIMILARITY_VERSION},'
+        '"labels":["a","b"],"layers":['
+        f'{{"weights":[[{zeros}],[{zeros}]],'
+        '"bias":[1e999,1e999],"activation":"softmax"}]}'
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "overflow.json")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(overflow_json)
+        try:
+            genre.load(path)
+            raise AssertionError("numpy loader must reject overflow")
+        except ValueError:
+            pass
+        try:
+            sonara.analyze_signal(_real_signal(), sr=22050, genre_model=path)
+            raise AssertionError("Rust loader must reject overflow")
+        except ValueError:
+            pass
+
+    model = genre.train(X, y, epochs=1, seed=0)
+    model.layers[-1]["b"][0] = np.inf
+    try:
+        model.predict(np.zeros(DIM))
+        raise AssertionError("mutated non-finite model must not predict")
+    except ValueError:
+        pass
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            model.save(os.path.join(tmp, "nonfinite.json"))
+            raise AssertionError("non-finite model must not serialize")
+        except (ValueError, OverflowError):
+            pass
+
+    bad_x = X.copy()
+    bad_x[0, 0] = np.nan
+    try:
+        genre.train(bad_x, y)
+        raise AssertionError("training data must be finite")
+    except ValueError:
+        pass
+
+
+test("non-finite model state rejected by numpy and Rust",
+     _non_finite_model_state_rejected_everywhere)
+
+
 def _genre_and_embedding_both_when_requested():
     model = genre.train(X, y, seed=0)
     with tempfile.TemporaryDirectory() as tmp:
