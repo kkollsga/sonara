@@ -41,6 +41,9 @@ def main():
     print(f"Scanning {DATASET} ...")
     all_files = collect_files(DATASET)
     print(f"Found {len(all_files)} audio files")
+    if not all_files:
+        print("FAIL: tonal sanity corpus is unavailable or empty")
+        return 1
 
     random.seed(SEED)
     sample = random.sample(all_files, min(N_TRACKS, len(all_files)))
@@ -194,8 +197,8 @@ def main():
     print(f"  Wrong predominant tie-break: {n_wrong_predominant}")
     print(f"  Dissonance out of [0,1]:     {n_diss_out_of_range}")
 
-    all_ok = (n_invalid_chords == 0 and n_wrong_predominant == 0
-              and n_diss_out_of_range == 0)
+    all_ok = (n_invalid_chords == 0 and n_chords_empty == 0
+              and n_wrong_predominant == 0 and n_diss_out_of_range == 0)
     print(f"\n  {'PASS' if all_ok else 'FAIL'}: all sanity checks {'passed' if all_ok else 'FAILED'}")
 
     # ===== EXISTING FEATURES SPOT CHECK =====
@@ -225,7 +228,8 @@ def main():
                 print(f"    {k:12s}: {c:4d} ({c/len(keys)*100:.1f}%)")
 
     print("\nDone.")
+    return 0 if all_ok else 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

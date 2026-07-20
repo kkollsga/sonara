@@ -14,10 +14,13 @@ jobs:
         include:
           - os: ubuntu-latest
             cargo-features: ""
+            venv-python: ./.venv/bin/python
           - os: macos-latest
             cargo-features: --features accelerate
+            venv-python: ./.venv/bin/python
           - os: windows-latest
             cargo-features: ""
+            venv-python: ./.venv/Scripts/python.exe
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
@@ -29,25 +32,15 @@ jobs:
         run: cargo test -p sonara ${{ matrix.cargo-features }}
 
       - name: Build Python bindings
-        if: matrix.os != 'windows-latest'
+        env:
+          VIRTUAL_ENV: ${{ github.workspace }}/.venv
         run: |
           python -m venv .venv
-          source .venv/bin/activate
-          pip install maturin numpy
-          maturin develop --release -m sonara-python/Cargo.toml
+          ${{ matrix.venv-python }} -m pip install maturin numpy
+          ${{ matrix.venv-python }} -m maturin develop --release -m sonara-python/Cargo.toml
 
       - name: Python tests
-        if: matrix.os != 'windows-latest'
-        # test_tonal_batch.py is excluded: it depends on a large local dataset.
-        run: |
-          source .venv/bin/activate
-          for t in test_api test_batch_errors test_camelot test_beatgrid \
-                   test_structure test_similarity test_fingerprint \
-                   test_loudness test_misc_features test_genre \
-                   test_vocalness_model; do
-            echo "=== $t ==="
-            python "tests/python/$t.py"
-          done
+        run: ${{ matrix.venv-python }} scripts/run_python_tests.py
 
   publish:
     needs: [test]

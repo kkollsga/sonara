@@ -28,11 +28,13 @@ cargo test -p sonara
 # On macOS you can add the Accelerate BLAS backend, matching CI:
 cargo test -p sonara --features accelerate
 
-# Python API tests (need the bindings built into the active venv first)
-python tests/python/test_api.py
+# Canonical 11-script Python API suite (bindings must already be built)
+python scripts/run_python_tests.py
 ```
 
-CI runs exactly these on Linux, macOS, and Windows — if they pass locally, they should pass in CI.
+CI runs exactly this suite on Linux, macOS, and Windows. The large local corpus
+checks (`test_tonal_batch.py`, `test_vocalness_real.py`) are separate fidelity
+gates, not substitutes for labeled accuracy evidence.
 
 ## Contributing accuracy improvements
 
