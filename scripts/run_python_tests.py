@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -72,10 +73,15 @@ def check_contract() -> None:
 
 
 def run_suite() -> None:
+    env = os.environ.copy()
+    # Windows hosted runners otherwise inherit a CP1252 console and can crash
+    # while reporting perfectly valid Unicode test labels.
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
     for name in STANDARD_TESTS:
         path = ROOT / "tests" / "python" / f"{name}.py"
         print(f"=== {name} ===", flush=True)
-        subprocess.run([sys.executable, str(path)], cwd=ROOT, check=True)
+        subprocess.run([sys.executable, str(path)], cwd=ROOT, env=env, check=True)
 
 
 def main() -> int:
