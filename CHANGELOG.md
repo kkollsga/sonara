@@ -2,6 +2,28 @@
 
 All notable changes to sonara are documented in this file.
 
+## [0.2.8] - 2026-07-20
+
+### Validated on real music
+
+Before the fix, one unchanged track with three equally frequent chord labels
+returned `A`, `Gm`, or `G#m` across five fresh processes. After the fix, a
+seed-pinned 400-track commercial-library sample analyzed 400/400 without
+error, found five tied predominant-chord cases, and selected the documented
+lexicographically smallest winner in all five; every tonal sanity check
+passed.
+
+### Fixed
+
+- `predominant_chord` now resolves equal top counts by lexicographically
+  ascending label instead of process-randomized hash-map iteration.
+  `ANALYSIS_SCHEMA_VERSION` is now 4 so persisted downstream analyses
+  invalidate the potentially nondeterministic cached summary.
+- Exact genre-model probability ties now select the lowest label index in
+  Rust, matching NumPy's documented inference behavior.
+- The real-music tonal gate now sorts its corpus before seeded sampling and
+  uses explicit secondary label ordering in tied frequency reports.
+
 ## [0.2.7] - 2026-07-20
 
 ### Fixed

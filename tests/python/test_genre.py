@@ -182,6 +182,32 @@ def _predict_parity():
 test("numpy predict == analyze-time (Rust) label + confidence", _predict_parity)
 
 
+def _tied_logits_choose_first_label_in_python_and_rust():
+    model = genre.GenreModel(
+        labels=["first", "second"],
+        layers=[{
+            "W": np.zeros((DIM, 2), dtype=np.float64),
+            "b": np.zeros(2, dtype=np.float64),
+            "activation": "softmax",
+        }],
+        embedding_version=sonara.SIMILARITY_VERSION,
+    )
+    py_label, py_conf = model.predict(np.zeros(DIM))
+    assert py_label == "first"
+    assert abs(py_conf - 0.5) < 1e-12
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "tied.json")
+        model.save(path)
+        result = sonara.analyze_signal(_real_signal(), sr=22050, genre_model=path)
+        assert result["genre"] == "first", result
+        assert abs(result["genre_confidence"] - 0.5) < 1e-6, result
+
+
+test("tied logits choose first label in numpy and Rust",
+     _tied_logits_choose_first_label_in_python_and_rust)
+
+
 def _genre_and_embedding_both_when_requested():
     model = genre.train(X, y, seed=0)
     with tempfile.TemporaryDirectory() as tmp:

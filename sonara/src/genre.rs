@@ -170,11 +170,17 @@ impl GenreModel {
     /// so inference never panics.
     pub fn predict(&self, embedding: &[Float]) -> (String, Float) {
         let x = self.predict_probs(embedding);
-        // Last layer is softmax → argmax gives the predicted label.
+        // Last layer is softmax → argmax gives the predicted label. Break
+        // exact ties by lowest label index, matching numpy.argmax.
         let (idx, &conf) = x
             .iter()
             .enumerate()
-            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .max_by(|(idx_a, prob_a), (idx_b, prob_b)| {
+                prob_a
+                    .partial_cmp(prob_b)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| idx_b.cmp(idx_a))
+            })
             .unwrap_or((0, &0.0));
         let label = self
             .labels
@@ -843,6 +849,30 @@ mod tests {
         let (l2, c2) = m.predict(&vec![-3.0; EMBEDDING_DIM]);
         assert_eq!(l2, "b");
         assert!((c2 - conf).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_predict_tie_chooses_first_label() {
+        let zeros48 = "0,".repeat(48);
+        let zeros48 = zeros48.trim_end_matches(',');
+        let json = format!(
+            r#"{{
+              "format_version": 1,
+              "embedding_version": {v},
+              "labels": ["first", "second"],
+              "layers": [
+                {{"weights": [[{z}],[{z}]], "bias": [0.0, 0.0], "activation": "softmax"}}
+              ]
+            }}"#,
+            v = crate::similarity::SIMILARITY_VERSION,
+            z = zeros48
+        );
+        let m = from_json_str(&json).unwrap();
+
+        let (label, conf) = m.predict(&vec![0.0; EMBEDDING_DIM]);
+
+        assert_eq!(label, "first");
+        assert!((conf - 0.5).abs() < 1e-6);
     }
 
     #[test]

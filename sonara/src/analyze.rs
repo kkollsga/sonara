@@ -318,7 +318,12 @@ const EMBEDDING_DEPS: &[&str] = &[
 /// (monotonic logistic remap spreading the output across `[0, 1]`) — values
 /// change, orderings are largely preserved. Consumers with 0.2.2/0.2.3-era
 /// cutoffs on these fields must re-derive.
-pub const ANALYSIS_SCHEMA_VERSION: u32 = 3;
+///
+/// v4 (2026-07-20): tied `predominant_chord` counts now resolve to the
+/// lexicographically smallest label instead of depending on randomized map
+/// iteration. Persisted analyses must be refreshed because an old tied result
+/// may contain any of the equally frequent chord labels.
+pub const ANALYSIS_SCHEMA_VERSION: u32 = 4;
 
 /// STFT hop length (samples) used by the main analysis pass. All frame-index
 /// fields on [`TrackAnalysis`] (`beats`, `onset_frames`, `downbeats`) convert
@@ -2326,7 +2331,7 @@ mod tests {
     #[test]
     fn test_analysis_schema_version_pinned() {
         // Bump deliberately (with a changelog note), never accidentally.
-        assert_eq!(ANALYSIS_SCHEMA_VERSION, 3);
+        assert_eq!(ANALYSIS_SCHEMA_VERSION, 4);
     }
 
     #[test]

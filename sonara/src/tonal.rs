@@ -387,6 +387,9 @@ pub struct ChordDescriptors {
 ///
 /// - `chords`: Chord labels (one per segment)
 /// - `duration_sec`: Total duration in seconds
+///
+/// When multiple chords have the same highest count, the lexicographically
+/// smallest label is selected.
 pub fn chord_descriptors(chords: &[String], duration_sec: Float) -> ChordDescriptors {
     if chords.is_empty() {
         return ChordDescriptors {
@@ -404,7 +407,9 @@ pub fn chord_descriptors(chords: &[String], duration_sec: Float) -> ChordDescrip
 
     let predominant_chord = counts
         .iter()
-        .max_by_key(|(_, &count)| count)
+        .min_by(|(name_a, count_a), (name_b, count_b)| {
+            count_b.cmp(count_a).then_with(|| name_a.cmp(name_b))
+        })
         .map(|(name, _)| name.to_string())
         .unwrap_or_else(|| "N".to_string());
 
@@ -722,6 +727,21 @@ mod tests {
         assert_eq!(desc.predominant_chord, "C");
         assert_eq!(desc.n_unique, 4);
         assert!((desc.change_rate - 0.4).abs() < 0.01); // 4 changes in 10s
+    }
+
+    #[test]
+    fn test_chord_descriptors_tie_is_independent_of_sequence_order() {
+        let permutations = [
+            ["Gm", "A", "G#m", "Gm", "A", "G#m"],
+            ["G#m", "Gm", "A", "G#m", "Gm", "A"],
+            ["A", "G#m", "Gm", "A", "G#m", "Gm"],
+        ];
+
+        for sequence in permutations {
+            let chords = sequence.into_iter().map(String::from).collect::<Vec<_>>();
+            let desc = chord_descriptors(&chords, 6.0);
+            assert_eq!(desc.predominant_chord, "A", "sequence: {sequence:?}");
+        }
     }
 
     #[test]
