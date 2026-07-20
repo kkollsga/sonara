@@ -7,6 +7,7 @@ name = "sonara"
 version = "0.2.8"
 description = "High-performance audio analysis and music information retrieval in Rust"
 requires-python = ">=3.9"
+dependencies = ["numpy>=1.23,<3"]
 license = {file = "LICENSE"}
 readme = "README.md"
 keywords = [
