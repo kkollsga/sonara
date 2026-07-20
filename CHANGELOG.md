@@ -2,6 +2,14 @@
 
 All notable changes to sonara are documented in this file.
 
+## [0.2.7] - 2026-07-20
+
+### Fixed
+- MP3 loading now retries extension-confirmed streams with the MPEG audio
+  reader when generic probing aborts on malformed ID3 text metadata or a false
+  ADTS marker. Invalid metadata no longer hides decodable audio; fake MP3s
+  remain rejected and failed recovery preserves the original probe diagnostic.
+
 ## [0.2.6] - 2026-07-20
 
 ### Added

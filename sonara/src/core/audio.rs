@@ -234,7 +234,7 @@ fn load_symphonia(
 ) -> Result<(Vec<Float>, u32, usize, Option<TrackTags>)> {
     use symphonia::core::audio::SampleBuffer;
     use symphonia::core::codecs::DecoderOptions;
-    use symphonia::core::formats::FormatOptions;
+    use symphonia::core::formats::{FormatOptions, FormatReader};
     use symphonia::core::io::MediaSourceStream;
     use symphonia::core::meta::MetadataOptions;
     use symphonia::core::probe::Hint;
@@ -248,16 +248,37 @@ fn load_symphonia(
         hint.with_extension(ext);
     }
 
-    let mut probed = symphonia::default::get_probe()
-        .format(
-            &hint,
-            mss,
-            &FormatOptions::default(),
-            &MetadataOptions::default(),
-        )
-        .map_err(|e| map_symphonia_err(path, "probe", None, e))?;
-
-    let mut format = probed.format;
+    let format_options = FormatOptions::default();
+    let metadata_options = MetadataOptions::default();
+    let (mut format, mut probe_metadata): (
+        Box<dyn FormatReader>,
+        Option<symphonia::core::probe::ProbedMetadata>,
+    ) = match symphonia::default::get_probe().format(&hint, mss, &format_options, &metadata_options)
+    {
+        Ok(probed) => (probed.format, Some(probed.metadata)),
+        Err(probe_err)
+            if path
+                .extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("mp3")) =>
+        {
+            // Generic probing stops at the first recognized marker. That can
+            // make valid MP3 audio unavailable when an ID3 frame is malformed,
+            // or when junk before the first MPEG frame resembles ADTS. Retry
+            // the extension-confirmed stream with the MP3 reader, which
+            // resynchronizes to consecutive MPEG frames and bypasses metadata.
+            let file = std::fs::File::open(path)
+                .map_err(|e| SonaraError::AudioFile(format!("{}: {}", path.display(), e)))?;
+            let mss = MediaSourceStream::new(Box::new(file), Default::default());
+            match symphonia::default::formats::MpaReader::try_new(mss, &format_options) {
+                Ok(reader) => (Box::new(reader), None),
+                // Keep the original probe diagnostic when explicit MP3
+                // recovery also rejects the stream.
+                Err(_) => return Err(map_symphonia_err(path, "probe", None, probe_err)),
+            }
+        }
+        Err(e) => return Err(map_symphonia_err(path, "probe", None, e)),
+    };
 
     // Extract tags (opt-in). Merge two sources: the probe-level metadata (e.g.
     // an ID3v2 tag ahead of the stream) first, then any container-internal
@@ -266,9 +287,11 @@ fn load_symphonia(
     // wins.
     let tags = if want_tags {
         let mut t = TrackTags::default();
-        if let Some(mut probe_meta) = probed.metadata.get() {
-            if let Some(rev) = probe_meta.skip_to_latest() {
-                merge_tags(&mut t, rev.tags());
+        if let Some(probed) = probe_metadata.as_mut() {
+            if let Some(mut probe_meta) = probed.get() {
+                if let Some(rev) = probe_meta.skip_to_latest() {
+                    merge_tags(&mut t, rev.tags());
+                }
             }
         }
         {
@@ -1324,6 +1347,59 @@ mod tests {
             ),
             "fake mp3 must still fail: {res:?}"
         );
+    }
+
+    #[test]
+    fn test_load_mp3_ignores_malformed_id3_text_frame() {
+        let fixture = std::path::Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../tests/fixtures/tagged.mp3"
+        ));
+        let mut bytes = std::fs::read(fixture).unwrap();
+
+        // The synthetic fixture starts with an ID3v2.3 TIT2 frame. Encoding
+        // values 0..=3 are defined; 4 reproduces Symphonia's
+        // `id3v2: invalid text encoding` probe failure without retaining any
+        // bytes from the reported track.
+        assert_eq!(&bytes[..14], b"ID3\x03\0\0\0\0\x01,TIT2");
+        bytes[20] = 4;
+
+        let dir = std::env::temp_dir().join("sonara_malformed_id3_mp3_test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("malformed-text-frame.mp3");
+        std::fs::write(&path, bytes).unwrap();
+
+        let (y, sr, tags) = load_with_tags(&path, 22050, true, 0.0, 0.0, true).unwrap();
+        assert_eq!(sr, 22050);
+        assert!(!y.is_empty());
+        assert!(y.iter().all(|s| s.is_finite()));
+        assert_eq!(tags, Some(TrackTags::default()));
+    }
+
+    #[test]
+    fn test_load_mp3_retries_after_false_adts_probe() {
+        let fixture = std::path::Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../tests/fixtures/tagged.mp3"
+        ));
+        let source = std::fs::read(fixture).unwrap();
+
+        // Strip the fixture's 310-byte ID3 tag and prepend the minimum ADTS
+        // header that selects reserved sample-rate index 13. Generic probing
+        // commits to ADTS and errors; the following bytes are valid synthetic
+        // MP3 frames.
+        let mut bytes = vec![0xff, 0xf1, 0x7b, 0x7e, 0x2e, 0x58, 0xe2];
+        bytes.extend_from_slice(&source[310..]);
+
+        let dir = std::env::temp_dir().join("sonara_false_adts_mp3_test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("false-adts-marker.mp3");
+        std::fs::write(&path, bytes).unwrap();
+
+        let (y, sr) = load(&path, 22050, true, 0.0, 0.0).unwrap();
+        assert_eq!(sr, 22050);
+        assert!(!y.is_empty());
+        assert!(y.iter().all(|s| s.is_finite()));
     }
 
     #[test]
