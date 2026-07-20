@@ -59,13 +59,21 @@ def check_contract() -> None:
         check=True,
     )
 
-    # Local agent rules/workflow skills are gitignored and may not exist in a
-    # clean clone, but when present they must consume the same runner.
+    for args in (("--check-source",), ("--self-test",)):
+        subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "sync_workflow_skills.py"), *args],
+            cwd=ROOT,
+            check=True,
+        )
+
+    # Local agent rules may not exist in a clean clone. Workflow skills are
+    # validated from their committed canonical sources above; installed mirrors
+    # are checked as a release precondition.
     for relative in (
         "AGENTS.md",
         "CLAUDE.md",
-        ".agents/skills/release/SKILL.md",
-        ".agents/skills/phased-plan/SKILL.md",
+        "workflow/skills/release/SKILL.md",
+        "workflow/skills/phased-plan/SKILL.md",
     ):
         path = ROOT / relative
         if path.exists() and RUNNER_PATH not in path.read_text(encoding="utf-8"):

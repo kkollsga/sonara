@@ -46,6 +46,7 @@ benchmark_phases1_4.json
 
 # Claude / AI tooling (local only)
 .claude/
+/.agents/
 CLAUDE.md
 AGENTS.md
 

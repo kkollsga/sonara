@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "skills": [
+    "add-todo",
+    "dev-docs-cleanup",
+    "notify",
+    "phased-plan",
+    "read-inbox",
+    "release"
+  ],
+  "mirrors": [
+    ".agents/skills",
+    ".claude/skills"
+  ]
+}
