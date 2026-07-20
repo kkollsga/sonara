@@ -51,6 +51,13 @@ def check_contract() -> None:
         if RUNNER_PATH not in text:
             raise AssertionError(f"{relative} does not use {RUNNER_PATH!r}")
 
+    subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "check_release_artifacts.py"),
+         "--check-workflow"],
+        cwd=ROOT,
+        check=True,
+    )
+
     # Local agent rules/workflow skills are gitignored and may not exist in a
     # clean clone, but when present they must consume the same runner.
     for relative in (

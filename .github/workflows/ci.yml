@@ -42,8 +42,100 @@ jobs:
       - name: Python tests
         run: ${{ matrix.venv-python }} scripts/run_python_tests.py
 
+  build_wheels:
+    name: wheel (${{ matrix.label }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: linux-x86_64
+            os: ubuntu-latest
+            target: x86_64
+            manylinux: "2014"
+          - label: macos-x86_64
+            os: macos-15-intel
+            target: x86_64-apple-darwin
+            manylinux: "off"
+          - label: macos-arm64
+            os: macos-15
+            target: aarch64-apple-darwin
+            manylinux: "off"
+          - label: windows-x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            manylinux: "off"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Build abi3 wheel
+        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380
+        with:
+          maturin-version: v1.11.5
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux }}
+          args: --release --locked --compatibility pypi --out dist -m sonara-python/Cargo.toml
+      - name: Smoke-install wheel
+        run: python scripts/smoke_artifacts.py --artifact-dir dist --kind wheel
+      - name: Upload verified wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-wheel-${{ matrix.label }}
+          path: dist/*.whl
+          if-no-files-found: error
+
+  build_sdist:
+    name: sdist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Build sdist
+        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380
+        with:
+          maturin-version: v1.11.5
+          command: sdist
+          args: --out dist -m sonara-python/Cargo.toml
+      - name: Smoke-install sdist
+        run: python scripts/smoke_artifacts.py --artifact-dir dist --kind sdist
+      - name: Upload verified sdist
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-sdist
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  collect_artifacts:
+    name: collect verified release artifacts
+    needs: [build_wheels, build_sdist]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Download verified artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+      - name: Verify exact artifact set
+        run: python scripts/check_release_artifacts.py dist
+      - name: Upload exact release set
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts
+          path: dist/*
+          if-no-files-found: error
+
   publish:
-    needs: [test]
+    needs: [test, collect_artifacts]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: pypi
@@ -79,12 +171,16 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Build sdist
+      - name: Download verified release set
         if: steps.check.outputs.exists == 'false'
-        uses: PyO3/maturin-action@v1
+        uses: actions/download-artifact@v4
         with:
-          command: sdist
-          args: -m sonara-python/Cargo.toml --out dist
+          name: release-artifacts
+          path: dist
+
+      - name: Recheck exact artifact set
+        if: steps.check.outputs.exists == 'false'
+        run: python scripts/check_release_artifacts.py dist
 
       - name: Publish to PyPI
         if: steps.check.outputs.exists == 'false'

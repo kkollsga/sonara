@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import os
 from pathlib import Path
 import subprocess
@@ -75,8 +76,26 @@ print(json.dumps({
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--artifact-dir", type=Path)
+    parser.add_argument("--kind", choices=("wheel", "sdist"))
+    args = parser.parse_args()
+    if (args.artifact_dir is None) != (args.kind is None):
+        parser.error("--artifact-dir and --kind must be supplied together")
+
     with tempfile.TemporaryDirectory(prefix="sonara-artifact-smoke-") as temp:
         work = Path(temp)
+        if args.artifact_dir is not None:
+            pattern = "*.whl" if args.kind == "wheel" else "*.tar.gz"
+            artifacts = sorted(args.artifact_dir.resolve().glob(pattern))
+            if len(artifacts) != 1:
+                raise AssertionError(
+                    f"expected one {args.kind} in {args.artifact_dir}, got {artifacts}"
+                )
+            smoke(artifacts[0], work)
+            print(f"{args.kind} smoke install passed")
+            return
+
         dist = work / "dist"
         dist.mkdir()
         build_env = os.environ.copy()
