@@ -66,6 +66,15 @@ def check_contract() -> None:
             check=True,
         )
 
+    for relative in (
+        "scripts/run_fidelity_gate.py",
+        "tests/scripts/test_run_fidelity_gate.py",
+    ):
+        command = [sys.executable, str(ROOT / relative)]
+        if relative.startswith("scripts/"):
+            command.append("--check-contract")
+        subprocess.run(command, cwd=ROOT, check=True)
+
     # Local agent rules may not exist in a clean clone. Workflow skills are
     # validated from their committed canonical sources above; installed mirrors
     # are checked as a release precondition.

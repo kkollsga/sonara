@@ -14,6 +14,7 @@ pub mod filters;
 pub mod fingerprint;
 pub mod genre;
 pub mod loudness_ext;
+mod mood;
 pub mod onset;
 pub mod perceptual;
 pub mod segment;

@@ -686,110 +686,10 @@ pub fn acousticness(
     (0.30 * tonal + 0.30 * hf + 0.20 * bright + 0.20 * calm).clamp(0.0, 1.0)
 }
 
-// ============================================================
-// Tier 2: Mood (heuristic v1)
-// ============================================================
-
-/// Four rough mood affinities, each in `[0, 1]`. Heuristic v1 — NOT an ML
-/// classifier. The four scores are correlated (a happy track tends to be
-/// un-sad) but are computed independently and are **not** constrained to sum
-/// to 1.
-pub struct MoodScores {
-    /// Bright/upbeat affinity: major mode + moderate-fast tempo + brightness + danceability.
-    pub happy: Float,
-    /// Intense/harsh affinity: energy + rhythmic density + dissonance + minor nudge.
-    pub aggressive: Float,
-    /// Calm affinity: low energy + slow tempo + sparse onsets + narrow dynamics.
-    pub relaxed: Float,
-    /// Melancholic affinity: minor mode + slow tempo + darkness + low energy.
-    pub sad: Float,
-}
-
-/// Heuristic mood affinities (happy / aggressive / relaxed / sad), each `[0, 1]`.
-///
-/// **Heuristic v1, not ML.** These are rough hints derived — like [`valence`]
-/// and [`acousticness`] — from scalars the fused pipeline already produced. No
-/// extra signal processing. Perceived mood is subjective and context-dependent;
-/// treat these as coarse tags, not ground truth.
-///
-/// The two composite drivers (`energy`, `danceability_heuristic`) are recomputed
-/// internally from the same raw scalars, so a mood request does not depend on
-/// whether the caller also asked for those fields.
-///
-/// Terms (each normalized to `[0, 1]` over empirical music ranges):
-/// - `mode_major` / `mode_minor`: 1/0 for a confident major key, 0/1 for minor,
-///   0.5/0.5 when key confidence `< 0.05` (mirrors [`valence`]'s neutral term).
-///   `None` `key_result` is treated as neutral (defensive — mood is extended-gated).
-/// - `tempo` = `((bpm-60)/120)`; `slow` = `1-tempo`.
-/// - `brightness` = `((centroid-1000)/3000)`; `darkness` = `1-brightness`.
-/// - `onset` = `onset_density/8` (saturates at 8 onsets/sec); `low_onset` = `1-onset`.
-/// - `diss` = clamped `dissonance` (0 when unavailable).
-/// - `narrow_dyn` = `1 - dynamic_range_db/20` (narrow dynamics → relaxed).
-///
-/// Weighted sums (weights per score sum to 1, so each is already in `[0, 1]`;
-/// clamped defensively):
-/// - happy      = 0.35·major   + 0.25·tempo     + 0.20·brightness + 0.20·dance
-/// - aggressive = 0.35·energy  + 0.30·onset      + 0.20·diss       + 0.15·minor
-/// - relaxed    = 0.30·(1-energy) + 0.25·slow    + 0.25·low_onset  + 0.20·narrow_dyn
-/// - sad        = 0.35·minor   + 0.25·slow       + 0.20·darkness   + 0.20·(1-energy)
-#[allow(clippy::too_many_arguments)]
-pub fn mood_scores(
-    key_result: Option<&KeyResult>,
-    bpm: Float,
-    rms_mean: Float,
-    spectral_centroid_mean: Float,
-    onset_density: Float,
-    spectral_bandwidth_mean: Float,
-    beats: &[usize],
-    dissonance: Option<Float>,
-    dynamic_range_db: Float,
-) -> MoodScores {
-    // Composite drivers, recomputed from raw scalars (cheap, self-contained).
-    let energy_val = energy(
-        rms_mean,
-        spectral_centroid_mean,
-        onset_density,
-        spectral_bandwidth_mean,
-    );
-    let dance_val = danceability_heuristic(bpm, beats, onset_density);
-
-    // Mode term (neutral 0.5/0.5 at low confidence or missing key).
-    let (mode_major, mode_minor) = match key_result {
-        Some(kr) if kr.confidence >= 0.05 => {
-            if kr.mode == "major" {
-                (1.0, 0.0)
-            } else {
-                (0.0, 1.0)
-            }
-        }
-        _ => (0.5, 0.5),
-    };
-
-    let tempo = ((bpm - 60.0) / 120.0).clamp(0.0, 1.0);
-    let slow = 1.0 - tempo;
-    let brightness = ((spectral_centroid_mean - 1000.0) / 3000.0).clamp(0.0, 1.0);
-    let darkness = 1.0 - brightness;
-    let onset = (onset_density / 8.0).clamp(0.0, 1.0);
-    let low_onset = 1.0 - onset;
-    let diss = dissonance.map(|d| d.clamp(0.0, 1.0)).unwrap_or(0.0);
-    let narrow_dyn = (1.0 - (dynamic_range_db / 20.0)).clamp(0.0, 1.0);
-
-    let happy =
-        (0.35 * mode_major + 0.25 * tempo + 0.20 * brightness + 0.20 * dance_val).clamp(0.0, 1.0);
-    let aggressive =
-        (0.35 * energy_val + 0.30 * onset + 0.20 * diss + 0.15 * mode_minor).clamp(0.0, 1.0);
-    let relaxed = (0.30 * (1.0 - energy_val) + 0.25 * slow + 0.25 * low_onset + 0.20 * narrow_dyn)
-        .clamp(0.0, 1.0);
-    let sad = (0.35 * mode_minor + 0.25 * slow + 0.20 * darkness + 0.20 * (1.0 - energy_val))
-        .clamp(0.0, 1.0);
-
-    MoodScores {
-        happy,
-        aggressive,
-        relaxed,
-        sad,
-    }
-}
+// Kept at this public path for compatibility; implementation is isolated so
+// mood-specific accuracy work no longer requires editing this cross-cutting
+// perceptual module.
+pub use crate::mood::{mood_scores, MoodScores};
 
 // ============================================================
 // Tests
@@ -1081,6 +981,61 @@ mod tests {
             m.aggressive,
             m.relaxed
         );
+    }
+
+    #[test]
+    fn test_mood_v1_characterization_bits() {
+        let minor = KeyResult {
+            key: "E",
+            mode: "minor",
+            confidence: 0.5,
+        };
+        let major = KeyResult {
+            key: "C",
+            mode: "major",
+            confidence: 0.8,
+        };
+        let cases = [
+            mood_scores(
+                Some(&minor),
+                150.0,
+                0.45,
+                4000.0,
+                9.0,
+                3000.0,
+                &regular_beats(),
+                Some(0.8),
+                12.0,
+            ),
+            mood_scores(None, 72.0, 0.08, 900.0, 0.7, 800.0, &[], None, 5.0),
+            mood_scores(
+                Some(&major),
+                122.0,
+                0.3,
+                2500.0,
+                4.0,
+                1800.0,
+                &[0, 500, 1050, 1500],
+                Some(0.25),
+                9.0,
+            ),
+        ];
+        let expected = [
+            [0x3ed067b3, 0x3f664862, 0x3e46fc25, 0x3ee4e368],
+            [0x3e4ce027, 0x3e308c9e, 0x3f5795cc, 0x3f4263dd],
+            [0x3f415c66, 0x3ec4cd72, 0x3efedec8, 0x3ea185bb],
+        ];
+        for (mood, bits) in cases.into_iter().zip(expected) {
+            assert_eq!(
+                [
+                    mood.happy.to_bits(),
+                    mood.aggressive.to_bits(),
+                    mood.relaxed.to_bits(),
+                    mood.sad.to_bits(),
+                ],
+                bits
+            );
+        }
     }
 
     #[test]
