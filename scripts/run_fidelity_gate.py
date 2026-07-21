@@ -18,6 +18,11 @@ MAP_PATH = ROOT / "tests" / "fidelity_gates.json"
 GLOB_META = frozenset("*?[")
 
 
+def canonical_text_sha256(content: bytes) -> str:
+    """Hash repository text independently of Git's checkout newline policy."""
+    return hashlib.sha256(content.replace(b"\r\n", b"\n")).hexdigest()
+
+
 def normalize_path(path: str) -> str:
     normalized = path.replace("\\", "/")
     while normalized.startswith("./"):
@@ -212,7 +217,7 @@ def validate_map(
             raise ValueError("reviewed transition must change content")
         if not isinstance(transition["reason"], str) or not transition["reason"].strip():
             raise ValueError("reviewed transition reason must be non-empty")
-        current = hashlib.sha256((root / path).read_bytes()).hexdigest()
+        current = canonical_text_sha256((root / path).read_bytes())
         if current != transition["head_sha256"]:
             raise ValueError(f"reviewed transition head hash is stale: {path}")
 
@@ -252,7 +257,7 @@ def sha256_at_revision(root: Path, revision: str, path: str) -> str | None:
     )
     if result.returncode != 0:
         return None
-    return hashlib.sha256(result.stdout).hexdigest()
+    return canonical_text_sha256(result.stdout)
 
 
 def reviewed_transition_applies(data: dict, path: str, root: Path, merge_base: str) -> bool:
@@ -263,7 +268,7 @@ def reviewed_transition_applies(data: dict, path: str, root: Path, merge_base: s
     if transition is None:
         return False
     current_path = root / path
-    current = hashlib.sha256(current_path.read_bytes()).hexdigest() if current_path.is_file() else None
+    current = canonical_text_sha256(current_path.read_bytes()) if current_path.is_file() else None
     base = sha256_at_revision(root, merge_base, path)
     return current == transition["head_sha256"] and base == transition["base_sha256"]
 

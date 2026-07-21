@@ -31,6 +31,12 @@ def minimal_map() -> dict:
 
 
 class FidelityMapContractTests(unittest.TestCase):
+    def test_reviewed_transition_hash_is_crlf_stable(self) -> None:
+        self.assertEqual(
+            ROUTER.canonical_text_sha256(b"first\nsecond\n"),
+            ROUTER.canonical_text_sha256(b"first\r\nsecond\r\n"),
+        )
+
     def test_live_map_is_exhaustive(self) -> None:
         data = ROUTER.load_map()
         ROUTER.check_contract(data)
