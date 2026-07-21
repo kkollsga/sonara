@@ -23,6 +23,8 @@ jobs:
             venv-python: ./.venv/Scripts/python.exe
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-python@v6
         with:
@@ -41,6 +43,12 @@ jobs:
 
       - name: Python tests
         run: ${{ matrix.venv-python }} scripts/run_python_tests.py
+
+      - name: Fidelity routing
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          FIDELITY_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: ${{ matrix.venv-python }} scripts/run_fidelity_gate.py --base "$FIDELITY_BASE"
 
   build_wheels:
     name: wheel (${{ matrix.label }})

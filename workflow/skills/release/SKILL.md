@@ -62,7 +62,7 @@ the record, alongside git history — not skipped).
    - The Python API scripts, exactly as CI runs them:
      `python scripts/run_python_tests.py`.
    - **If this release changes detection/accuracy**, route the changed paths via
-     `python scripts/run_fidelity_gate.py --changed <paths>`. A blocked domain
+     `python scripts/run_fidelity_gate.py --base origin/main`. A blocked domain
      or unavailable required local dataset blocks the release. Run any broader
      labeled local gate required by the plan as well; report-only scripts do
      not count as accuracy evidence.

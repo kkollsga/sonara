@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -44,6 +45,45 @@ def repository_files(root: Path) -> set[str]:
     return files
 
 
+def git_output(root: Path, *args: str) -> bytes:
+    return subprocess.run(
+        ["git", *args],
+        cwd=root,
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    ).stdout
+
+
+def nul_paths(output: bytes) -> set[str]:
+    return {
+        normalize_path(value)
+        for value in output.decode("utf-8").split("\0")
+        if value
+    }
+
+
+def derive_changed_paths(root: Path, base: str, protected: list[str]) -> tuple[str, set[str]]:
+    try:
+        git_output(root, "rev-parse", "--verify", f"{base}^{{commit}}")
+        merge_base = git_output(root, "merge-base", base, "HEAD").decode("utf-8").strip()
+    except subprocess.CalledProcessError as exc:
+        raise ValueError(f"cannot resolve fidelity base {base!r}") from exc
+    if not merge_base:
+        raise ValueError(f"cannot resolve merge base for {base!r}")
+
+    changed: set[str] = set()
+    for args in (
+        ("diff", "--name-only", "-z", "--no-renames", f"{merge_base}...HEAD"),
+        ("diff", "--cached", "--name-only", "-z", "--no-renames"),
+        ("diff", "--name-only", "-z", "--no-renames"),
+    ):
+        changed.update(nul_paths(git_output(root, *args)))
+    untracked = nul_paths(git_output(root, "ls-files", "--others", "--exclude-standard", "-z"))
+    changed.update(path for path in untracked if matches(path, protected))
+    return merge_base, changed
+
+
 def protected_files(data: dict, root: Path) -> set[str]:
     patterns = data.get("protected_globs", [])
     return {path for path in repository_files(root) if matches(path, patterns)}
@@ -56,7 +96,13 @@ def validate_map(
     *,
     check_commands: bool = True,
 ) -> None:
-    if set(data) != {"version", "protected_globs", "domains", "ownership"}:
+    if set(data) != {
+        "version",
+        "protected_globs",
+        "domains",
+        "ownership",
+        "reviewed_transitions",
+    }:
         raise ValueError("fidelity map keys do not match the v2 contract")
     if data["version"] != 2:
         raise ValueError("fidelity map version must be 2")
@@ -131,6 +177,45 @@ def validate_map(
         if len(owners) != 1:
             raise ValueError(f"{path}: expected exactly one owner, found {len(owners)}")
 
+    transitions = data["reviewed_transitions"]
+    if not isinstance(transitions, list):
+        raise ValueError("reviewed_transitions must be a list")
+    seen_transition_paths: set[str] = set()
+    for index, transition in enumerate(transitions):
+        if not isinstance(transition, dict) or set(transition) != {
+            "path",
+            "base_sha256",
+            "head_sha256",
+            "reason",
+        }:
+            raise ValueError(f"reviewed_transitions[{index}] is malformed")
+        path = transition["path"]
+        if (
+            not isinstance(path, str)
+            or normalize_path(path) != path
+            or any(char in path for char in GLOB_META)
+            or path in seen_transition_paths
+        ):
+            raise ValueError(f"invalid reviewed transition path: {path!r}")
+        seen_transition_paths.add(path)
+        if path not in files:
+            raise ValueError(f"reviewed transition path is not a current protected file: {path}")
+        for key in ("base_sha256", "head_sha256"):
+            value = transition[key]
+            if value is not None and (
+                not isinstance(value, str)
+                or len(value) != 64
+                or any(char not in "0123456789abcdef" for char in value)
+            ):
+                raise ValueError(f"reviewed_transitions[{index}].{key} is not SHA-256")
+        if transition["base_sha256"] == transition["head_sha256"]:
+            raise ValueError("reviewed transition must change content")
+        if not isinstance(transition["reason"], str) or not transition["reason"].strip():
+            raise ValueError("reviewed transition reason must be non-empty")
+        current = hashlib.sha256((root / path).read_bytes()).hexdigest()
+        if current != transition["head_sha256"]:
+            raise ValueError(f"reviewed transition head hash is stale: {path}")
+
 
 def load_map(path: Path = MAP_PATH, root: Path = ROOT) -> dict:
     data = json.loads(path.read_text(encoding="utf-8"))
@@ -158,6 +243,31 @@ def domains_for_paths(data: dict, changed: list[str]) -> set[str]:
     return resolved
 
 
+def sha256_at_revision(root: Path, revision: str, path: str) -> str | None:
+    result = subprocess.run(
+        ["git", "show", f"{revision}:{path}"],
+        cwd=root,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
+    if result.returncode != 0:
+        return None
+    return hashlib.sha256(result.stdout).hexdigest()
+
+
+def reviewed_transition_applies(data: dict, path: str, root: Path, merge_base: str) -> bool:
+    transition = next(
+        (item for item in data["reviewed_transitions"] if item["path"] == path),
+        None,
+    )
+    if transition is None:
+        return False
+    current_path = root / path
+    current = hashlib.sha256(current_path.read_bytes()).hexdigest() if current_path.is_file() else None
+    base = sha256_at_revision(root, merge_base, path)
+    return current == transition["head_sha256"] and base == transition["base_sha256"]
+
+
 def check_contract(data: dict) -> None:
     expected = {
         "sonara/models/vocalness_v2.json": {"vocalness"},
@@ -177,8 +287,7 @@ def check_contract(data: dict) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--domain", action="append", choices=None)
-    parser.add_argument("--changed", nargs="+")
+    parser.add_argument("--base")
     parser.add_argument("--check-contract", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
@@ -187,21 +296,35 @@ def main() -> int:
     if args.check_contract:
         print("fidelity routing contract: PASS")
         return 0
+    if not args.base:
+        raise ValueError("--base is required when running fidelity gates")
 
-    domains = set(args.domain or [])
-    unknown = domains - set(data["domains"])
-    if unknown:
-        raise ValueError(f"unknown fidelity domains: {sorted(unknown)}")
-    domains.update(domains_for_paths(data, args.changed or []))
+    merge_base, changed = derive_changed_paths(ROOT, args.base, data["protected_globs"])
+    domains: set[str] = set()
+    for path in sorted(changed):
+        owner = path_owner(data, path)
+        if owner is None or "exemption" in owner:
+            continue
+        if reviewed_transition_applies(data, path, ROOT, merge_base):
+            print(f"REVIEWED TRANSITION {path}")
+            continue
+        domains.update(owner["domains"])
     if not domains:
         print("no changed accuracy domain requires a fidelity gate")
         return 0
 
+    blocked = [
+        (name, data["domains"][name]["blocked"])
+        for name in sorted(domains)
+        if "blocked" in data["domains"][name]
+    ]
+    if blocked:
+        for name, reason in blocked:
+            print(f"BLOCKED {name}: {reason}", file=sys.stderr)
+        return 2
+
     for name in sorted(domains):
         route = data["domains"][name]
-        if "blocked" in route:
-            print(f"BLOCKED {name}: {route['blocked']}", file=sys.stderr)
-            return 2
         command = [sys.executable if value == "{python}" else value for value in route["command"]]
         print(f"=== fidelity:{name} ===", flush=True)
         if args.dry_run:

@@ -33,7 +33,8 @@ python scripts/run_python_tests.py
 ```
 
 CI runs exactly this suite on Linux, macOS, and Windows. Accuracy-sensitive
-paths are routed through `python scripts/run_fidelity_gate.py --changed <paths>`.
+paths are derived from Git and routed through
+`python scripts/run_fidelity_gate.py --base <merge-base-or-base-ref>`.
 The audio-free vocalness fixture is mandatory. The local vocalness corpus gate
 fails closed; `test_tonal_batch.py` remains a report-only sanity check and is
 not a substitute for labeled accuracy evidence.

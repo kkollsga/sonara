@@ -69,6 +69,9 @@ def check_workflow() -> None:
         "python scripts/check_release_artifacts.py dist",
         "packages-dir: dist/",
         "gh release create \"$VERSION\" dist/* --generate-notes",
+        "fetch-depth: 0",
+        "scripts/run_fidelity_gate.py --base",
+        "FIDELITY_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}",
     )
     missing = [value for value in required if value not in text]
     if missing:

@@ -16,6 +16,26 @@
     "tests/reference_data/*",
     "tests/scripts/test_run_fidelity_gate.py"
   ],
+  "reviewed_transitions": [
+    {
+      "path": "sonara/src/lib.rs",
+      "base_sha256": "8679cf7912fa38f3669d05a82b194021c861d5414041dffe54bcfd41142544a4",
+      "head_sha256": "0e71c5f1eda733fe4c471286fd7821130ccf054c15c5d49c8f3c6a475780ae87",
+      "reason": "one-time bit-preserving mood-module boundary before diff enforcement"
+    },
+    {
+      "path": "sonara/src/mood.rs",
+      "base_sha256": null,
+      "head_sha256": "14a1fadec04735e96772f9e6044fe2748829a98b43d92a49d74c2ce5b798fc25",
+      "reason": "one-time bit-preserving extraction guarded by frozen scalar outputs"
+    },
+    {
+      "path": "sonara/src/perceptual.rs",
+      "base_sha256": "cbbd1056cd517f412bd0310f4bce4b1c6807afc87b434028030f736c319b9203",
+      "head_sha256": "c155879147650103802c47d215d356bfe75438b7427ea379a5755a6b0a626eab",
+      "reason": "one-time re-export transition guarded by frozen scalar outputs"
+    }
+  ],
   "domains": {
     "vocalness": {
       "command": ["{python}", "tests/python/test_vocalness_frozen.py"]
