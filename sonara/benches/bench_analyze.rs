@@ -4,6 +4,7 @@ use std::f32::consts::PI;
 
 use sonara::analyze;
 use sonara::types::Float;
+use std::collections::HashSet;
 
 fn generate_signal(sr: u32, duration_secs: usize) -> Array1<Float> {
     let n = sr as usize * duration_secs;
@@ -87,11 +88,32 @@ fn bench_all_modes(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_mood_opt_in(c: &mut Criterion) {
+    let mut group = c.benchmark_group("analyze_mood_opt_in");
+    let cfg = analyze::AnalysisConfig {
+        features: Some(HashSet::from(["mood".to_string()])),
+        ..analyze::compact()
+    };
+
+    for secs in [1, 5, 30] {
+        let signal = generate_signal(22050, secs);
+        group.bench_with_input(
+            BenchmarkId::new("mood", format!("{}s", secs)),
+            &signal,
+            |b, sig| {
+                b.iter(|| analyze::analyze_signal(sig.view(), 22050, &cfg).unwrap());
+            },
+        );
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_compact,
     bench_playlist,
     bench_full,
-    bench_all_modes
+    bench_all_modes,
+    bench_mood_opt_in
 );
 criterion_main!(benches);

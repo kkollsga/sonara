@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "definition": "harsh or forceful musical presentation",
+  "development_minimum_pairs": 24,
+  "development_sources": 2,
+  "shadow_tracks_per_source": 128,
+  "locked_manifest": {
+    "status": "must remain sealed until candidate transforms and constants are frozen",
+    "minimum_pairs": 20,
+    "reveal_count": 1
+  },
+  "go_criteria": {
+    "development_pair_accuracy_min": 0.8,
+    "locked_pair_accuracy_min": 0.8,
+    "median_ordering_margin_min": 0.15,
+    "reported_anchor_margin_min": 0.1,
+    "absolute_confound_spearman_max": 0.5,
+    "saturation_fraction_max": 0.05,
+    "non_music_confidence_max": 0.3,
+    "gain_delta_max": 0.03,
+    "channel_delta_max": 0.05,
+    "resample_crop_codec_delta_max": 0.1,
+    "metamorphic_pass_fraction_min": 0.9
+  },
+  "no_go_conditions": [
+    "any required exact hash is missing",
+    "physical components do not separate before weighting",
+    "success depends on artist, title, genre, or locked-set tuning",
+    "any locked criterion fails"
+  ],
+  "performance_criteria": {
+    "compact_30s_historical_max_ms": 3.71,
+    "compact_matched_ab_regression_max": 0.02,
+    "playlist_significant_regression_allowed": false,
+    "mood_incremental_regression_max": 0.1,
+    "extra_fft_or_spectrum_matrix_allowed": false
+  }
+}

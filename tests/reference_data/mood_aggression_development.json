@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "schema": "sonara.mood-aggression-evidence.v1",
+  "hash_kind": "mp3-audio-v1",
+  "decode": {
+    "sample_rate": 22050,
+    "offset_seconds": 30.0,
+    "duration_seconds": 60.0
+  },
+  "cases": [
+    {
+      "case_id": "dance-anchor-01",
+      "content_hash": "bfb5f639babc7771e14ad917e3ade0f55b8b6255f070e2ead60c7bb5f0455656",
+      "expected_presentation": "dance"
+    },
+    {
+      "case_id": "dance-anchor-02",
+      "content_hash": "1d477a4ba7974f850076d63e0d7c9930b4b0b6fb9cc099d05efe53a7f1d2ea7b",
+      "expected_presentation": "dance"
+    },
+    {
+      "case_id": "dance-anchor-03",
+      "content_hash": "5f372fc75b544e727fa21ad783118cd80d2d27bca61d6350ff8f4808df508a8c",
+      "expected_presentation": "dance"
+    },
+    {
+      "case_id": "rough-anchor-01",
+      "content_hash": "9504dd987692f509a3d8db5969c03c2a3f6aa8a0bfcea1ffc29e402d23359e2b",
+      "expected_presentation": "rough"
+    },
+    {
+      "case_id": "rough-anchor-02",
+      "content_hash": "3fc170b03c974bbfc476cab49b80f132d5e210879a38e4be6f0599fd035d99f6",
+      "expected_presentation": "rough"
+    },
+    {
+      "case_id": "rough-anchor-03",
+      "content_hash": "b798ddd37fd4234add6150345c4f45d1991058701ac2c4b2826613401e7a0782",
+      "expected_presentation": "rough"
+    }
+  ]
+}
