@@ -66,6 +66,13 @@ def check_contract() -> None:
             check=True,
         )
 
+    for args in (("--check",), ("--self-test",)):
+        subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "check_python_contract.py"), *args],
+            cwd=ROOT,
+            check=True,
+        )
+
     for relative in (
         "scripts/run_fidelity_gate.py",
         "tests/scripts/test_run_fidelity_gate.py",

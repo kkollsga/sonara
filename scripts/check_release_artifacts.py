@@ -9,10 +9,12 @@ import re
 import sys
 import tomllib
 
+from check_python_contract import abi_tag
+
 
 ROOT = Path(__file__).resolve().parents[1]
 WHEEL_RE = re.compile(
-    r"^sonara-(?P<version>\d+\.\d+\.\d+)-cp39-abi3-(?P<platform>.+)\.whl$"
+    rf"^sonara-(?P<version>\d+\.\d+\.\d+)-{re.escape(abi_tag())}-(?P<platform>.+)\.whl$"
 )
 
 

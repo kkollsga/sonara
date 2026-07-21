@@ -4,7 +4,8 @@ Thanks for helping improve sonara. This guide covers setting up a dev environmen
 
 ## Dev setup
 
-You need a stable Rust toolchain and Python 3.9+.
+You need a stable Rust toolchain and Python 3.11+ for repository tooling; the
+published package itself supports Python 3.10+.
 
 ```bash
 # Rust core builds with plain cargo
