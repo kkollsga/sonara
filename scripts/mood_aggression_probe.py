@@ -17,6 +17,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MANIFEST = ROOT / "tests" / "reference_data" / "mood_aggression_development.json"
+DEFAULT_DECISION = ROOT / "tests" / "reference_data" / "mood_aggression_phase6_decision.json"
 SCHEMA = "sonara.mood-aggression-evidence.v1"
 N_FFT = 2048
 HOP = 512
@@ -181,6 +182,10 @@ def run_probe(manifest_path: Path, library_root: Path, index_path: Path) -> list
 def self_test() -> None:
     np, _ = _dependencies()
     load_manifest(DEFAULT_MANIFEST)
+    decision = json.loads(DEFAULT_DECISION.read_text(encoding="utf-8"))
+    assert decision["decision"] == "NO-GO"
+    assert decision["public_mood_formula_change"] is False
+    assert decision["consequence"].startswith("Keep heuristic v1 public")
     sr = 22050
     seconds = 8
     t = np.arange(sr * seconds, dtype=np.float32) / sr

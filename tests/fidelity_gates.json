@@ -143,6 +143,7 @@
       "paths": [
         "scripts/mood_aggression_probe.py",
         "tests/reference_data/mood_aggression_development.json",
+        "tests/reference_data/mood_aggression_phase6_decision.json",
         "tests/reference_data/mood_aggression_preregistration.json"
       ],
       "domains": ["mood_research"]
