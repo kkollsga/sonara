@@ -189,9 +189,17 @@ def self_test() -> None:
     sr = 22050
     seconds = 8
     t = np.arange(sr * seconds, dtype=np.float32) / sr
-    base = (0.45 * np.sin(2 * np.pi * 220 * t) + 0.20 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
     rng = np.random.default_rng(27062026)
-    noisy = (base + 0.08 * rng.standard_normal(base.size)).astype(np.float32)
+    broadband = rng.standard_normal(t.size).astype(np.float32)
+    # A tiny deterministic broadband floor keeps the high-band flatness probe
+    # away from platform-specific FFT roundoff of a mathematically pure tone.
+    base = (
+        0.45 * np.sin(2 * np.pi * 220 * t)
+        + 0.20 * np.sin(2 * np.pi * 440 * t)
+        + 0.02 * np.sin(2 * np.pi * 6000 * t)
+        + 0.0002 * broadband
+    ).astype(np.float32)
+    noisy = (base + 0.08 * broadband).astype(np.float32)
     first = extract_evidence(base, sr)
     assert first == extract_evidence(base, sr), "probe is not exactly deterministic"
     gained = extract_evidence(base * np.float32(0.17), sr)
