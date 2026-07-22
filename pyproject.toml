@@ -6,7 +6,7 @@ build-backend = "maturin"
 name = "sonara"
 version = "0.2.9"
 description = "High-performance audio analysis and music information retrieval in Rust"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = ["numpy>=1.23,<3"]
 license = {file = "LICENSE"}
 readme = "README.md"
@@ -32,7 +32,6 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Rust",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",

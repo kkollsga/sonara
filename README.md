@@ -52,7 +52,7 @@ files = [str(p) for p in Path("~/Music").expanduser().rglob("*.mp3")]
 results = sonara.analyze_batch(files, mode="playlist")
 ```
 
-Pre-built wheels for Linux, macOS (Intel & Apple Silicon), and Windows. Requires Python 3.9+.
+Pre-built wheels for Linux, macOS (Intel & Apple Silicon), and Windows. Requires Python 3.10+.
 
 ## Analysis Pipeline
 

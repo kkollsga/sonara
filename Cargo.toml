@@ -17,7 +17,7 @@ rubato = "2"
 
 [workspace.dependencies.pyo3]
 version = "0.28"
-features = ["abi3-py39", "extension-module"]
+features = ["abi3-py310", "extension-module"]
 
 [workspace.dependencies.numpy]
 version = "0.28"

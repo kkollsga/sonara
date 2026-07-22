@@ -1,39 +1,270 @@
 {
-  "version": 1,
+  "version": 2,
+  "protected_globs": [
+    "python/sonara/*.py",
+    "python/sonara/*.pyi",
+    "python/sonara/models/*.json",
+    "scripts/mood_aggression_probe.py",
+    "scripts/run_fidelity_gate.py",
+    "sonara-python/src/*.rs",
+    "sonara-python/src/**/*.rs",
+    "sonara/models/*.json",
+    "sonara/src/*.rs",
+    "sonara/src/**/*.rs",
+    "sonara/tests/*.rs",
+    "tests/fidelity_gates.json",
+    "tests/python/test_*.py",
+    "tests/reference_data/*",
+    "tests/scripts/test_run_fidelity_gate.py"
+  ],
+  "reviewed_transitions": [
+    {
+      "path": "sonara/src/lib.rs",
+      "base_sha256": "8679cf7912fa38f3669d05a82b194021c861d5414041dffe54bcfd41142544a4",
+      "head_sha256": "3ec8dbee90b0cd1fb2539b19fbdd4683747ff1436c4394c8eb22b663b605f556",
+      "reason": "one-time mood-module extraction and cfg-gated aggression module boundary guarded by frozen behavior tests"
+    },
+    {
+      "path": "sonara/src/mood.rs",
+      "base_sha256": null,
+      "head_sha256": "14a1fadec04735e96772f9e6044fe2748829a98b43d92a49d74c2ce5b798fc25",
+      "reason": "one-time bit-preserving extraction guarded by frozen scalar outputs"
+    },
+    {
+      "path": "sonara/src/perceptual.rs",
+      "base_sha256": "cbbd1056cd517f412bd0310f4bce4b1c6807afc87b434028030f736c319b9203",
+      "head_sha256": "c155879147650103802c47d215d356bfe75438b7427ea379a5755a6b0a626eab",
+      "reason": "one-time re-export transition guarded by frozen scalar outputs"
+    },
+    {
+      "path": "python/sonara/__init__.py",
+      "base_sha256": "987d2781c72600eb41a227d77c3e12f8e30d96dc66785c6effc464d29671763e",
+      "head_sha256": "cc743cadf36cf11d62ef65ceafb2b5bd9ba8c26ee823fdeb1e86c3d56a48d533",
+      "reason": "one-time public aggression API export guarded by the routed aggression gate"
+    },
+    {
+      "path": "python/sonara/__init__.pyi",
+      "base_sha256": "afebfc377c46581eee21ac519247aba085f759892e098bad59905af2aeec197e",
+      "head_sha256": "08b10afa06b7814abd758632ab72b1ad4c3a54086c779f6f4f0438f0c62f020a",
+      "reason": "one-time typed aggression API export guarded by the routed aggression gate"
+    },
+    {
+      "path": "python/sonara/_result.py",
+      "base_sha256": "424d5390dd0c100660da4233fd4f1d46687456e4b7063c2f2651400de1e9431e",
+      "head_sha256": "0cad7730f43fc9b1cdcd83518d327cd1efaa50fb42d2b574879dddcb87061fb1",
+      "reason": "one-time aggression result projection guarded by Rust and Python parity tests"
+    },
+    {
+      "path": "sonara-python/src/analyze.rs",
+      "base_sha256": "523ddbbbdb0231dd931aeeb592e6f1f9fcb71e5ab0fdb045b282547e0fa83e9c",
+      "head_sha256": "558c2e42f7b47f19882d7f2a7c6452b0467d2075a4313151677caea040976fc2",
+      "reason": "one-time fused aggression binding guarded by Rust and Python parity tests"
+    },
+    {
+      "path": "sonara-python/src/lib.rs",
+      "base_sha256": "ed59623fcf3834645c39deaf2fd2d20a225ebce70302f531ea11359982fe168a",
+      "head_sha256": "61208cc67584dfe0ea3f6a7c540f7bbf5f7f7ce7479219d40e4da0faa8a78673",
+      "reason": "one-time aggression binding registration guarded by the routed aggression gate"
+    },
+    {
+      "path": "sonara/src/analyze.rs",
+      "base_sha256": "e5cf8f1450ef04bb5a12e510f1ece9c3be24e18da9127cfb58f5461a63740af1",
+      "head_sha256": "63975aebb11f67fcf547362c775779ef496715c81fbb185fc0316df15a52b48c",
+      "reason": "one-time fused aggression analysis guarded by parity, fidelity, and performance gates"
+    }
+  ],
   "domains": {
     "aggression": {
+      "command": ["{python}", "tests/python/test_aggression.py"]
+    },
+    "vocalness": {
+      "command": ["{python}", "tests/python/test_vocalness_frozen.py"]
+    },
+    "local_vocalness": {
+      "blocked": "the broader real-music vocalness corpus is local-only and must be run explicitly"
+    },
+    "tonal": {
+      "blocked": "the local tonal batch script is report-only, not a labeled fidelity gate"
+    },
+    "bpm": {
+      "blocked": "no mandatory labeled real-music BPM gate is available"
+    },
+    "beatgrid": {
+      "blocked": "no mandatory labeled real-music beat-grid gate is available"
+    },
+    "similarity": {
+      "blocked": "no mandatory labeled real-music similarity gate is available"
+    },
+    "fingerprint": {
+      "blocked": "no mandatory labeled real-music fingerprint gate is available"
+    },
+    "genre": {
+      "blocked": "no mandatory labeled real-music genre gate is available"
+    },
+    "mood_aggression": {
+      "blocked": "no frozen aggression semantics and real-music gate are available"
+    },
+    "mood_research": {
+      "command": ["{python}", "scripts/mood_aggression_probe.py", "--self-test"]
+    },
+    "cross_cutting": {
+      "blocked": "cross-cutting analysis changes require reviewed domain isolation or comprehensive fidelity evidence"
+    }
+  },
+  "ownership": [
+    {
       "paths": [
         "sonara/src/aggression.rs",
         "sonara-python/src/aggression.rs",
         "tests/python/test_aggression.py"
       ],
-      "command": ["{python}", "tests/python/test_aggression.py"]
+      "domains": ["aggression"]
     },
-    "vocalness": {
+    {
       "paths": [
         "sonara/src/vocal_model.rs",
-        "sonara/models/vocalness_*.json",
+        "sonara/models/vocalness_v2.json",
         "python/sonara/vocal_model.py",
-        "python/sonara/models/vocalness_*.json",
-        "tests/reference_data/vocalness_*.json"
+        "python/sonara/models/vocalness_v2.json",
+        "tests/python/test_vocalness_frozen.py",
+        "tests/python/test_vocalness_model.py",
+        "tests/reference_data/vocal_labels.csv",
+        "tests/reference_data/vocalness_similarity_v2.json",
+        "tests/reference_data/vocalness_v2_validation.json"
       ],
-      "command": ["{python}", "tests/python/test_vocalness_frozen.py"]
+      "domains": ["vocalness"]
     },
-    "tonal": {
-      "paths": ["sonara/src/tonal.rs", "sonara/src/chord.rs"],
-      "blocked": "the local tonal batch script is a report-only sanity check, not a labeled fidelity gate"
+    {
+      "paths": ["tests/python/test_vocalness_real.py"],
+      "domains": ["local_vocalness"]
     },
-    "bpm": {
-      "paths": ["sonara/src/beat.rs", "sonara/tests/bpm_accuracy.rs"],
-      "blocked": "no mandatory labeled real-music BPM gate is available"
+    {
+      "paths": [
+        "sonara/src/tonal.rs",
+        "sonara-python/src/tonal.rs",
+        "sonara/tests/accuracy.rs",
+        "tests/python/test_camelot.py",
+        "tests/python/test_tonal_batch.py"
+      ],
+      "domains": ["tonal"]
     },
-    "beatgrid": {
-      "paths": ["sonara/src/beatgrid.rs"],
-      "blocked": "no mandatory labeled real-music beat-grid gate is available"
+    {
+      "paths": [
+        "sonara/src/beat.rs",
+        "sonara/src/feature/rhythm.rs",
+        "sonara-python/src/beat.rs",
+        "sonara-python/src/feature/rhythm.rs",
+        "sonara/tests/bpm_accuracy.rs"
+      ],
+      "domains": ["bpm"]
     },
-    "similarity": {
-      "paths": ["sonara/src/similarity.rs"],
-      "blocked": "no mandatory labeled real-music similarity gate is available"
+    {
+      "paths": ["sonara/src/beatgrid.rs", "tests/python/test_beatgrid.py"],
+      "domains": ["beatgrid"]
+    },
+    {
+      "paths": [
+        "sonara/src/similarity.rs",
+        "sonara-python/src/similarity.rs",
+        "tests/python/test_similarity.py"
+      ],
+      "domains": ["similarity"]
+    },
+    {
+      "paths": ["sonara/src/fingerprint.rs", "tests/python/test_fingerprint.py"],
+      "domains": ["fingerprint"]
+    },
+    {
+      "paths": [
+        "sonara/src/genre.rs",
+        "python/sonara/genre.py",
+        "tests/python/test_genre.py"
+      ],
+      "domains": ["genre"]
+    },
+    {
+      "paths": ["sonara/src/mood.rs"],
+      "domains": ["mood_aggression"]
+    },
+    {
+      "paths": [
+        "scripts/mood_aggression_probe.py",
+        "tests/reference_data/mood_aggression_development.json",
+        "tests/reference_data/mood_aggression_phase6_decision.json",
+        "tests/reference_data/mood_aggression_preregistration.json"
+      ],
+      "domains": ["mood_research"]
+    },
+    {
+      "paths": ["sonara/src/perceptual.rs", "tests/python/test_misc_features.py"],
+      "domains": ["cross_cutting", "mood_aggression"]
+    },
+    {
+      "paths": [
+        "python/sonara/__init__.py",
+        "python/sonara/__init__.pyi",
+        "python/sonara/_result.py",
+        "python/sonara/display.py",
+        "sonara-python/src/analyze.rs",
+        "sonara-python/src/core/audio.rs",
+        "sonara-python/src/core/convert.rs",
+        "sonara-python/src/core/mod.rs",
+        "sonara-python/src/core/spectrum.rs",
+        "sonara-python/src/effects.rs",
+        "sonara-python/src/error.rs",
+        "sonara-python/src/feature/mod.rs",
+        "sonara-python/src/feature/spectral.rs",
+        "sonara-python/src/filters.rs",
+        "sonara-python/src/lib.rs",
+        "sonara-python/src/onset.rs",
+        "sonara-python/src/util.rs",
+        "sonara/src/analyze.rs",
+        "sonara/src/core/audio.rs",
+        "sonara/src/core/constantq.rs",
+        "sonara/src/core/convert.rs",
+        "sonara/src/core/fft.rs",
+        "sonara/src/core/harmonic.rs",
+        "sonara/src/core/intervals.rs",
+        "sonara/src/core/mod.rs",
+        "sonara/src/core/notation.rs",
+        "sonara/src/core/pitch.rs",
+        "sonara/src/core/spectrum.rs",
+        "sonara/src/decompose.rs",
+        "sonara/src/dsp/extrema.rs",
+        "sonara/src/dsp/iir.rs",
+        "sonara/src/dsp/mod.rs",
+        "sonara/src/dsp/windows.rs",
+        "sonara/src/effects.rs",
+        "sonara/src/error.rs",
+        "sonara/src/feature/inverse.rs",
+        "sonara/src/feature/mod.rs",
+        "sonara/src/feature/spectral.rs",
+        "sonara/src/filters.rs",
+        "sonara/src/lib.rs",
+        "sonara/src/loudness_ext.rs",
+        "sonara/src/onset.rs",
+        "sonara/src/segment.rs",
+        "sonara/src/sequence.rs",
+        "sonara/src/structure.rs",
+        "sonara/src/types.rs",
+        "sonara/src/util/matching.rs",
+        "sonara/src/util/mod.rs",
+        "sonara/src/util/utils.rs",
+        "sonara/src/vocal.rs",
+        "tests/python/test_api.py",
+        "tests/python/test_batch_errors.py",
+        "tests/python/test_loudness.py",
+        "tests/python/test_structure.py"
+      ],
+      "domains": ["cross_cutting"]
+    },
+    {
+      "paths": [
+        "scripts/run_fidelity_gate.py",
+        "tests/fidelity_gates.json",
+        "tests/scripts/test_run_fidelity_gate.py"
+      ],
+      "exemption": "fidelity enforcement infrastructure validated by exhaustive contract tests"
     }
-  }
+  ]
 }

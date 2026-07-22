@@ -4,7 +4,8 @@ Thanks for helping improve sonara. This guide covers setting up a dev environmen
 
 ## Dev setup
 
-You need a stable Rust toolchain and Python 3.9+.
+You need a stable Rust toolchain and Python 3.11+ for repository tooling; the
+published package itself supports Python 3.10+.
 
 ```bash
 # Rust core builds with plain cargo
@@ -33,7 +34,8 @@ python scripts/run_python_tests.py
 ```
 
 CI runs exactly this suite on Linux, macOS, and Windows. Accuracy-sensitive
-paths are routed through `python scripts/run_fidelity_gate.py --changed <paths>`.
+paths are derived from Git and routed through
+`python scripts/run_fidelity_gate.py --base <merge-base-or-base-ref>`.
 The audio-free vocalness fixture is mandatory. The local vocalness corpus gate
 fails closed; `test_tonal_batch.py` remains a report-only sanity check and is
 not a substitute for labeled accuracy evidence.
