@@ -26,6 +26,16 @@ fn embedding_config() -> AnalysisConfig {
     }
 }
 
+fn fused_config() -> AnalysisConfig {
+    AnalysisConfig {
+        features: Some(HashSet::from([
+            "aggression".to_owned(),
+            "embedding".to_owned(),
+        ])),
+        ..AnalysisConfig::default()
+    }
+}
+
 fn bench_score(c: &mut Criterion) {
     let embedding = std::array::from_fn::<_, EMBEDDING_DIM, _>(|index| {
         index as Float / (EMBEDDING_DIM - 1) as Float
@@ -37,13 +47,21 @@ fn bench_score(c: &mut Criterion) {
 
 fn bench_audio(c: &mut Criterion) {
     let mut group = c.benchmark_group("aggression_audio");
-    let config = embedding_config();
+    let embedding = embedding_config();
+    let fused = fused_config();
     for seconds in [1, 5, 30] {
         let signal = generate_signal(22_050, seconds);
         group.bench_with_input(
             BenchmarkId::new("embedding", format!("{seconds}s")),
             &signal,
-            |b, signal| b.iter(|| analyze::analyze_signal(signal.view(), 22_050, &config).unwrap()),
+            |b, signal| {
+                b.iter(|| analyze::analyze_signal(signal.view(), 22_050, &embedding).unwrap())
+            },
+        );
+        group.bench_with_input(
+            BenchmarkId::new("embedding+aggression", format!("{seconds}s")),
+            &signal,
+            |b, signal| b.iter(|| analyze::analyze_signal(signal.view(), 22_050, &fused).unwrap()),
         );
         group.bench_with_input(
             BenchmarkId::new("score", format!("{seconds}s")),
