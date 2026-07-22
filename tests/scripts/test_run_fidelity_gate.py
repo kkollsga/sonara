@@ -124,18 +124,27 @@ class FidelityMapContractTests(unittest.TestCase):
 
     def test_reviewed_bootstrap_transitions_match_exact_contents(self) -> None:
         data = ROUTER.load_map()
-        merge_base = subprocess.run(
-            ["git", "merge-base", "origin/main", "HEAD"],
-            cwd=ROOT,
-            check=True,
-            stdout=subprocess.PIPE,
-            text=True,
-        ).stdout.strip()
         for transition in data["reviewed_transitions"]:
+            path = transition["path"]
+            current = ROUTER.canonical_text_sha256((ROOT / path).read_bytes())
+            self.assertEqual(current, transition["head_sha256"])
+
+            base_hash = transition["base_sha256"]
+            if base_hash is None:
+                continue
+            revisions = subprocess.run(
+                ["git", "rev-list", "--all", "--", path],
+                cwd=ROOT,
+                check=True,
+                stdout=subprocess.PIPE,
+                text=True,
+            ).stdout.splitlines()
             self.assertTrue(
-                ROUTER.reviewed_transition_applies(
-                    data, transition["path"], ROOT, merge_base
-                )
+                any(
+                    ROUTER.sha256_at_revision(ROOT, revision, path) == base_hash
+                    for revision in revisions
+                ),
+                f"{path}: recorded transition base is absent from Git history",
             )
 
 
