@@ -2,6 +2,40 @@
 
 All notable changes to sonara are documented in this file.
 
+## [0.3.0] - 2026-07-22
+
+### Validated on real music
+
+On a locally held 32,890-track library, the learned aggression score ordered
+the intended rough track above its dance control in 8/9 fixed comparisons,
+with group means 0.5556 versus 0.5240. The legacy heuristic's top 20 was
+dance-dominated; the learned score's top 20 included six intended heavy
+tracks. Frozen artifact, signal/embedding parity, and routed fidelity gates
+pass exactly. Default 30-second compact analysis changed by +0.68%, and fused
+embedding plus aggression remained within 0.82% of embedding alone.
+
+### Added
+
+- An opt-in, versioned aggression score for Rust and Python, including scalar,
+  signal, file, batch, fused-analysis, and cached-embedding APIs.
+- Content-addressed model provenance and a validated embedded artifact behind
+  the `aggression` Cargo feature; the default build remains dependency-free.
+- Canonical repository workflow skills and exhaustive, fail-closed fidelity
+  ownership for accuracy-sensitive paths.
+
+### Changed
+
+- Fused analysis now computes aggression from the existing similarity vector
+  without a second decode, FFT, or spectrum pass.
+- Python support now starts at 3.10 and ships `cp310-abi3` wheels, with the
+  runtime floor derived and checked across metadata, bindings, and CI.
+
+### Fixed
+
+- Fidelity routing now derives committed and local changes from Git, rejects
+  uncovered or blocked accuracy domains, and validates reviewed transitions by
+  exact content hash.
+
 ## [0.2.9] - 2026-07-20
 
 ### Validated on real music
