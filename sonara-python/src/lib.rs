@@ -1,6 +1,7 @@
 use pyo3::prelude::*;
 
 mod analyze;
+mod aggression;
 mod beat;
 mod core;
 mod effects;
@@ -19,6 +20,7 @@ fn _sonara(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // Register submodules
     analyze::register(m)?;
+    aggression::register(m)?;
     beat::register(m)?;
     core::register(m)?;
     effects::register(m)?;

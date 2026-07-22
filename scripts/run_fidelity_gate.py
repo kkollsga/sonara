@@ -13,7 +13,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 MAP_PATH = ROOT / "tests" / "fidelity_gates.json"
-EXPECTED_DOMAINS = {"vocalness", "tonal", "bpm", "beatgrid", "similarity"}
+EXPECTED_DOMAINS = {"vocalness", "aggression", "tonal", "bpm", "beatgrid", "similarity"}
 
 
 def load_map() -> dict:
@@ -49,14 +49,16 @@ def check_contract(data: dict) -> None:
     runnable = {
         name for name, route in data["domains"].items() if "command" in route
     }
-    if runnable != {"vocalness"}:
+    if runnable != {"vocalness", "aggression"}:
         raise AssertionError(
-            "only the content-addressed vocalness domain currently has a valid gate"
+            "only the content-addressed vocalness and aggression domains have valid gates"
         )
     if domains_for_paths(data, ["sonara/models/vocalness_v2.json"]) != {"vocalness"}:
         raise AssertionError("bundled vocalness artifacts must route to the frozen gate")
     if domains_for_paths(data, ["sonara/src/beat.rs"]) != {"bpm"}:
         raise AssertionError("BPM changes must route to an explicit blocked domain")
+    if domains_for_paths(data, ["sonara/src/aggression.rs"]) != {"aggression"}:
+        raise AssertionError("aggression model changes must route to the frozen gate")
     if domains_for_paths(data, ["README.md"]):
         raise AssertionError("non-accuracy documentation must not trigger a fidelity gate")
 

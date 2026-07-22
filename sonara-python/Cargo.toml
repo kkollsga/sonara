@@ -8,7 +8,7 @@ name = "sonara"
 crate-type = ["cdylib"]
 
 [dependencies]
-sonara = { path = "../sonara" }
+sonara = { path = "../sonara", features = ["aggression"] }
 pyo3 = { workspace = true }
 numpy = { workspace = true }
 ndarray = { workspace = true }

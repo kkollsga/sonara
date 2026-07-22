@@ -18,6 +18,7 @@ STANDARD_TESTS = (
     "test_beatgrid",
     "test_structure",
     "test_similarity",
+    "test_aggression",
     "test_fingerprint",
     "test_loudness",
     "test_misc_features",

@@ -1,6 +1,14 @@
 {
   "version": 1,
   "domains": {
+    "aggression": {
+      "paths": [
+        "sonara/src/aggression.rs",
+        "sonara-python/src/aggression.rs",
+        "tests/python/test_aggression.py"
+      ],
+      "command": ["{python}", "tests/python/test_aggression.py"]
+    },
     "vocalness": {
       "paths": [
         "sonara/src/vocal_model.rs",

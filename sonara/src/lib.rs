@@ -2,6 +2,8 @@
 extern crate blas_src;
 
 pub mod analyze;
+#[cfg(feature = "aggression")]
+pub mod aggression;
 pub mod beat;
 pub mod beatgrid;
 pub mod core;

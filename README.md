@@ -553,6 +553,33 @@ for path, score in most_similar(seed, library):
 
 The metric is a **weighted, normalized Euclidean distance** (not cosine): all dimensions are non-negative and bounded to `[0, 1]`, where cosine is biased toward 1 — Euclidean stays discriminative, and per-dimension weights let timbre, harmony and tempo dominate over incidental dimensions like absolute loudness. Because loudness contributes little, the *same* track at a different gain still scores as highly similar. `sonara.similarity()` applies a calibrated stretch (measured on a large commercial library) so scores are interpretable: an unrelated pair lands near **0.5**, close neighbors **0.65+**, identical tracks **1.0**. The stretch is monotone in the raw distance, so nearest-neighbor rankings are unaffected. The hand-crafted vector sits behind `embedding_version`, so a learned (e.g. ONNX) embedding can later replace it behind the same field and API.
 
+## Aggression model
+
+sonara includes a bundled aggression model over the versioned 48-dimensional
+embedding. It returns a score in `[0, 1]` and is exposed separately from the
+older `mood_aggressive` heuristic:
+
+```python
+score = sonara.analyze_aggression_file("track.mp3")
+
+# Reuse a stored or already-computed embedding without analyzing audio again:
+r = sonara.analyze_file("track.mp3", features=["embedding"])
+score = sonara.aggression_score(
+    r["embedding"], embedding_version=r["embedding_version"]
+)
+
+# Parallel library scan with one input-ordered result per path:
+results = sonara.analyze_aggression_batch(["a.mp3", "b.flac"])
+results[0]["aggression_score"]
+```
+
+The model validates the embedding dimension, finite values, and layout version
+before scoring. Rust users enable the `aggression` Cargo feature and call
+`sonara::aggression::{score, score_versioned, analyze_file, analyze_signal,
+analyze_batch}`.
+The scorer itself is an allocation-free 48-term dot product plus sigmoid and
+adds no dependency or code to Sonara's default Rust build.
+
 ## Bring your own genre model
 
 sonara ships **no** genre model — genre is subjective and library-specific. Instead it exposes a **socket**: train a tiny classifier over the similarity embedding on *your* labeled library, save it as JSON, and pass its path to any `analyze_*` call. The result then carries `genre` and `genre_confidence`.
@@ -734,13 +761,13 @@ sonara provides 100+ audio analysis functions:
 
 **Sequence Analysis:** `dtw`, `rqa`, `viterbi`, `viterbi_discriminative`, `viterbi_binary`, `recurrence_matrix`, `cross_similarity`, `path_enhance`
 
-**Perceptual:** `loudness_lufs`, `energy`, `danceability`, `detect_key`, `valence`, `acousticness`
+**Perceptual:** `loudness_lufs`, `energy`, `danceability`, `detect_key`, `valence`, `acousticness`, `aggression_score`
 
 **Conversions (50+):** `hz_to_mel`, `mel_to_hz`, `hz_to_midi`, `midi_to_hz`, `note_to_hz`, `note_to_midi`, `hz_to_note`, `hz_to_octs`, `hz_to_svara_h`, `hz_to_svara_c`, `hz_to_fjs`, `fft_frequencies`, `mel_frequencies`, `cqt_frequencies`, `frames_to_time`, `time_to_frames`, frequency weighting (A/B/C/D/Z), notation helpers, and more
 
 **Filters & DSP:** `mel` filterbank, `chroma` filterbank, `lfilter`, `filtfilt`, `sosfiltfilt`, window functions (Hann, Hamming, Blackman, Kaiser, Tukey, Gaussian)
 
-**Pipeline:** `analyze_file`, `analyze_signal`, `analyze_batch`
+**Pipeline:** `analyze_file`, `analyze_signal`, `analyze_batch`, `analyze_aggression_file`, `analyze_aggression_signal`, `analyze_aggression_batch`
 
 ## Architecture
 
@@ -752,6 +779,7 @@ sonara is a two-crate Rust workspace:
 ```text
 sonara/src/
   analyze.rs      — Fused analysis pipeline (compact/playlist/full modes)
+  aggression.rs   — Versioned 48-term aggression model
   perceptual.rs   — LUFS, energy, danceability, key detection, valence, acousticness
   loudness_ext.rs — True peak (dBTP), ReplayGain, short-term curve, momentary max, EBU R128 LRA
   tonal.rs        — HPCP, chord detection, dissonance (Sethares 1998)

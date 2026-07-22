@@ -25,6 +25,7 @@ blas-src = { version = "0.14", optional = true }
 [features]
 default = []
 accelerate = ["ndarray/blas", "blas-src/accelerate"]
+aggression = []
 
 [dev-dependencies]
 approx = { workspace = true }
@@ -49,3 +50,8 @@ harness = false
 [[bench]]
 name = "bench_analyze"
 harness = false
+
+[[bench]]
+name = "bench_aggression"
+harness = false
+required-features = ["aggression"]
