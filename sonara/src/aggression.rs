@@ -105,16 +105,16 @@ fn model() -> Result<&'static LogisticRegression> {
 
 /// Analyze an audio file and return its aggression score.
 pub fn analyze_file(path: &Path, sample_rate: u32) -> Result<Float> {
-    let config = embedding_config();
+    let config = aggression_config();
     let result = analyze::analyze_file(path, sample_rate, &config)?;
-    score_analysis_embedding(result.embedding, result.embedding_version)
+    score_analysis(result.aggression_score)
 }
 
 /// Analyze a mono audio signal and return its aggression score.
 pub fn analyze_signal(signal: ArrayView1<'_, Float>, sample_rate: u32) -> Result<Float> {
-    let config = embedding_config();
+    let config = aggression_config();
     let result = analyze::analyze_signal(signal, sample_rate, &config)?;
-    score_analysis_embedding(result.embedding, result.embedding_version)
+    score_analysis(result.aggression_score)
 }
 
 /// Analyze audio files in parallel while isolating failures per path.
@@ -122,32 +122,22 @@ pub fn analyze_signal(signal: ArrayView1<'_, Float>, sample_rate: u32) -> Result
 /// The returned vector preserves input order and has exactly one entry per
 /// path, matching [`crate::analyze::analyze_batch`].
 pub fn analyze_batch(paths: &[&Path], sample_rate: u32) -> Vec<Result<Float>> {
-    let config = embedding_config();
+    let config = aggression_config();
     analyze::analyze_batch(paths, sample_rate, &config)
         .into_iter()
-        .map(|result| {
-            result.and_then(|analysis| {
-                score_analysis_embedding(analysis.embedding, analysis.embedding_version)
-            })
-        })
+        .map(|result| result.and_then(|analysis| score_analysis(analysis.aggression_score)))
         .collect()
 }
 
-fn embedding_config() -> AnalysisConfig {
+fn aggression_config() -> AnalysisConfig {
     AnalysisConfig {
-        features: Some(HashSet::from(["embedding".to_owned()])),
+        features: Some(HashSet::from(["aggression".to_owned()])),
         ..AnalysisConfig::default()
     }
 }
 
-fn score_analysis_embedding(
-    embedding: Option<Vec<Float>>,
-    embedding_version: Option<u32>,
-) -> Result<Float> {
-    let embedding = embedding.ok_or_else(|| SonaraError::ModelError("embedding missing".into()))?;
-    let version = embedding_version
-        .ok_or_else(|| SonaraError::ModelError("embedding version missing".into()))?;
-    score_versioned(&embedding, version)
+fn score_analysis(score: Option<Float>) -> Result<Float> {
+    score.ok_or_else(|| SonaraError::ModelError("aggression score missing".into()))
 }
 
 #[cfg(test)]
@@ -227,8 +217,15 @@ mod tests {
                 + 0.2 * (2.0 * std::f32::consts::PI * 660.0 * time).sin()
         }));
         let direct = analyze_signal(signal.view(), sample_rate).unwrap();
-        let analysis =
-            analyze::analyze_signal(signal.view(), sample_rate, &embedding_config()).unwrap();
+        let analysis = analyze::analyze_signal(
+            signal.view(),
+            sample_rate,
+            &AnalysisConfig {
+                features: Some(HashSet::from(["embedding".to_owned()])),
+                ..AnalysisConfig::default()
+            },
+        )
+        .unwrap();
         let expected = score_versioned(
             analysis.embedding.as_deref().unwrap(),
             analysis.embedding_version.unwrap(),

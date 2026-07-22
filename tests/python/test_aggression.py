@@ -59,12 +59,20 @@ def signal_parity():
     time = np.arange(sr, dtype=np.float32) / sr
     signal = (0.3 * np.sin(2 * np.pi * 220 * time) + 0.2 * np.sin(2 * np.pi * 660 * time)).astype(np.float32)
     direct = sonara.analyze_aggression_signal(signal, sr=sr)
-    analysis = sonara.analyze_signal(signal, sr=sr, features=["embedding"])
+    fused = sonara.analyze_signal(signal, sr=sr, features=["aggression"])
+    analysis = sonara.analyze_signal(signal, sr=sr, features=["aggression", "embedding"])
     scored = sonara.aggression_score(
         analysis["embedding"], embedding_version=analysis["embedding_version"]
     )
     assert 0.0 <= direct <= 1.0
-    assert direct == scored
+    assert direct == fused["aggression_score"] == analysis["aggression_score"] == scored
+    assert fused["provenance"]["aggression_model_id"] == sonara.AGGRESSION_MODEL_ID
+    assert "embedding" not in fused and "embedding_version" not in fused
+    for dependency in (
+        "mfcc_mean", "chroma_mean", "spectral_contrast_mean", "energy",
+        "danceability", "key", "valence", "dissonance", "chord_sequence",
+    ):
+        assert dependency not in fused, dependency
 
 
 def batch_contract():

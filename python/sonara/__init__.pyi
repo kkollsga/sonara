@@ -251,6 +251,11 @@ def analyze_batch(paths: List[str], *, sr: int = 22050, mode: str = "compact", f
 #   "vocalness": float             # heuristic v2 in [0, 1] (rough, not a classifier); changed semantics in 0.2.4.
 #                                  # Prominence of vocal/broadband energy filling the ~0.8-5.6 kHz spectral
 #                                  # valleys; rises harsh > clean > instrumental.
+# --- aggression --- features=["aggression"]
+#   "aggression_score": float      # bundled model score in [0, 1]
+#   provenance["aggression_model_id"]: str
+#                                  # embedding dependencies stay internal unless
+#                                  # features=["embedding"] is also requested.
 # --- mood --- features=["mood"]
 #   "mood_happy": float            # heuristic v1, not an ML classifier — in [0, 1]
 #   "mood_aggressive": float       # heuristic v1, not an ML classifier — in [0, 1]
@@ -329,6 +334,13 @@ def analyze_batch(paths: List[str], *, sr: int = 22050, progress: Optional[Calla
 
 SIMILARITY_VERSION: int
 EMBEDDING_DIM: int
+AGGRESSION_MODEL_VERSION: int
+AGGRESSION_EMBEDDING_VERSION: int
+AGGRESSION_MODEL_ID: str
 
 def similarity(a: Union[Dict, List[float], NDArray[np.float32]], b: Union[Dict, List[float], NDArray[np.float32]]) -> float: ...
 def embedding_distance(a: List[float], b: List[float]) -> float: ...
+def aggression_score(embedding: List[float], *, embedding_version: int = AGGRESSION_EMBEDDING_VERSION) -> float: ...
+def analyze_aggression_file(path: str, *, sr: int = 22050) -> float: ...
+def analyze_aggression_signal(y: AudioArray, *, sr: int = 22050) -> float: ...
+def analyze_aggression_batch(paths: List[str], *, sr: int = 22050) -> List[Dict[str, Union[str, float]]]: ...

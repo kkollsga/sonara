@@ -21,7 +21,7 @@ def analyze_file(path, *, sr=22050, mode="compact", features=None, bpm_min=None,
 
     ``features`` selects features explicitly (overriding ``mode``) and is the
     only way to enable the opt-in features: ``beatgrid``, ``structure``,
-    ``embedding``, ``fingerprint``, ``loudness``, ``silence``,
+    ``embedding``, ``aggression``, ``fingerprint``, ``loudness``, ``silence``,
     ``key_candidates``, ``vocalness``. See the README for the full list.
 
     ``genre_model`` is a path to a user-trained genre model (JSON). When given,

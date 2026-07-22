@@ -174,6 +174,8 @@ const FEATURE_REGISTRY: &[FeatureSpec] = &[
     feature("beatgrid", false, true, false),
     feature("structure", true, true, false),
     feature("embedding", true, true, false),
+    #[cfg(feature = "aggression")]
+    feature("aggression", true, true, false),
     feature("fingerprint", false, true, false),
     feature("loudness", false, true, false),
     feature("silence", false, true, false),
@@ -228,6 +230,7 @@ pub struct AnalysisConfig {
     /// `beatgrid` (grid offset, downbeats, grid stability),
     /// `structure` (energy curve, segments, intro/outro, energy level),
     /// `embedding` (similarity vector; auto-pulls the features it is built from),
+    /// `aggression` (bundled model score; available with the `aggression` Cargo feature),
     /// `fingerprint` (duplicate-detection fingerprint),
     /// `loudness` (true peak, ReplayGain, loudness curve, momentary max, LRA),
     /// `silence` (leading/trailing silence offsets),
@@ -324,20 +327,13 @@ impl AnalysisConfig {
     /// Check if a feature should be computed.
     fn wants(&self, name: &str) -> bool {
         let spec = feature_spec(name).expect("internal feature name must be registered");
-        // A genre or vocalness model needs the full similarity embedding, which
-        // is assembled from the tonal/perceptual features listed in
-        // EMBEDDING_DEPS — so a set model implies each of them regardless of
-        // mode or explicit feature list.
-        if self.has_embedding_model() && EMBEDDING_DEPS.contains(&name) {
+        // An internal embedding consumer needs the tonal/perceptual inputs even
+        // when those fields were not requested for public emission.
+        if self.has_internal_embedding_consumer() && EMBEDDING_DEPS.contains(&name) {
             return true;
         }
         if self.features.is_some() {
-            // Explicit feature list — check if requested
-            if self.feature_requested(name) {
-                return true;
-            }
-            // Requesting "embedding" implies the features it is assembled from.
-            self.feature_requested("embedding") && EMBEDDING_DEPS.contains(&name)
+            self.emits(name)
         } else {
             // Opt-in-only features are never enabled by a mode's defaults —
             // not even Full — only by an explicit `features=[...]` request
@@ -356,9 +352,41 @@ impl AnalysisConfig {
         }
     }
 
+    /// Check whether a computed feature belongs in the public result. Internal
+    /// model dependencies are deliberately excluded so they cannot leak merely
+    /// because a classifier needed the embedding.
+    fn emits(&self, name: &str) -> bool {
+        let spec = feature_spec(name).expect("internal feature name must be registered");
+        if self.features.is_some() {
+            return self.feature_requested(name)
+                || (self.feature_requested("embedding") && EMBEDDING_COMPONENTS.contains(&name));
+        }
+        if spec.opt_in_only {
+            return false;
+        }
+        match self.mode {
+            AnalysisMode::Compact => false,
+            AnalysisMode::Playlist => !spec.full_only,
+            AnalysisMode::Full => true,
+        }
+    }
+
     /// True if any embedding-consuming model (genre or vocalness) is set.
     fn has_embedding_model(&self) -> bool {
         self.genre_model.is_some() || self.vocalness_model.is_some()
+    }
+
+    fn has_internal_embedding_consumer(&self) -> bool {
+        self.has_embedding_model() || {
+            #[cfg(feature = "aggression")]
+            {
+                self.feature_requested("aggression")
+            }
+            #[cfg(not(feature = "aggression"))]
+            {
+                false
+            }
+        }
     }
 
     /// True if the similarity embedding must be computed: either it was
@@ -367,15 +395,15 @@ impl AnalysisConfig {
     /// explicit-request case emits the `embedding`/`embedding_version` fields —
     /// a model computes the vector without leaking it (mirrors how mood
     /// computes key silently).
-    fn wants_embedding(&self) -> bool {
-        self.wants("embedding") || self.has_embedding_model()
+    fn needs_embedding(&self) -> bool {
+        self.wants("embedding") || self.has_internal_embedding_consumer()
     }
 
     /// Check if extended features (anything beyond compact) are needed.
     fn needs_extended(&self) -> bool {
         // An embedding model needs the embedding, which requires the extended
         // pass (mfcc/chroma/contrast/spectral scalars).
-        if self.has_embedding_model() {
+        if self.has_internal_embedding_consumer() {
             return true;
         }
         if let Some(ref features) = self.features {
@@ -397,6 +425,24 @@ impl AnalysisConfig {
 /// automatically whenever extended analysis runs, so only the wants-gated tonal
 /// and perceptual features need to be listed here.
 const EMBEDDING_DEPS: &[&str] = &[
+    "energy",
+    "danceability",
+    "key",
+    "valence",
+    "dissonance",
+    "chords",
+];
+
+/// Optional result groups physically represented in the similarity vector.
+/// An explicit embedding request continues to surface these for backward
+/// compatibility; internal model consumers compute them without emission.
+const EMBEDDING_COMPONENTS: &[&str] = &[
+    "bandwidth",
+    "rolloff",
+    "flatness",
+    "contrast",
+    "mfcc",
+    "chroma",
     "energy",
     "danceability",
     "key",
@@ -500,6 +546,11 @@ pub struct AnalysisProvenance {
     /// (schema-versioned) produced them. Cache consumers should treat a change
     /// in this field as invalidating stored vocalness/instrumentalness scores.
     pub vocalness_model_id: Option<String>,
+    /// Identity of the bundled aggression model that produced
+    /// [`TrackAnalysis::aggression_score`]. Present exactly when the score was
+    /// requested. Cache consumers should invalidate the score when it changes.
+    #[cfg(feature = "aggression")]
+    pub aggression_model_id: Option<String>,
 }
 
 pub use crate::core::audio::TrackTags;
@@ -618,6 +669,12 @@ pub struct TrackAnalysis {
     // -- Embedding (future ML models) --
     /// Learned audio embedding vector (future ONNX integration).
     pub embedding: Option<Vec<Float>>,
+
+    /// Bundled model score in `[0, 1]`, opt-in via `features=["aggression"]`.
+    /// Computed from the same internal vector as `embedding`, without exposing
+    /// that vector unless it was separately requested.
+    #[cfg(feature = "aggression")]
+    pub aggression_score: Option<Float>,
 
     // -- Mood + instrumentalness (heuristic v1, opt-in) --
     /// Mood affinities in `[0, 1]`, **heuristic v1 (not ML)**. Opt-in via
@@ -1923,10 +1980,11 @@ fn analyze_signal_inner(
             mode: config.mode,
             requested_features: config.requested_feature_names(),
             genre_model_id: config.genre_model.as_ref().and_then(|m| m.id.clone()),
-            vocalness_model_id: config
-                .vocalness_model
-                .as_ref()
-                .map(|m| m.id().to_string()),
+            vocalness_model_id: config.vocalness_model.as_ref().map(|m| m.id().to_string()),
+            #[cfg(feature = "aggression")]
+            aggression_model_id: config
+                .feature_requested("aggression")
+                .then(|| crate::aggression::AGGRESSION_MODEL_ID.to_owned()),
         },
         duration_sec,
         bpm,
@@ -1973,6 +2031,8 @@ fn analyze_signal_inner(
         acousticness,
         // Embedding placeholder — future ONNX integration
         embedding: None,
+        #[cfg(feature = "aggression")]
+        aggression_score: None,
         // Mood + instrumentalness: heuristic v1 (opt-in), None unless requested.
         mood_happy: mood.as_ref().map(|m| m.happy),
         mood_aggressive: mood.as_ref().map(|m| m.aggressive),
@@ -2018,8 +2078,12 @@ fn analyze_signal_inner(
     // version field.
     // Compute the embedding whenever it is needed — an explicit request OR a
     // genre model that classifies over it.
-    if config.wants_embedding() {
+    if config.needs_embedding() {
         let emb = crate::similarity::embed(&result);
+        #[cfg(feature = "aggression")]
+        if config.feature_requested("aggression") {
+            result.aggression_score = Some(crate::aggression::score(&emb)?);
+        }
         // Run the user-supplied genre model, if any (the version match was
         // verified up front). Populate genre + genre_confidence.
         if let Some(ref model) = config.genre_model {
@@ -2040,9 +2104,57 @@ fn analyze_signal_inner(
             result.embedding = Some(emb);
             result.embedding_version = Some(crate::similarity::SIMILARITY_VERSION);
         }
+
+        // Internal classifiers reuse the same complete vector, but only the
+        // caller's requested groups belong in the returned TrackAnalysis.
+        suppress_internal_embedding_components(&mut result, config);
     }
 
     Ok(result)
+}
+
+fn suppress_internal_embedding_components(result: &mut TrackAnalysis, config: &AnalysisConfig) {
+    if !config.emits("bandwidth") {
+        result.spectral_bandwidth_mean = None;
+    }
+    if !config.emits("rolloff") {
+        result.spectral_rolloff_mean = None;
+    }
+    if !config.emits("flatness") {
+        result.spectral_flatness_mean = None;
+    }
+    if !config.emits("contrast") {
+        result.spectral_contrast_mean = None;
+    }
+    if !config.emits("mfcc") {
+        result.mfcc_mean = None;
+    }
+    if !config.emits("chroma") {
+        result.chroma_mean = None;
+    }
+    if !config.emits("chords") {
+        result.chord_sequence = None;
+        result.chord_events = None;
+        result.chord_change_rate = None;
+        result.predominant_chord = None;
+    }
+    if !config.emits("dissonance") {
+        result.dissonance = None;
+    }
+    if !config.emits("energy") {
+        result.energy = None;
+    }
+    if !config.emits("danceability") {
+        result.danceability = None;
+    }
+    if !config.emits("key") && !config.emits("valence") {
+        result.key = None;
+        result.key_confidence = None;
+        result.key_camelot = None;
+    }
+    if !config.emits("valence") {
+        result.valence = None;
+    }
 }
 
 // ============================================================
@@ -2255,7 +2367,7 @@ mod tests {
 
     #[test]
     fn test_feature_registry_validates_routes_and_canonicalizes() {
-        let expected = [
+        let mut expected = vec![
             "bpm",
             "beats",
             "onsets",
@@ -2291,6 +2403,9 @@ mod tests {
             "instrumentalness",
             "tags",
         ];
+        if cfg!(feature = "aggression") {
+            expected.insert(26, "aggression");
+        }
         assert_eq!(analysis_feature_names().collect::<Vec<_>>(), expected);
         let unique: HashSet<_> = analysis_feature_names().collect();
         assert_eq!(unique.len(), expected.len());
@@ -2300,7 +2415,7 @@ mod tests {
             ..Default::default()
         };
         config.validate_features().unwrap();
-        for name in expected {
+        for &name in &expected {
             assert!(config.wants(name), "feature did not route: {name}");
         }
         assert_eq!(config.requested_feature_names().unwrap(), {
@@ -2467,6 +2582,62 @@ mod tests {
         let result = analyze_signal(y.view(), 22050, &compact()).unwrap();
         assert!(result.provenance.vocalness_model_id.is_none());
         assert!(result.provenance.genre_model_id.is_none());
+        #[cfg(feature = "aggression")]
+        assert!(result.provenance.aggression_model_id.is_none());
+    }
+
+    #[cfg(feature = "aggression")]
+    #[test]
+    fn test_aggression_uses_fused_embedding_without_dependency_leakage() {
+        let y = sine(440.0, 22050, 2.0);
+        let aggression_only = AnalysisConfig {
+            features: Some(HashSet::from(["aggression".to_owned()])),
+            ..Default::default()
+        };
+        assert!(aggression_only.needs_extended());
+        let result = analyze_signal(y.view(), 22050, &aggression_only).unwrap();
+        let score = result.aggression_score.expect("aggression requested");
+        assert!((0.0..=1.0).contains(&score));
+        assert_eq!(
+            result.provenance.aggression_model_id.as_deref(),
+            Some(crate::aggression::AGGRESSION_MODEL_ID)
+        );
+        assert!(result.embedding.is_none());
+        assert!(result.embedding_version.is_none());
+        assert!(result.mfcc_mean.is_none());
+        assert!(result.chroma_mean.is_none());
+        assert!(result.spectral_contrast_mean.is_none());
+        assert!(result.energy.is_none());
+        assert!(result.danceability.is_none());
+        assert!(result.key.is_none());
+        assert!(result.valence.is_none());
+        assert!(result.dissonance.is_none());
+        assert!(result.chord_sequence.is_none());
+
+        let with_embedding = AnalysisConfig {
+            features: Some(HashSet::from([
+                "aggression".to_owned(),
+                "embedding".to_owned(),
+            ])),
+            ..Default::default()
+        };
+        let both = analyze_signal(y.view(), 22050, &with_embedding).unwrap();
+        assert_eq!(
+            score.to_bits(),
+            both.aggression_score
+                .expect("aggression requested")
+                .to_bits()
+        );
+        assert_eq!(
+            score.to_bits(),
+            crate::aggression::score(both.embedding.as_deref().unwrap())
+                .unwrap()
+                .to_bits()
+        );
+        assert_eq!(
+            both.embedding_version,
+            Some(crate::similarity::SIMILARITY_VERSION)
+        );
     }
 
     #[test]

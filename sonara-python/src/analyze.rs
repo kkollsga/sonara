@@ -28,6 +28,9 @@ fn result_to_dict<'py>(py: Python<'py>, r: &rs::TrackAnalysis) -> PyResult<Bound
     if let Some(ref id) = r.provenance.vocalness_model_id {
         prov.set_item("vocalness_model_id", id.clone())?;
     }
+    if let Some(ref id) = r.provenance.aggression_model_id {
+        prov.set_item("aggression_model_id", id.clone())?;
+    }
     d.set_item("provenance", prov)?;
     d.set_item("duration_sec", r.duration_sec)?;
     d.set_item("bpm", r.bpm)?;
@@ -157,6 +160,9 @@ fn result_to_dict<'py>(py: Python<'py>, r: &rs::TrackAnalysis) -> PyResult<Bound
     // --- similarity ---
     if let Some(v) = r.embedding_version {
         d.set_item("embedding_version", v)?;
+    }
+    if let Some(v) = r.aggression_score {
+        d.set_item("aggression_score", v)?;
     }
 
     // Tier 3 placeholders (only included when not None)
@@ -343,7 +349,14 @@ pub fn py_analyze_file<'py>(
     genre_model: Option<String>,
     vocalness_model: Option<String>,
 ) -> PyResult<Bound<'py, PyDict>> {
-    let config = parse_config(mode, features, bpm_min, bpm_max, genre_model, vocalness_model)?;
+    let config = parse_config(
+        mode,
+        features,
+        bpm_min,
+        bpm_max,
+        genre_model,
+        vocalness_model,
+    )?;
     let result = rs::analyze_file(Path::new(path), sr, &config).into_pyresult()?;
     result_to_dict(py, &result)
 }
@@ -362,7 +375,14 @@ pub fn py_analyze_signal<'py>(
     genre_model: Option<String>,
     vocalness_model: Option<String>,
 ) -> PyResult<Bound<'py, PyDict>> {
-    let config = parse_config(mode, features, bpm_min, bpm_max, genre_model, vocalness_model)?;
+    let config = parse_config(
+        mode,
+        features,
+        bpm_min,
+        bpm_max,
+        genre_model,
+        vocalness_model,
+    )?;
     let result = rs::analyze_signal(y.as_array(), sr, &config).into_pyresult()?;
     result_to_dict(py, &result)
 }
@@ -442,7 +462,14 @@ pub fn py_analyze_batch<'py>(
 ) -> PyResult<Vec<Bound<'py, PyDict>>> {
     // Load the models once for the whole batch (parse_config validates them);
     // the Arcs are cheaply cloned per file inside the core.
-    let config = parse_config(mode, features, bpm_min, bpm_max, genre_model, vocalness_model)?;
+    let config = parse_config(
+        mode,
+        features,
+        bpm_min,
+        bpm_max,
+        genre_model,
+        vocalness_model,
+    )?;
     let path_refs: Vec<&Path> = paths.iter().map(|p| Path::new(p.as_str())).collect();
 
     let results = match progress {

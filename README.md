@@ -248,7 +248,7 @@ Cherry-pick specific features regardless of mode:
 r = sonara.analyze_file("track.mp3", features=["bpm", "energy", "key", "chords"])
 ```
 
-Valid feature names: `bpm`, `beats`, `onsets`, `rms`, `dynamic_range`, `centroid`, `zcr`, `onset_density`, `bandwidth`, `rolloff`, `flatness`, `contrast`, `mfcc`, `chroma`, `chords`, `dissonance`, `energy`, `danceability`, `key`, `valence`, `acousticness`, `tempo_curve`, `time_signature` — plus the **opt-in-only** features `beatgrid`, `structure`, `embedding`, `fingerprint`, `loudness`, `silence`, `key_candidates`, `vocalness`, `mood`, `instrumentalness`, `tags`, which are never computed by any mode and must be requested explicitly (see their sections below).
+Valid feature names: `bpm`, `beats`, `onsets`, `rms`, `dynamic_range`, `centroid`, `zcr`, `onset_density`, `bandwidth`, `rolloff`, `flatness`, `contrast`, `mfcc`, `chroma`, `chords`, `dissonance`, `energy`, `danceability`, `key`, `valence`, `acousticness`, `tempo_curve`, `time_signature` — plus the **opt-in-only** features `beatgrid`, `structure`, `embedding`, `aggression`, `fingerprint`, `loudness`, `silence`, `key_candidates`, `vocalness`, `mood`, `instrumentalness`, `tags`, which are never computed by any mode and must be requested explicitly (see their sections below).
 
 ### Structure & energy (opt-in)
 
@@ -560,25 +560,31 @@ embedding. It returns a score in `[0, 1]` and is exposed separately from the
 older `mood_aggressive` heuristic:
 
 ```python
-score = sonara.analyze_aggression_file("track.mp3")
+# Preferred: include the score in Sonara's single fused analysis pass.
+r = sonara.analyze_file("track.mp3", features=["embedding", "aggression"])
+score = r["aggression_score"]
 
 # Reuse a stored or already-computed embedding without analyzing audio again:
-r = sonara.analyze_file("track.mp3", features=["embedding"])
 score = sonara.aggression_score(
     r["embedding"], embedding_version=r["embedding_version"]
 )
 
-# Parallel library scan with one input-ordered result per path:
-results = sonara.analyze_aggression_batch(["a.mp3", "b.flac"])
+# A convenience call is available when aggression is the only desired output:
+score = sonara.analyze_aggression_file("track.mp3")
+
+# Parallel fused library scan with one input-ordered result per path:
+results = sonara.analyze_batch(["a.mp3", "b.flac"], features=["aggression"])
 results[0]["aggression_score"]
 ```
 
-The model validates the embedding dimension, finite values, and layout version
-before scoring. Rust users enable the `aggression` Cargo feature and call
+The model artifact is checksum- and schema-validated once through FerricML.
+Inference reuses the internal similarity vector and does not expose dependency
+fields unless they were separately requested. Rust users enable the
+`aggression` Cargo feature and request `"aggression"`, or call
 `sonara::aggression::{score, score_versioned, analyze_file, analyze_signal,
 analyze_batch}`.
-The scorer itself is an allocation-free 48-term dot product plus sigmoid and
-adds no dependency or code to Sonara's default Rust build.
+Per-track scoring is an allocation-free 48-term dot product plus sigmoid;
+FerricML and the model remain absent from Sonara's default Rust build.
 
 ## Bring your own genre model
 
