@@ -19,6 +19,7 @@ STANDARD_TESTS = (
     "test_structure",
     "test_similarity",
     "test_aggression",
+    "test_aggression_semantic",
     "test_fingerprint",
     "test_loudness",
     "test_misc_features",

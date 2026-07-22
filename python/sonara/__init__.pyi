@@ -1,6 +1,6 @@
 """Type stubs for sonara — high-performance audio analysis."""
 
-from typing import Callable, Dict, List, Optional, Tuple, Union
+from typing import Callable, Dict, List, Optional, Tuple, TypedDict, Union
 import numpy as np
 from numpy.typing import NDArray
 
@@ -252,10 +252,14 @@ def analyze_batch(paths: List[str], *, sr: int = 22050, mode: str = "compact", f
 #                                  # Prominence of vocal/broadband energy filling the ~0.8-5.6 kHz spectral
 #                                  # valleys; rises harsh > clean > instrumental.
 # --- aggression --- features=["aggression"]
-#   "aggression_score": float      # bundled model score in [0, 1]
+#   "aggression_score": Optional[float] # perceptual rank; None means abstain
+#   "aggression_confidence": float # evidence support, not score certainty
+#   "aggression_forcefulness": float
+#   "aggression_harshness": float
+#   "aggression_tension": float
+#   "aggression_rhythm": float
 #   provenance["aggression_model_id"]: str
-#                                  # embedding dependencies stay internal unless
-#                                  # features=["embedding"] is also requested.
+#                                  # dependencies stay internal unless separately requested.
 # --- mood --- features=["mood"]
 #   "mood_happy": float            # heuristic v1, not an ML classifier — in [0, 1]
 #   "mood_aggressive": float       # heuristic v1, not an ML classifier — in [0, 1]
@@ -337,10 +341,22 @@ EMBEDDING_DIM: int
 AGGRESSION_MODEL_VERSION: int
 AGGRESSION_EMBEDDING_VERSION: int
 AGGRESSION_MODEL_ID: str
+LEGACY_AGGRESSION_MODEL_ID: str
+AGGRESSION_TIE_BAND: float
+
+class AggressionAnalysis(TypedDict):
+    aggression_score: Optional[float]
+    aggression_confidence: float
+    aggression_forcefulness: float
+    aggression_harshness: float
+    aggression_tension: float
+    aggression_rhythm: float
+    aggression_model_id: str
 
 def similarity(a: Union[Dict, List[float], NDArray[np.float32]], b: Union[Dict, List[float], NDArray[np.float32]]) -> float: ...
 def embedding_distance(a: List[float], b: List[float]) -> float: ...
+# Retained legacy-v1 scorer for stored 48D similarity embeddings.
 def aggression_score(embedding: List[float], *, embedding_version: int = AGGRESSION_EMBEDDING_VERSION) -> float: ...
-def analyze_aggression_file(path: str, *, sr: int = 22050) -> float: ...
-def analyze_aggression_signal(y: AudioArray, *, sr: int = 22050) -> float: ...
-def analyze_aggression_batch(paths: List[str], *, sr: int = 22050) -> List[Dict[str, Union[str, float]]]: ...
+def analyze_aggression_file(path: str, *, sr: int = 22050) -> AggressionAnalysis: ...
+def analyze_aggression_signal(y: AudioArray, *, sr: int = 22050) -> AggressionAnalysis: ...
+def analyze_aggression_batch(paths: List[str], *, sr: int = 22050) -> List[Dict[str, Union[str, float, None]]]: ...

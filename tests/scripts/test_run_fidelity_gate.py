@@ -74,7 +74,7 @@ class FidelityMapContractTests(unittest.TestCase):
         expected = {
             "sonara/src/fingerprint.rs": {"fingerprint"},
             "sonara/src/genre.rs": {"genre"},
-            "sonara/src/analyze.rs": {"cross_cutting"},
+            "sonara/src/analyze.rs": {"aggression_api", "aggression_semantic"},
             "sonara/src/perceptual.rs": {"cross_cutting", "mood_aggression"},
         }
         for path, domains in expected.items():
@@ -121,6 +121,23 @@ class FidelityMapContractTests(unittest.TestCase):
     def test_invalid_base_fails(self) -> None:
         with self.assertRaisesRegex(ValueError, "cannot resolve fidelity base"):
             ROUTER.derive_changed_paths(ROOT, "definitely-not-a-ref", ["sonara/src/*.rs"])
+
+    def test_semantic_domain_forbids_reviewed_transition(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sonara-fidelity-policy-") as raw_root:
+            root = Path(raw_root)
+            (root / "src").mkdir()
+            target = root / "src" / "a.rs"
+            target.write_text("head\n", encoding="utf-8")
+            data = minimal_map()
+            data["domains"]["demo"]["transition_policy"] = "forbid"
+            data["reviewed_transitions"] = [{
+                "path": "src/a.rs",
+                "base_sha256": None,
+                "head_sha256": ROUTER.canonical_text_sha256(target.read_bytes()),
+                "reason": "must be rejected",
+            }]
+            with self.assertRaisesRegex(ValueError, "transition forbidden"):
+                ROUTER.validate_map(data, {"src/a.rs"}, root, check_commands=False)
 
     def test_reviewed_bootstrap_transitions_match_exact_contents(self) -> None:
         data = ROUTER.load_map()

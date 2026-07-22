@@ -135,7 +135,14 @@ class TrackAnalysis(dict):
         if "vocalness" in self:
             perceptual.append(("Vocalness", f"{self['vocalness']:.2f}"))
         if "aggression_score" in self:
-            perceptual.append(("Aggression", f"{self['aggression_score']:.2f}"))
+            score = self["aggression_score"]
+            if score is None:
+                perceptual.append((
+                    "Aggression",
+                    f"abstain (support {self.get('aggression_confidence', 0.0):.2f})",
+                ))
+            else:
+                perceptual.append(("Aggression", f"{score:.2f}"))
         # --- mood (heuristic v1) ---
         if "mood_happy" in self:
             perceptual.append((
