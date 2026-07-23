@@ -139,11 +139,30 @@ class FidelityMapContractTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "transition forbidden"):
                 ROUTER.validate_map(data, {"src/a.rs"}, root, check_commands=False)
 
+    def test_exact_reviewed_deletion_can_retire_a_protected_path(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="sonara-fidelity-deletion-") as raw_root:
+            root = Path(raw_root)
+            (root / "src").mkdir()
+            (root / "src" / "a.rs").write_text("current\n", encoding="utf-8")
+            data = minimal_map()
+            data["reviewed_transitions"] = [{
+                "path": "src/retired.rs",
+                "base_sha256": ROUTER.canonical_text_sha256(b"retired\n"),
+                "head_sha256": None,
+                "reason": "retire an obsolete protected artifact",
+            }]
+            ROUTER.validate_map(data, {"src/a.rs"}, root, check_commands=False)
+
     def test_reviewed_bootstrap_transitions_match_exact_contents(self) -> None:
         data = ROUTER.load_map()
         for transition in data["reviewed_transitions"]:
             path = transition["path"]
-            current = ROUTER.canonical_text_sha256((ROOT / path).read_bytes())
+            current_path = ROOT / path
+            current = (
+                ROUTER.canonical_text_sha256(current_path.read_bytes())
+                if current_path.is_file()
+                else None
+            )
             self.assertEqual(current, transition["head_sha256"])
 
             base_hash = transition["base_sha256"]

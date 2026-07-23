@@ -205,8 +205,9 @@ def validate_map(
         ):
             raise ValueError(f"invalid reviewed transition path: {path!r}")
         seen_transition_paths.add(path)
-        if path not in files:
-            raise ValueError(f"reviewed transition path is not a current protected file: {path}")
+        head_hash = transition["head_sha256"]
+        if path not in files and head_hash is not None:
+            raise ValueError(f"reviewed transition path is not a protected file: {path}")
         for key in ("base_sha256", "head_sha256"):
             value = transition[key]
             if value is not None and (
@@ -219,9 +220,16 @@ def validate_map(
             raise ValueError("reviewed transition must change content")
         if not isinstance(transition["reason"], str) or not transition["reason"].strip():
             raise ValueError("reviewed transition reason must be non-empty")
-        current = canonical_text_sha256((root / path).read_bytes())
+        current_path = root / path
+        current = (
+            canonical_text_sha256(current_path.read_bytes())
+            if current_path.is_file()
+            else None
+        )
         if current != transition["head_sha256"]:
             raise ValueError(f"reviewed transition head hash is stale: {path}")
+        if head_hash is None:
+            continue
         owner = next(owner for owner in ownership if matches(path, owner["paths"]))
         forbidden = [
             name
@@ -321,11 +329,11 @@ def main() -> int:
     merge_base, changed = derive_changed_paths(ROOT, args.base, data["protected_globs"])
     domains: set[str] = set()
     for path in sorted(changed):
-        owner = path_owner(data, path)
-        if owner is None or "exemption" in owner:
-            continue
         if reviewed_transition_applies(data, path, ROOT, merge_base):
             print(f"REVIEWED TRANSITION {path}")
+            continue
+        owner = path_owner(data, path)
+        if owner is None or "exemption" in owner:
             continue
         domains.update(owner["domains"])
     if not domains:

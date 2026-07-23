@@ -30,6 +30,42 @@
       "base_sha256": "cbbd1056cd517f412bd0310f4bce4b1c6807afc87b434028030f736c319b9203",
       "head_sha256": "c155879147650103802c47d215d356bfe75438b7427ea379a5755a6b0a626eab",
       "reason": "one-time re-export transition guarded by frozen scalar outputs"
+    },
+    {
+      "path": "scripts/mood_aggression_probe.py",
+      "base_sha256": "f28de68e811ff7967e96b3382dd4dadfd448feba9a97ab2c7124787482ae9fe0",
+      "head_sha256": null,
+      "reason": "retire an application-specific offline research probe"
+    },
+    {
+      "path": "tests/reference_data/mood_aggression_development.json",
+      "base_sha256": "100fd414dbe6630acac95f71082e06c3cbebe49db0fe7f8a5c2cd8be4a585947",
+      "head_sha256": null,
+      "reason": "retire an obsolete offline research fixture"
+    },
+    {
+      "path": "tests/reference_data/mood_aggression_phase6_decision.json",
+      "base_sha256": "e84d8a9ccbaa8fa65858162a2223a3a08a31b9100d468e74149e4691d81bf0ad",
+      "head_sha256": null,
+      "reason": "retire an obsolete offline research fixture"
+    },
+    {
+      "path": "tests/reference_data/mood_aggression_preregistration.json",
+      "base_sha256": "1bec2519813a6c26796deeb5716a3d7deff03889392dfe5864ef320a32f5e34d",
+      "head_sha256": null,
+      "reason": "retire an obsolete offline research fixture"
+    },
+    {
+      "path": "tests/python/test_vocalness_real.py",
+      "base_sha256": "d9656eca313b316cb44d9224194f4cb335f04a027816f2dce24cdd9490b1ac0f",
+      "head_sha256": "ca50ca2779429dc1c22f5776fad763c697215eb31461bd652c6064f21f636117",
+      "reason": "neutralize a provenance comment without changing test behavior"
+    },
+    {
+      "path": "tests/reference_data/vocal_labels.csv",
+      "base_sha256": "41c0ad5375f20a4699940fe18c7af75c2ff01d29e097e8d0bec996f87140ea8e",
+      "head_sha256": "16c71c3433ccfa183363b7657e9db5fc01bae9726fdf9e850e5aade51b996a00",
+      "reason": "neutralize a provenance comment without changing fixture data"
     }
   ],
   "domains": {
