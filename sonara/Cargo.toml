@@ -27,6 +27,8 @@ serde_json = { version = "1", optional = true }
 rusqlite = { version = "0.33", features = ["bundled"], optional = true }
 ssh-key = { version = "0.6", features = ["ed25519", "rand_core"], optional = true }
 rand_core = { version = "0.6", features = ["getrandom"], optional = true }
+tempfile = { version = "3", optional = true }
+clap = { version = "4", features = ["derive"], optional = true }
 blas-src = { version = "0.14", optional = true }
 
 [features]
@@ -34,7 +36,8 @@ default = []
 accelerate = ["ndarray/blas", "blas-src/accelerate"]
 aggression = ["dep:ferricml", "dep:sha2"]
 validation = ["dep:serde", "dep:serde_json", "dep:sha2"]
-validation-ledger = ["validation", "dep:rusqlite", "dep:ssh-key", "dep:rand_core"]
+validation-ledger = ["validation", "dep:rusqlite", "dep:ssh-key", "dep:rand_core", "dep:tempfile"]
+validation-cli = ["validation-ledger", "dep:clap"]
 
 [dev-dependencies]
 approx = { workspace = true }
@@ -65,3 +68,8 @@ harness = false
 name = "bench_aggression"
 harness = false
 required-features = ["aggression"]
+
+[[bin]]
+name = "sonara"
+path = "src/bin/sonara.rs"
+required-features = ["validation-cli"]

@@ -95,9 +95,12 @@
     {
       "paths": [
         "sonara/src/validation/*.rs",
+        "sonara/src/bin/sonara.rs",
         "sonara/contracts/validation/v1/*.json",
         "sonara/tests/validation_contracts.rs",
         "sonara/tests/validation_custody.rs",
+        "sonara/tests/validation_runner.rs",
+        "sonara/tests/validation_cli.rs",
         "tests/scripts/test_validation_protocol.py"
       ],
       "domains": ["validation_protocol"]

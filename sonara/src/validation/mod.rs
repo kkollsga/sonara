@@ -7,6 +7,8 @@ mod canonical;
 mod custody;
 #[cfg(feature = "validation-ledger")]
 mod ledger;
+#[cfg(feature = "validation-ledger")]
+mod runner;
 mod schema;
 
 pub use canonical::{canonical_digest, from_canonical_bytes, to_canonical_bytes};
@@ -14,6 +16,12 @@ pub use canonical::{canonical_digest, from_canonical_bytes, to_canonical_bytes};
 pub use custody::{verify_custody_proof, CustodyError, CustodyProvider, SshSigner};
 #[cfg(feature = "validation-ledger")]
 pub use ledger::SqliteCustody;
+#[cfg(feature = "validation-ledger")]
+pub use runner::{
+    prepare, run_command, run_with, BindingManifest, CommandArgument, CommandSpec,
+    PreparedValidation, ResourceBinding, RunArtifacts, RunContext, RunnerError, RunnerOutput,
+    VerifiedResources,
+};
 pub use schema::{
     ArtifactRef, CandidateIdentity, ClaimToken, CompletionPayload, CustodyProof, DigestRef,
     DisclosureClass, EnvelopeKind, EvaluationReceipt, EvaluatorEvidence, EvaluatorKind,
