@@ -1265,13 +1265,13 @@ fn analyze_signal_inner(
             let mut aggression_high_count = 0_usize;
             #[cfg(feature = "aggression")]
             let mut aggression_strongest = [0.0_f32; 8];
-            for i in 0..n_bins {
-                let v = power_col[i].max(amin);
-                let log_v = v.ln();
-                log_sum += log_v;
-                arith_sum += v;
-                #[cfg(feature = "aggression")]
-                if wants_aggression {
+            #[cfg(feature = "aggression")]
+            if wants_aggression {
+                for i in 0..n_bins {
+                    let v = power_col[i].max(amin);
+                    let log_v = v.ln();
+                    log_sum += log_v;
+                    arith_sum += v;
                     let power = power_col[i];
                     aggression_total += power;
                     if freqs_raw[i] >= 4_000.0 {
@@ -1285,6 +1285,20 @@ fn analyze_signal_inner(
                         aggression_strongest.sort_by(Float::total_cmp);
                     }
                 }
+            }
+            #[cfg(feature = "aggression")]
+            if !wants_aggression {
+                for &power in power_col.iter().take(n_bins) {
+                    let v = power.max(amin);
+                    log_sum += v.ln();
+                    arith_sum += v;
+                }
+            }
+            #[cfg(not(feature = "aggression"))]
+            for &power in power_col.iter().take(n_bins) {
+                let v = power.max(amin);
+                log_sum += v.ln();
+                arith_sum += v;
             }
             let geo_mean = (log_sum / n_bins as Float).exp();
             let arith_mean = arith_sum / n_bins as Float;
