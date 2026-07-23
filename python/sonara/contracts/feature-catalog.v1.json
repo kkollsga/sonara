@@ -1,0 +1,37 @@
+{
+  "format": "sonara.feature-catalog.v1",
+  "modes": {
+    "compact": "Fast core scan: tempo, beats, onsets, RMS, centroid, zero crossings, and dynamic range.",
+    "playlist": "Adds spectral, tonal, and perceptual features for library organization.",
+    "full": "Playlist analysis plus expensive rhythm curves and time signature."
+  },
+  "feature_groups": [
+    {
+      "name": "core",
+      "meaning": "Timing and low-cost signal summaries.",
+      "features": ["bpm", "beats", "onsets", "rms", "dynamic_range", "centroid", "zcr", "onset_density"]
+    },
+    {
+      "name": "spectral-tonal",
+      "meaning": "Timbre, harmony, key, chord, and consonance evidence.",
+      "features": ["bandwidth", "rolloff", "flatness", "contrast", "mfcc", "chroma", "chords", "dissonance", "key", "key_candidates"]
+    },
+    {
+      "name": "perceptual-rhythm",
+      "meaning": "Interpretable perceptual and longer-timescale rhythm estimates.",
+      "features": ["energy", "danceability", "valence", "acousticness", "tempo_curve", "time_signature", "beatgrid", "structure", "loudness", "silence"]
+    },
+    {
+      "name": "models-and-identity",
+      "meaning": "Opt-in similarity, learned ranking, vocal, mood, and content-identity outputs.",
+      "features": ["embedding", "aggression", "fingerprint", "vocalness", "mood", "instrumentalness", "tags"]
+    }
+  ],
+  "interpretation": {
+    "confidence": "A confidence or support field describes evidence strength for that estimator; it is not a universal probability of correctness.",
+    "uncertainty": "Retain model/schema versions and requested feature provenance when comparing stored results. Do not compare incompatible versions.",
+    "abstention": "Treat a null estimate as an intentional abstention. In particular, aggression_score is null when content support is insufficient; do not coerce it to zero.",
+    "batch": "analyze_batch preserves input order and isolates per-file failures in error/error_kind records. Progress callback failures never cancel the batch.",
+    "validation": "Interpret a PASS only after offline verification against a separately pinned trust root. A receipt bundled with its own unpinned trust root is not independently trusted."
+  }
+}

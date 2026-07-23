@@ -47,9 +47,21 @@ Documentation = "https://github.com/kkollsga/sonara#readme"
 Repository = "https://github.com/kkollsga/sonara"
 Issues = "https://github.com/kkollsga/sonara/issues"
 
+[project.scripts]
+sonara = "sonara.cli:main"
+
 [tool.maturin]
 manifest-path = "sonara-python/Cargo.toml"
 python-source = "python"
 module-name = "sonara._sonara"
 features = ["pyo3/extension-module"]
-include = [{ path = "python/sonara/models/*.json", format = ["sdist", "wheel"] }]
+include = [
+    { path = "python/sonara/models/*.json", format = ["sdist", "wheel"] },
+    { path = "python/sonara/contracts/**/*.json", format = ["sdist", "wheel"] },
+    { path = "python/sonara/skills/**/*.md", format = ["sdist", "wheel"] },
+    { path = "python/sonara/skills/**/*.yaml", format = ["sdist", "wheel"] },
+    { path = "sonara/contracts/**/*.json", format = ["sdist"] },
+    { path = "agent-skills/sonara-integration/**/*.md", format = ["sdist"] },
+    { path = "agent-skills/sonara-integration/**/*.yaml", format = ["sdist"] },
+    { path = "scripts/generate_sonara_integration_skill.py", format = ["sdist"] },
+]

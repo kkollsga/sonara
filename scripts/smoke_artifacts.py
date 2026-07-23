@@ -62,6 +62,19 @@ signal = np.zeros(4096, dtype=np.float32)
 result = sonara.analyze_signal(signal, sr=22050)
 if not np.isfinite(result["duration_sec"]):
     raise AssertionError(result)
+required_data = [
+    package_path.parent / "contracts" / "feature-catalog.v1.json",
+    package_path.parent / "contracts" / "validation" / "v1" / "validation-capsule.schema.json",
+    package_path.parent / "contracts" / "validation" / "v1" / "custody-proof.schema.json",
+    package_path.parent / "skills" / "sonara-integration" / "SKILL.md",
+    package_path.parent / "skills" / "sonara-integration" / "agents" / "openai.yaml",
+]
+missing = [str(path) for path in required_data if not path.is_file()]
+if missing:
+    raise AssertionError(f"installed validation/skill data missing: {missing}")
+entry_points = list(importlib.metadata.entry_points(group="console_scripts", name="sonara"))
+if len(entry_points) != 1 or entry_points[0].value != "sonara.cli:main":
+    raise AssertionError(f"Sonara console entry point missing: {entry_points}")
 print(json.dumps({
     "python": sys.version.split()[0],
     "sonara": sonara.__version__,
@@ -73,6 +86,8 @@ print(json.dumps({
     env = os.environ.copy()
     env.pop("PYTHONPATH", None)
     run([str(python), "-I", "-c", check], cwd=work, env=env)
+    executable = venv / ("Scripts/sonara.exe" if os.name == "nt" else "bin/sonara")
+    run([str(executable), "validate", "--help"], cwd=work, env=env)
 
 
 def main() -> None:

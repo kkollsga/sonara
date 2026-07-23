@@ -8,8 +8,9 @@ name = "sonara"
 crate-type = ["cdylib"]
 
 [dependencies]
-sonara = { path = "../sonara", features = ["aggression"] }
+sonara = { path = "../sonara", features = ["aggression", "validation-cli"] }
 pyo3 = { workspace = true }
 numpy = { workspace = true }
 ndarray = { workspace = true }
 num-complex = { workspace = true }
+serde = { version = "1", features = ["derive"] }

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Sonara Integration"
+  short_description: "Analyze audio and verify validation receipts"
+  default_prompt: "Use $sonara-integration to analyze this music library and interpret the results safely."

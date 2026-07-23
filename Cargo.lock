@@ -1477,6 +1477,7 @@ dependencies = [
  "num-complex",
  "numpy",
  "pyo3",
+ "serde",
  "sonara",
 ]
 

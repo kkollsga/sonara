@@ -14,6 +14,7 @@ from sonara._result import TrackAnalysis
 from sonara import display  # noqa: F401
 from sonara import genre  # noqa: F401 — bring-your-own genre model trainer/loader
 from sonara import vocal_model  # noqa: F401 — bring-your-own vocalness model trainer/loader
+from sonara import validation  # noqa: F401 — opt-in validation custody protocol
 
 
 def analyze_file(path, *, sr=22050, mode="compact", features=None, bpm_min=None, bpm_max=None, genre_model=None, vocalness_model=None):

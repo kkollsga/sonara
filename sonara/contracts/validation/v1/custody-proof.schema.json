@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sonara.dev/contracts/validation/v1/custody-proof.schema.json",
+  "title": "Sonara CustodyProofV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "ledger_id", "trust_root", "checkpoint", "claim", "completion"],
+  "properties": {
+    "format": {"const": "sonara.custody-proof.v1"},
+    "ledger_id": {"type": "string", "minLength": 1},
+    "trust_root": {"type": "object"},
+    "checkpoint": {"type": "object"},
+    "claim": {"type": "object"},
+    "completion": {"type": "object"}
+  }
+}

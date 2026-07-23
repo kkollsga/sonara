@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sonara.dev/contracts/validation/v1/validation-bindings.schema.json",
+  "title": "Sonara Local Validation Bindings V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "resources"],
+  "properties": {
+    "format": {"const": "sonara.validation-bindings.v1"},
+    "resources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "path"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "path": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

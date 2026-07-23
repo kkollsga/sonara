@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sonara.dev/contracts/validation/v1/command-spec.schema.json",
+  "title": "Sonara Validation CommandSpec V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["executable_id", "arguments"],
+  "properties": {
+    "executable_id": {"type": "string", "minLength": 1},
+    "arguments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "value"],
+        "properties": {
+          "kind": {"enum": ["literal", "resource"]},
+          "value": {"type": "string"}
+        }
+      }
+    }
+  }
+}

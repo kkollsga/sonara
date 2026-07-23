@@ -24,6 +24,7 @@ STANDARD_TESTS = (
     "test_misc_features",
     "test_genre",
     "test_vocalness_model",
+    "test_validation",
     "test_aggression_semantic",
 )
 FIDELITY_TESTS = {
@@ -71,6 +72,17 @@ def check_contract() -> None:
     for args in (("--check",), ("--self-test",)):
         subprocess.run(
             [sys.executable, str(ROOT / "scripts" / "check_python_contract.py"), *args],
+            cwd=ROOT,
+            check=True,
+        )
+
+    for args in (("--check",), ("--self-test",)):
+        subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "scripts" / "generate_sonara_integration_skill.py"),
+                *args,
+            ],
             cwd=ROOT,
             check=True,
         )

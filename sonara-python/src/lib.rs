@@ -12,6 +12,7 @@ mod onset;
 mod similarity;
 mod tonal;
 mod util;
+mod validation;
 
 #[pymodule]
 fn _sonara(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -30,6 +31,7 @@ fn _sonara(m: &Bound<'_, PyModule>) -> PyResult<()> {
     similarity::register(m)?;
     tonal::register(m)?;
     util::register(m)?;
+    validation::register(m)?;
 
     // ========================================================
     // Top-level re-exports
