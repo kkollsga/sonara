@@ -1,0 +1,38 @@
+{
+  "format": "sonara.aggression-performance.v1",
+  "candidate_commit": "14e250f",
+  "measured_at": "2026-07-23",
+  "environment": {
+    "os": "Darwin arm64",
+    "cpu": "Apple M4",
+    "rustc": "1.97.0",
+    "criterion": "0.8"
+  },
+  "compact_default": {
+    "durations_sec": [1, 5, 30],
+    "origin_main_midpoint_us": [201.14, 629.63, 3355.0],
+    "candidate_midpoint_us": [201.10, 628.98, 3380.9],
+    "change_percent": [-0.02, -0.10, 0.77],
+    "max_abs_change_percent": 0.77
+  },
+  "compact_with_aggression_compiled_but_not_requested": {
+    "durations_sec": [1, 5, 30],
+    "origin_main_midpoint_us": [201.32, 628.37, 3388.7],
+    "candidate_midpoint_us": [198.75, 631.43, 3409.9],
+    "change_percent": [-1.28, 0.49, 0.63],
+    "max_abs_change_percent": 1.28
+  },
+  "requested_aggression_overhead": {
+    "durations_sec": [1, 5, 30],
+    "embedding_only_midpoint_us": [444.14, 1673.3, 9751.9],
+    "embedding_and_aggression_midpoint_us": [472.51, 1795.6, 10550.0],
+    "overhead_percent": [6.39, 7.31, 8.19],
+    "max_overhead_percent": 8.19
+  },
+  "legacy_embedding_score_midpoint_ns": 16.145,
+  "acceptance": {
+    "max_compact_abs_change_percent": 2.0,
+    "max_requested_overhead_percent": 10.0,
+    "status": "pass"
+  }
+}

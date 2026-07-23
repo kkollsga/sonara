@@ -100,6 +100,30 @@ def synthesized_controls() -> None:
     assert silence["aggression_confidence"] == 0.0
 
 
+def check_performance_evidence() -> None:
+    performance = json.loads(
+        (ROOT / "tests/reference_data/aggression_v2_performance.json").read_text()
+    )
+    assert performance["format"] == "sonara.aggression-performance.v1"
+    acceptance = performance["acceptance"]
+    assert acceptance["status"] == "pass"
+    assert (
+        performance["compact_default"]["max_abs_change_percent"]
+        <= acceptance["max_compact_abs_change_percent"]
+    )
+    assert (
+        performance["compact_with_aggression_compiled_but_not_requested"][
+            "max_abs_change_percent"
+        ]
+        <= acceptance["max_compact_abs_change_percent"]
+    )
+    assert (
+        performance["requested_aggression_overhead"]["max_overhead_percent"]
+        <= acceptance["max_requested_overhead_percent"]
+    )
+
+
 check_evidence()
 synthesized_controls()
+check_performance_evidence()
 print("aggression semantic fidelity: PASS")

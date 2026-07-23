@@ -128,7 +128,8 @@
         "sonara/src/aggression_model.bin",
         "sonara/src/aggression_linear.ferricml",
         "tests/python/test_aggression_semantic.py",
-        "tests/reference_data/aggression_v2_evidence.json"
+        "tests/reference_data/aggression_v2_evidence.json",
+        "tests/reference_data/aggression_v2_performance.json"
       ],
       "domains": ["aggression_semantic"]
     },
