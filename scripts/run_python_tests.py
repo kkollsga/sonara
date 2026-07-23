@@ -19,12 +19,12 @@ STANDARD_TESTS = (
     "test_structure",
     "test_similarity",
     "test_aggression",
-    "test_aggression_semantic",
     "test_fingerprint",
     "test_loudness",
     "test_misc_features",
     "test_genre",
     "test_vocalness_model",
+    "test_aggression_semantic",
 )
 FIDELITY_TESTS = {
     "test_tonal_batch",
@@ -79,6 +79,8 @@ def check_contract() -> None:
         "scripts/run_fidelity_gate.py",
         "tests/scripts/test_run_fidelity_gate.py",
         "tests/scripts/test_aggression_locked_protocol.py",
+        "tests/scripts/test_aggression_custody.py",
+        "tests/scripts/test_validation_protocol.py",
     ):
         command = [sys.executable, str(ROOT / relative)]
         if relative.startswith("scripts/"):

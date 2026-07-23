@@ -17,6 +17,7 @@
     "sonara-python/src/*.rs",
     "sonara-python/src/**/*.rs",
     "sonara/models/*.json",
+    "sonara/contracts/validation/v1/*.json",
     "sonara/src/aggression_model.bin",
     "sonara/src/aggression_linear.ferricml",
     "sonara/src/*.rs",
@@ -27,7 +28,8 @@
     "tests/reference_data/*",
     "tests/scripts/test_run_fidelity_gate.py",
     "tests/scripts/test_aggression_locked_protocol.py",
-    "tests/scripts/test_aggression_custody.py"
+    "tests/scripts/test_aggression_custody.py",
+    "tests/scripts/test_validation_protocol.py"
   ],
   "reviewed_transitions": [
     {
@@ -49,6 +51,10 @@
     },
     "aggression_semantic": {
       "command": ["{python}", "tests/python/test_aggression_semantic.py"],
+      "transition_policy": "forbid"
+    },
+    "validation_protocol": {
+      "command": ["{python}", "tests/scripts/test_validation_protocol.py"],
       "transition_policy": "forbid"
     },
     "vocalness": {
@@ -86,6 +92,15 @@
     }
   },
   "ownership": [
+    {
+      "paths": [
+        "sonara/src/validation/*.rs",
+        "sonara/contracts/validation/v1/*.json",
+        "sonara/tests/validation_contracts.rs",
+        "tests/scripts/test_validation_protocol.py"
+      ],
+      "domains": ["validation_protocol"]
+    },
     {
       "paths": [
         "sonara/src/aggression.rs",

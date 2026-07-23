@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sonara.dev/contracts/validation/v1/validation-capsule.schema.json",
+  "title": "Sonara ValidationCapsuleV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "feature", "model_id", "candidate", "runtime", "suite", "artifacts"],
+  "properties": {
+    "format": {"const": "sonara.validation-capsule.v1"},
+    "feature": {"type": "string", "minLength": 1},
+    "model_id": {"type": "string", "minLength": 1},
+    "candidate": {"type": "object"},
+    "runtime": {"type": "object"},
+    "suite": {"type": "object"},
+    "artifacts": {"type": "array", "items": {"type": "object"}}
+  }
+}

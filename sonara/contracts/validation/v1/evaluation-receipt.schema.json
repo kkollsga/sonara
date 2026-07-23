@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sonara.dev/contracts/validation/v1/evaluation-receipt.schema.json",
+  "title": "Sonara EvaluationReceiptV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "evaluation_digest", "claim_digest", "runtime_digest", "runner_digest", "outcome", "metrics", "evidence", "disclosure"],
+  "properties": {
+    "format": {"const": "sonara.evaluation-receipt.v1"},
+    "evaluation_digest": {"type": "object"},
+    "claim_digest": {"type": "object"},
+    "runtime_digest": {"type": "object"},
+    "runner_digest": {"type": "object"},
+    "outcome": {"enum": ["pass", "no_go", "error"]},
+    "metrics": {"type": "array", "items": {"type": "object"}},
+    "evidence": {"type": "array", "items": {"type": "object"}},
+    "disclosure": {"enum": ["aggregate_only", "public"]}
+  }
+}

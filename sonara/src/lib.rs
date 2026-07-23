@@ -26,6 +26,8 @@ pub mod structure;
 pub mod tonal;
 pub mod types;
 pub mod util;
+#[cfg(feature = "validation")]
+pub mod validation;
 pub mod vocal;
 pub mod vocal_model;
 
