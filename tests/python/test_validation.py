@@ -58,6 +58,11 @@ with tempfile.TemporaryDirectory(prefix="sonara-validation-python-") as temp:
             "commit": "a" * 40,
             "tree": "b" * 40,
         },
+        "command_digest": digest(
+            b"sonara-validation-command-v1\0" + sonara.validation.canonical_json(
+                {"arguments": [], "executable_id": runner_name}
+            ).encode()
+        ),
         "feature": "python-validation",
         "format": "sonara.validation-capsule.v1",
         "model_id": "python-candidate",

@@ -80,48 +80,34 @@ def check_receipt(freeze: dict) -> None:
 
     locked = receipt["locked_evaluation"]
     assert locked["status"] == "pass", "sealed/pending locked evidence is not release acceptance"
-    required = (
-        "protocol_path", "result_path", "result_attestation_path",
-        "result_signature_path", "allowed_signers_path",
-    )
+    required = ("capsule_path", "receipt_path", "proof_path", "trust_root_path")
     assert all(isinstance(locked.get(field), str) for field in required)
     result = verify_result_attestation(
-        ROOT / "tests/reference_data/aggression_v2_freeze.json",
-        ROOT / locked["protocol_path"], ROOT / locked["result_path"],
-        ROOT / locked["result_attestation_path"], ROOT / locked["result_signature_path"],
-        ROOT / locked["allowed_signers_path"],
+        ROOT / locked["capsule_path"], ROOT / locked["receipt_path"],
+        ROOT / locked["proof_path"], ROOT / locked["trust_root_path"],
     )
-    locked_result = result["locked_evaluation"]
-    assert locked_result["decisive_total"] == 64 and locked_result["decisive_correct"] >= 52
-    assert locked_result["hard_total"] == 24 and locked_result["hard_correct"] >= 20
-    assert locked_result["tie_total"] == 16 and locked_result["tie_correct"] >= 12
-    assert locked_result["spearman"] >= 0.65
-    assert locked_result["mae"] <= 0.15
-    assert locked_result["score_range"] >= 0.65
-    assert locked_result["abstentions"] == 0
+    metrics = {row["name"]: float(row["value"]) for row in result["metrics"]}
+    assert metrics["decisive-total"] == 64 and metrics["decisive-correct"] >= 52
+    assert metrics["hard-total"] == 24 and metrics["hard-correct"] >= 20
+    assert metrics["tie-total"] == 16 and metrics["tie-correct"] >= 12
+    assert metrics["spearman"] >= 0.65
+    assert metrics["mae"] <= 0.15
+    assert metrics["score-range"] >= 0.65
+    assert metrics["abstentions"] == 0
+    assert metrics["spot-check-total"] >= 20
+    assert metrics["independent-agreement"] >= 0.80
+    assert metrics["evaluator-identities-distinct"] == 1
 
-    independence = result["independence"]
-    assert independence["status"] == "pass"
-    assert independence["spot_check_total"] >= 20
-    assert independence["agreement"] >= 0.80
-    assert independence["label_evaluator_identity_sha256"] != independence["spot_evaluator_identity_sha256"]
-
-    robustness = result["robustness"]
-    assert robustness["status"] == "pass"
     for family in ("gain", "channel", "resample", "codec"):
-        assert robustness["families"][family]["within_tolerance_ratio"] >= 0.95
-        assert robustness["families"][family]["direction_preserved_ratio"] == 1.0
-    assert robustness["families"]["quarter_removal"]["within_tolerance_ratio"] >= 0.90
-    assert robustness["families"]["quarter_removal"]["direction_preserved_ratio"] == 1.0
-    assert robustness["harsh_minus_loud_clean"] >= 0.30
-    assert robustness["silence_abstains"] is True
-
-    non_music = result["non_music"]
-    assert non_music["status"] == "pass"
-    assert set(non_music["families"]) == {"speech", "noise", "sparse"}
-    for result in non_music["families"].values():
-        assert result["count"] >= 1
-        assert result["abstain_or_low_confidence_ratio"] >= 0.95
+        assert metrics[f"robustness-{family}-within-tolerance-ratio"] >= 0.95
+        assert metrics[f"robustness-{family}-direction-preserved-ratio"] == 1.0
+    assert metrics["robustness-quarter-removal-within-tolerance-ratio"] >= 0.90
+    assert metrics["robustness-quarter-removal-direction-preserved-ratio"] == 1.0
+    assert metrics["harsh-minus-loud-clean"] >= 0.30
+    assert metrics["silence-abstains"] == 1
+    for family in ("speech", "noise", "sparse"):
+        assert metrics[f"non-music-{family}-count"] >= 1
+        assert metrics[f"non-music-{family}-abstain-or-low-confidence-ratio"] >= 0.95
 
 
 def synthesized_controls() -> None:

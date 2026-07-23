@@ -8,7 +8,6 @@ import hashlib
 import json
 import math
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 
@@ -63,74 +62,6 @@ def verify_declared_candidate(freeze: dict) -> None:
             raise ValueError(f"frozen dependency mismatch: {relative}")
 
 
-def verify_ssh_signature(
-    payload_path: Path,
-    signature_path: Path,
-    allowed_signers_path: Path,
-    identity: str,
-    namespace: str,
-) -> None:
-    executable = shutil.which("ssh-keygen")
-    if executable is None:
-        raise ValueError("ssh-keygen is required for custodian signature verification")
-    result = subprocess.run(
-        [
-            executable,
-            "-Y",
-            "verify",
-            "-f",
-            str(allowed_signers_path),
-            "-I",
-            identity,
-            "-n",
-            namespace,
-            "-s",
-            str(signature_path),
-        ],
-        input=payload_path.read_bytes(),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    if result.returncode != 0:
-        raise ValueError("custodian signature verification failed")
-
-
-def validate_custody_authorization(
-    freeze: dict,
-    evaluation_identity: str,
-    authorization_path: Path,
-    signature_path: Path,
-    allowed_signers_path: Path,
-) -> dict:
-    custody = freeze.get("custody", {})
-    if custody.get("status") != "ready":
-        raise ValueError("Sonagram custodian root is not frozen")
-    if sha256(allowed_signers_path) != custody.get("allowed_signers_sha256"):
-        raise ValueError("custodian public-key root mismatch")
-    authorization = read_json(authorization_path)
-    required = {
-        "format": "sonagram.aggression-custody-authorization.v1",
-        "evaluation_identity": evaluation_identity,
-        "candidate_commit": freeze["candidate"]["commit"],
-        "cohort_manifest_sha256": freeze["protected_cohort"]["manifest_sha256"],
-        "action": "retire-cohort-and-authorize-one-candidate",
-        "cohort_retired": True,
-        "ledger_repository": custody["ledger_repository"],
-    }
-    for field, expected in required.items():
-        if authorization.get(field) != expected:
-            raise ValueError(f"custody authorization mismatch: {field}")
-    if not isinstance(authorization.get("sequence"), int) or authorization["sequence"] < 1:
-        raise ValueError("custody authorization lacks append-only sequence")
-    if not isinstance(authorization.get("previous_entry_sha256"), str) or len(authorization["previous_entry_sha256"]) != 64:
-        raise ValueError("custody authorization lacks previous ledger identity")
-    verify_ssh_signature(
-        authorization_path, signature_path, allowed_signers_path,
-        custody["signer_identity"], custody["signature_namespace"],
-    )
-    return authorization
-
-
 def validate_runtime_attestation(value: dict, freeze: dict) -> None:
     if value.get("format") != "sonara.aggression-runtime-attestation.v1":
         raise ValueError("invalid runtime attestation")
@@ -145,6 +76,21 @@ def validate_runtime_attestation(value: dict, freeze: dict) -> None:
         raise ValueError("runtime attestation model mismatch")
     if probe.get("native_sha256") not in value.get("site_manifest", {}).values():
         raise ValueError("attested native module is absent from sealed site")
+    for relative in value.get("site_manifest", {}):
+        parts = Path(relative).parts
+        if "__pycache__" in parts or Path(relative).suffix == ".pyc":
+            raise ValueError("runtime attestation contains forbidden Python bytecode")
+    for field in ("runtime_builder_sha256", "runtime_config_sha256"):
+        if not isinstance(value.get(field), str) or len(value[field]) != 64:
+            raise ValueError(f"runtime attestation lacks {field}")
+    config = value.get("runtime_config")
+    if not isinstance(config, dict) or canonical_sha256(config) != value["runtime_config_sha256"]:
+        raise ValueError("runtime configuration identity mismatch")
+    expected_builder = freeze["evaluation_protocol"].get("immutable_dependencies", {}).get(
+        "scripts/build_aggression_candidate.py"
+    )
+    if expected_builder is not None and value["runtime_builder_sha256"] != expected_builder:
+        raise ValueError("runtime builder identity mismatch")
 
 
 def validate_control_manifests(
@@ -159,6 +105,10 @@ def validate_control_manifests(
     }
     counts = {name: 0 for name in tolerances}
     case_ids = set()
+    all_ids = set()
+    all_hashes = set()
+    all_fingerprints = set()
+    triplets = set()
     for row in robustness_rows:
         case_id, family = row.get("case_id"), row.get("family")
         if not isinstance(case_id, str) or case_id in case_ids or family not in tolerances:
@@ -169,11 +119,52 @@ def validate_control_manifests(
         if row.get("expected_direction") not in {"higher", "lower"}:
             raise ValueError("robustness case lacks frozen direction")
         for field in ("base_id", "variant_id", "contrast_id"):
+            if (
+                not isinstance(row.get(field), str)
+                or not row[field]
+                or row[field] in all_ids
+            ):
+                raise ValueError(f"robustness case lacks {field}")
+            all_ids.add(row[field])
+        for field in ("base_content_hash", "variant_content_hash", "contrast_content_hash"):
+            if (
+                not isinstance(row.get(field), str)
+                or len(row[field]) != 64
+                or row[field] in all_hashes
+            ):
+                raise ValueError(f"robustness case lacks {field}")
+            all_hashes.add(row[field])
+        for field in (
+            "base_acoustic_fingerprint",
+            "variant_acoustic_fingerprint",
+            "contrast_acoustic_fingerprint",
+        ):
+            if not isinstance(row.get(field), str) or not row[field] or row[field] in all_fingerprints:
+                raise ValueError(f"robustness case lacks unique {field}")
+            all_fingerprints.add(row[field])
+        triplet = tuple(row[f"{role}_content_hash"] for role in ("base", "variant", "contrast"))
+        if triplet in triplets:
+            raise ValueError("duplicate robustness transform triplet")
+        triplets.add(triplet)
+        for field in ("generator_id", "generator_sha256", "generator_config_sha256"):
             if not isinstance(row.get(field), str) or not row[field]:
                 raise ValueError(f"robustness case lacks {field}")
-        for field in ("base_content_hash", "variant_content_hash", "contrast_content_hash"):
-            if not isinstance(row.get(field), str) or len(row[field]) != 64:
-                raise ValueError(f"robustness case lacks {field}")
+        if len(row["generator_sha256"]) != 64 or len(row["generator_config_sha256"]) != 64:
+            raise ValueError("robustness generator identity is not content-addressed")
+        if row.get("generator_input_sha256") != row["base_content_hash"]:
+            raise ValueError("robustness generator input is not the frozen base")
+        if row.get("generator_output_sha256") != row["variant_content_hash"]:
+            raise ValueError("robustness generator output is not the frozen variant")
+        recipe = {
+            "family": family,
+            "generator_id": row["generator_id"],
+            "generator_sha256": row["generator_sha256"],
+            "generator_config_sha256": row["generator_config_sha256"],
+            "input_sha256": row["generator_input_sha256"],
+            "output_sha256": row["generator_output_sha256"],
+        }
+        if row.get("transform_recipe_sha256") != canonical_sha256(recipe):
+            raise ValueError("robustness transform recipe is not reproducible")
         counts[family] += 1
     if any(count < 20 for count in counts.values()):
         raise ValueError(f"insufficient raw robustness controls: {counts}")
@@ -184,9 +175,18 @@ def validate_control_manifests(
         control_id, family = row.get("control_id"), row.get("family")
         if not isinstance(control_id, str) or control_id in control_ids or family not in non_music_counts:
             raise ValueError("invalid/duplicate non-music control")
-        if not isinstance(row.get("content_hash"), str) or len(row["content_hash"]) != 64:
+        if (
+            not isinstance(row.get("content_hash"), str)
+            or len(row["content_hash"]) != 64
+            or row["content_hash"] in all_hashes
+        ):
             raise ValueError("non-music control lacks full content identity")
+        fingerprint = row.get("acoustic_fingerprint")
+        if not isinstance(fingerprint, str) or not fingerprint or fingerprint in all_fingerprints:
+            raise ValueError("non-music control lacks unique acoustic fingerprint")
         control_ids.add(control_id)
+        all_hashes.add(row["content_hash"])
+        all_fingerprints.add(fingerprint)
         non_music_counts[family] += 1
     if any(count < 20 for count in non_music_counts.values()):
         raise ValueError(f"insufficient raw non-music controls: {non_music_counts}")
@@ -217,12 +217,13 @@ def evaluator_artifact_identity(value: dict) -> str:
         for key in (
             "evaluator_type", "architecture_family", "panel_member_commitments",
             "artifacts", "implementation_sha256", "protocol_sha256",
+            "attestation_sha256", "signature_sha256", "signer_key_sha256",
         )
     }
     return canonical_sha256(material)
 
 
-def validate_evaluator(value: dict, freeze: dict, role: str) -> None:
+def validate_evaluator(value: dict, freeze: dict, role: str, output_sha256: str) -> None:
     if value.get("format") != "sonara.aggression-evaluator.v2":
         raise ValueError(f"{role}: invalid evaluator format")
     for field in ("evaluator_id", "evaluator_type", "architecture_family"):
@@ -245,6 +246,9 @@ def validate_evaluator(value: dict, freeze: dict, role: str) -> None:
             raise ValueError(f"{role}: human panel requires three identity commitments")
         if any(not isinstance(item, str) or len(item) != 64 for item in commitments):
             raise ValueError(f"{role}: invalid human-panel commitment")
+        for field in ("attestation_sha256", "signature_sha256", "signer_key_sha256"):
+            if not isinstance(value.get(field), str) or len(value[field]) != 64:
+                raise ValueError(f"{role}: independently signed evidence lacks {field}")
     else:
         artifacts = value.get("artifacts")
         if not isinstance(artifacts, list) or not artifacts:
@@ -262,6 +266,32 @@ def validate_evaluator(value: dict, freeze: dict, role: str) -> None:
     for field in ("implementation_sha256", "protocol_sha256"):
         if not isinstance(value.get(field), str) or len(value[field]) != 64:
             raise ValueError(f"{role}: missing {field}")
+    if value.get("output_sha256") != output_sha256:
+        raise ValueError(f"{role}: evaluator output is not bound to judgments")
+
+
+def derived_context_distance(row: dict) -> float:
+    left = row.get("left_context")
+    right = row.get("right_context")
+    if (
+        not isinstance(left, list)
+        or not isinstance(right, list)
+        or not left
+        or len(left) != len(right)
+        or any(not isinstance(value, (int, float)) or not math.isfinite(value) for value in left + right)
+    ):
+        raise ValueError("pair lacks finite frozen context vectors")
+    return math.sqrt(sum((float(a) - float(b)) ** 2 for a, b in zip(left, right)) / len(left))
+
+
+def spot_selection_key(row: dict, manifest_by_id: dict[str, dict]) -> str:
+    identities = sorted(
+        (
+            manifest_by_id[row["left_id"]]["content_hash"],
+            manifest_by_id[row["right_id"]]["content_hash"],
+        )
+    )
+    return hashlib.sha256(f"aggression-spot-v2:{identities[0]}:{identities[1]}".encode()).hexdigest()
 
 
 def validate_inputs(
@@ -302,10 +332,12 @@ def validate_inputs(
     if set(locked_paths) != locked_ids:
         raise ValueError("locked private-path map does not exactly cover cohort")
 
+    labels = read_jsonl(labels_path)
+    spot_checks = read_jsonl(spot_checks_path)
     label_evaluator = read_json(label_evaluator_path)
     spot_evaluator = read_json(spot_evaluator_path)
-    validate_evaluator(label_evaluator, freeze, "label evaluator")
-    validate_evaluator(spot_evaluator, freeze, "spot evaluator")
+    validate_evaluator(label_evaluator, freeze, "label evaluator", sha256(labels_path))
+    validate_evaluator(spot_evaluator, freeze, "spot evaluator", sha256(spot_checks_path))
     if label_evaluator["evaluator_id"] == spot_evaluator["evaluator_id"]:
         raise ValueError("spot evaluator must have a distinct identity")
     if (
@@ -316,7 +348,6 @@ def validate_inputs(
     if evaluator_artifact_identity(label_evaluator) == evaluator_artifact_identity(spot_evaluator):
         raise ValueError("evaluator artifact identities must be distinct")
 
-    labels = read_jsonl(labels_path)
     label_ids = [row.get("sample_id") for row in labels]
     if len(labels) != 160 or len(set(label_ids)) != 160 or set(label_ids) != locked_ids:
         raise ValueError("locked labels must cover each of 160 locked recordings exactly once")
@@ -353,6 +384,9 @@ def validate_inputs(
             raise ValueError("pair targets do not match frozen labels")
         if not math.isclose(float(row.get("margin", math.nan)), margin, abs_tol=1e-12) or decision != expected_decision:
             raise ValueError("pair decision/margin does not derive from frozen targets")
+        context_distance = derived_context_distance(row)
+        if not math.isclose(float(row.get("context_distance", math.nan)), context_distance, abs_tol=1e-12):
+            raise ValueError("pair context distance is not derived from frozen vectors")
         valid_stratum = (
             (category == "tie" and margin <= 0.04)
             or (category == "hard" and margin >= 0.25 and row.get("context_distance", 1.0) <= 0.15)
@@ -368,14 +402,14 @@ def validate_inputs(
     if len(set(used)) != 160 or set(used) != locked_ids:
         raise ValueError("locked pairs must use each recording exactly once")
 
-    spot_checks = read_jsonl(spot_checks_path)
     if len(spot_checks) != 20 or len({row.get("pair_id") for row in spot_checks}) != 20:
         raise ValueError("exactly 20 preregistered spot checks are required")
     required_spot_ids = set()
+    manifest_by_id = {row["sample_id"]: row for row in manifest}
     for category, count in (("hard", 8), ("near", 6), ("broad", 6)):
         candidates = sorted(
             (row["pair_id"] for row in pairs if row["category"] == category),
-            key=lambda pair_id: hashlib.sha256(f"aggression-spot-v1:{pair_id}".encode()).hexdigest(),
+            key=lambda pair_id: spot_selection_key(pair_by_id[pair_id], manifest_by_id),
         )
         required_spot_ids.update(candidates[:count])
     if {row.get("pair_id") for row in spot_checks} != required_spot_ids:
@@ -432,9 +466,6 @@ def main() -> int:
     parser.add_argument("--robustness-paths", type=Path, required=True)
     parser.add_argument("--non-music-cases", type=Path, required=True)
     parser.add_argument("--non-music-paths", type=Path, required=True)
-    parser.add_argument("--custody-authorization", type=Path, required=True)
-    parser.add_argument("--custody-signature", type=Path, required=True)
-    parser.add_argument("--allowed-signers", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
@@ -462,7 +493,6 @@ def main() -> int:
         args.non_music_cases,
         args.non_music_paths,
     )
-    custody = freeze.get("custody", {})
     input_paths = {
         "manifest": args.manifest,
         "locked_paths": args.locked_paths,
@@ -486,24 +516,12 @@ def main() -> int:
             "inputs": input_hashes,
         }
     )
-    authorization = validate_custody_authorization(
-        freeze, evaluation_identity, args.custody_authorization,
-        args.custody_signature, args.allowed_signers,
-    )
     protocol = {
         "format": "sonara.aggression-locked-protocol.v1",
         "freeze_sha256": sha256(args.freeze),
         "candidate_commit": freeze["candidate"]["commit"],
         "evaluation_identity": evaluation_identity,
         "inputs": input_hashes,
-        "custody": {
-            "authorization_sha256": sha256(args.custody_authorization),
-            "signature_sha256": sha256(args.custody_signature),
-            "allowed_signers_sha256": sha256(args.allowed_signers),
-            "sequence": authorization["sequence"],
-            "previous_entry_sha256": authorization["previous_entry_sha256"],
-            "ledger_repository": authorization["ledger_repository"],
-        },
         **summary,
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)

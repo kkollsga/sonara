@@ -67,12 +67,13 @@
     "maximum_allowed_ratio": 0.10
   },
   "evaluation_protocol": {
-    "freeze_script_sha256": "1a0f01b04b75ae9f351b86f0245f85a4615c837d961ea17f01ddead378aacfd3",
-    "one_shot_script_sha256": "2ed2f85a577c0b4e15c1abf25ef01b35dba46aee75be40ad7ef15d82a3cbcd3e",
+    "freeze_script_sha256": "404cfcfb4de712c537a6f059e0c1c1ac9eb5d6c24aa35bb33915275c51cc3a80",
+    "one_shot_script_sha256": "aa9b484a55ee3b92d089c6653a36967c09a12e78ca2d979baede627e534b6431",
     "immutable_dependencies": {
-      "scripts/build_aggression_candidate.py": "ceeeb5eebc9ac4b74cb32984fe66f6473ec4284248af06005be76f71bed49768",
+      "scripts/aggression_validation_adapter.py": "c511a79b4ebc582c039796f2c53e98e879869fe52f413b5b433aa25f4afbcfcc",
+      "scripts/build_aggression_candidate.py": "a57a97b334d3206b9022c980bc807ccdf07ec4941833541760d11ed81ed673e5",
       "scripts/probe_aggression_runtime.py": "3ffef4852578dac7f3be672fcffc642b7f95f509c456e04d00d0b1bbd8b10e33",
-      "scripts/verify_aggression_custody.py": "a261e31b60a6de31d4e8fbd28bd4c18a17c509a57689b74ebe0740ff21408e2e",
+      "scripts/verify_aggression_custody.py": "804fe8d31c971257aaa62884e43b6c6063e065c2b0d910540ca87b2facbeb506",
       "tools/aggression-content-hash/Cargo.toml": "3f512ea8954afff8486248cb44fade5d38e16d664b28818d4ffab1908eaa3240",
       "tools/aggression-content-hash/Cargo.lock": "cfbcd8df76f8ef7c59642ab8aa20b7dc6cd44e1d54643be29783182ab0ac905a",
       "tools/aggression-content-hash/src/main.rs": "286a9a85fbb33c90c7fcb55a7fb1c0262975496bbea6cd944d9114349435c2fb"

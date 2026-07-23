@@ -84,7 +84,8 @@ description: Analyze music with Sonara's Python API, choose efficient feature mo
 1. Obtain the receipt, custody proof, and trust root through independent channels.
 2. Call `sonara.validation.verify(receipt, proof, trust_root)` or `sonara validate verify --receipt ... --proof ... --trust-root ...`.
 3. Accept the outcome only if verification succeeds and the receipt's evaluation digest names the intended candidate and suite.
-4. Never tune from sealed inputs, infer private membership from aggregate receipts, or trust a root merely because it is embedded in the proof.
+4. When preparing an evaluation, bind the exact command specification through the capsule's `command_digest`; command substitution is rejected before execution.
+5. Never tune from sealed inputs, infer private membership from aggregate receipts, or trust a root merely because it is embedded in the proof.
 
 {policy['validation']}
 

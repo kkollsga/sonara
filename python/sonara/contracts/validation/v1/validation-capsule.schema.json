@@ -4,11 +4,12 @@
   "title": "Sonara ValidationCapsuleV1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["format", "feature", "model_id", "candidate", "runtime", "suite", "artifacts"],
+  "required": ["format", "feature", "model_id", "command_digest", "candidate", "runtime", "suite", "artifacts"],
   "properties": {
     "format": {"const": "sonara.validation-capsule.v1"},
     "feature": {"type": "string", "minLength": 1},
     "model_id": {"type": "string", "minLength": 1},
+    "command_digest": {"type": "object"},
     "candidate": {"type": "object"},
     "runtime": {"type": "object"},
     "suite": {"type": "object"},

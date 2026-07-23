@@ -36,11 +36,14 @@ def run(*command: str, cwd: Path = ROOT, env=None) -> str:
 
 
 def tree_manifest(root: Path) -> dict[str, str]:
-    return {
+    manifest = {
         path.relative_to(root).as_posix(): sha256(path)
         for path in sorted(root.rglob("*"))
-        if path.is_file() and "__pycache__" not in path.parts
+        if path.is_file()
     }
+    if any("__pycache__" in Path(path).parts or Path(path).suffix == ".pyc" for path in manifest):
+        raise ValueError("candidate runtime contains forbidden Python bytecode")
+    return manifest
 
 
 def verify_candidate(freeze: dict) -> None:
@@ -105,6 +108,7 @@ def main() -> int:
 
     env = os.environ.copy()
     env["PYTHONPATH"] = str(site_dir)
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
     env["PYTHONNOUSERSITE"] = "1"
     probe = json.loads(run(sys.executable, str(ROOT / "scripts/probe_aggression_runtime.py"), env=env))
     if not Path(probe["native_path"]).is_relative_to(site_dir.resolve()):
@@ -112,6 +116,15 @@ def main() -> int:
     if probe["model_id"] != freeze["model"]["model_id"]:
         raise ValueError("runtime probe model mismatch")
 
+    runtime_config = {
+        "build": ["maturin", "build", "--release", "--locked"],
+        "content_hasher": ["cargo", "build", "--release", "--locked"],
+        "python_no_user_site": True,
+        "source_commit": freeze["candidate"]["commit"],
+    }
+    runtime_config_sha256 = hashlib.sha256(
+        json.dumps(runtime_config, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
     attestation = {
         "format": "sonara.aggression-runtime-attestation.v1",
         "freeze_identity_sha256": freeze["freeze_identity_sha256"],
@@ -125,6 +138,9 @@ def main() -> int:
         "content_hasher_lock_sha256": sha256(ROOT / "tools/aggression-content-hash/Cargo.lock"),
         "candidate_cargo_lock_sha256": source_lock_sha256,
         "probe_script_sha256": sha256(ROOT / "scripts/probe_aggression_runtime.py"),
+        "runtime_builder_sha256": sha256(Path(__file__)),
+        "runtime_config": runtime_config,
+        "runtime_config_sha256": runtime_config_sha256,
         "probe": probe,
         "toolchain": {
             "rustc": run("rustc", "--version"),

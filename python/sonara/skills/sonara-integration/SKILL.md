@@ -32,7 +32,8 @@ description: Analyze music with Sonara's Python API, choose efficient feature mo
 1. Obtain the receipt, custody proof, and trust root through independent channels.
 2. Call `sonara.validation.verify(receipt, proof, trust_root)` or `sonara validate verify --receipt ... --proof ... --trust-root ...`.
 3. Accept the outcome only if verification succeeds and the receipt's evaluation digest names the intended candidate and suite.
-4. Never tune from sealed inputs, infer private membership from aggregate receipts, or trust a root merely because it is embedded in the proof.
+4. When preparing an evaluation, bind the exact command specification through the capsule's `command_digest`; command substitution is rejected before execution.
+5. Never tune from sealed inputs, infer private membership from aggregate receipts, or trust a root merely because it is embedded in the proof.
 
 Interpret a PASS only after offline verification against a separately pinned trust root. A receipt bundled with its own unpinned trust root is not independently trusted.
 
@@ -42,4 +43,4 @@ Packaged validation contract identities:
 - `custody-proof.schema.json` — SHA-256 `61ac9ab6e31b29d293df2abbef0d92b2f4ddf238de3882e523a031b43c4e17a3`
 - `evaluation-receipt.schema.json` — SHA-256 `4ba11a3b83e0c78c8223590885208d0ef4972162f78e6e71a65c6eaeca133743`
 - `validation-bindings.schema.json` — SHA-256 `2452eaae8d89680292495791eb6244e36fc31b85c27b003597a3682447579d84`
-- `validation-capsule.schema.json` — SHA-256 `8d90c1ca3e40961dbb0d422edda55002f2201691733c08cc99a835f5d7dba808`
+- `validation-capsule.schema.json` — SHA-256 `4556fa13f707ff319d288d30a1a22f1ef318210e71f6b373575fecd7d1467acf`

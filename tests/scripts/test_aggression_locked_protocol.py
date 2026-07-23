@@ -30,6 +30,11 @@ def write_jsonl(path: Path, rows: list[dict]) -> None:
     path.write_text("".join(json.dumps(row, sort_keys=True) + "\n" for row in rows), encoding="utf-8")
 
 
+def jsonl_sha256(rows: list[dict]) -> str:
+    content = "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows).encode()
+    return hashlib.sha256(content).hexdigest()
+
+
 class LockedProtocolTests(unittest.TestCase):
     def fixture(self, root: Path):
         manifest = []
@@ -75,6 +80,9 @@ class LockedProtocolTests(unittest.TestCase):
             "independent_of_development_evaluator": True,
             "implementation_sha256": "1" * 64,
             "protocol_sha256": "2" * 64,
+            "attestation_sha256": "a" * 64,
+            "signature_sha256": "b" * 64,
+            "signer_key_sha256": "c" * 64,
         }
         label_evaluator = {
             **evaluator_base,
@@ -105,20 +113,27 @@ class LockedProtocolTests(unittest.TestCase):
                 "right_target": right_target,
                 "margin": margin,
                 "context_distance": 0.1,
+                "left_context": [0.0, 0.0, 0.0],
+                "right_context": [0.1, 0.1, 0.1],
                 "category": category,
                 "decision": "tie" if category == "tie" else "right",
             })
+        pair_by_id = {row["pair_id"]: row for row in pairs}
+        manifest_by_id = {row["sample_id"]: row for row in manifest}
         spot_ids = set()
         for category, count in (("hard", 8), ("near", 6), ("broad", 6)):
             ids = sorted(
                 (row["pair_id"] for row in pairs if row["category"] == category),
-                key=lambda pair_id: hashlib.sha256(f"aggression-spot-v1:{pair_id}".encode()).hexdigest(),
+                key=lambda pair_id: PROTOCOL.spot_selection_key(pair_by_id[pair_id], manifest_by_id),
             )
             spot_ids.update(ids[:count])
         spot_checks = [
             {"pair_id": pair_id, "decision": "right", "evaluator_id": "spot-panel"}
             for pair_id in sorted(spot_ids)
         ]
+        label_evaluator["output_sha256"] = jsonl_sha256(labels)
+        spot_evaluator["output_sha256"] = jsonl_sha256(spot_checks)
+        runtime_config = {"build": "fixture"}
         runtime = {
             "format": "sonara.aggression-runtime-attestation.v1",
             "freeze_identity_sha256": freeze["freeze_identity_sha256"],
@@ -126,6 +141,9 @@ class LockedProtocolTests(unittest.TestCase):
             "candidate_tree": freeze["candidate"]["tree"],
             "site_manifest": {"sonara/_sonara.so": "9" * 64},
             "probe": {"model_id": "aggression-rank-v2", "native_sha256": "9" * 64},
+            "runtime_builder_sha256": "d" * 64,
+            "runtime_config": runtime_config,
+            "runtime_config_sha256": PROTOCOL.canonical_sha256(runtime_config),
         }
         robustness = []
         robustness_paths = {}
@@ -134,6 +152,15 @@ class LockedProtocolTests(unittest.TestCase):
             for index in range(20):
                 ids = {role: f"{family}-{index}-{role}" for role in ("base", "variant", "contrast")}
                 hashes = {role: hashlib.sha256(value.encode()).hexdigest() for role, value in ids.items()}
+                fingerprints = {role: f"fingerprint-{value}" for role, value in ids.items()}
+                generator = {
+                    "family": family,
+                    "generator_id": "deterministic-control-generator-v1",
+                    "generator_sha256": "d" * 64,
+                    "generator_config_sha256": hashlib.sha256(f"{family}-{index}-config".encode()).hexdigest(),
+                    "input_sha256": hashes["base"],
+                    "output_sha256": hashes["variant"],
+                }
                 robustness.append({
                     "case_id": f"{family}-{index}",
                     "family": family,
@@ -141,6 +168,13 @@ class LockedProtocolTests(unittest.TestCase):
                     "expected_direction": "higher",
                     **{f"{role}_id": value for role, value in ids.items()},
                     **{f"{role}_content_hash": hashes[role] for role in ids},
+                    **{f"{role}_acoustic_fingerprint": fingerprints[role] for role in ids},
+                    "generator_id": generator["generator_id"],
+                    "generator_sha256": generator["generator_sha256"],
+                    "generator_config_sha256": generator["generator_config_sha256"],
+                    "generator_input_sha256": generator["input_sha256"],
+                    "generator_output_sha256": generator["output_sha256"],
+                    "transform_recipe_sha256": PROTOCOL.canonical_sha256(generator),
                 })
                 robustness_paths.update({value: f"/sealed/{value}.wav" for value in ids.values()})
         non_music = []
@@ -148,7 +182,12 @@ class LockedProtocolTests(unittest.TestCase):
         for family in ("speech", "noise", "sparse"):
             for index in range(20):
                 control_id = f"{family}-{index}"
-                non_music.append({"control_id": control_id, "family": family, "content_hash": hashlib.sha256(control_id.encode()).hexdigest()})
+                non_music.append({
+                    "control_id": control_id,
+                    "family": family,
+                    "content_hash": hashlib.sha256(control_id.encode()).hexdigest(),
+                    "acoustic_fingerprint": f"fingerprint-{control_id}",
+                })
                 non_music_paths[control_id] = f"/sealed/{control_id}.wav"
         values = {
             "locked_paths": locked_paths,
@@ -197,6 +236,8 @@ class LockedProtocolTests(unittest.TestCase):
             for row in checks:
                 row["evaluator_id"] = "alias"
             write_jsonl(paths["spot_checks"], checks)
+            evaluator["output_sha256"] = PROTOCOL.sha256(paths["spot_checks"])
+            write_json(paths["spot_evaluator"], evaluator)
             with self.assertRaisesRegex(ValueError, "artifact identities"):
                 self.validate(freeze, paths)
 
@@ -215,6 +256,9 @@ class LockedProtocolTests(unittest.TestCase):
             checks = PROTOCOL.read_jsonl(paths["spot_checks"])
             checks[0]["pair_id"] = "pair-023"
             write_jsonl(paths["spot_checks"], checks)
+            evaluator = json.loads(paths["spot_evaluator"].read_text())
+            evaluator["output_sha256"] = PROTOCOL.sha256(paths["spot_checks"])
+            write_json(paths["spot_evaluator"], evaluator)
             with self.assertRaisesRegex(ValueError, "preregistered stratified"):
                 self.validate(freeze, paths)
 
@@ -226,6 +270,62 @@ class LockedProtocolTests(unittest.TestCase):
             write_jsonl(paths["manifest"], manifest)
             freeze["protected_cohort"]["manifest_sha256"] = PROTOCOL.sha256(paths["manifest"])
             with self.assertRaisesRegex(ValueError, "duplicate/invalid|identity mismatch|exactly cover"):
+                self.validate(freeze, paths)
+
+    def test_evaluator_output_substitution_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            freeze, paths = self.fixture(Path(raw))
+            evaluator = json.loads(paths["label_evaluator"].read_text())
+            evaluator["output_sha256"] = "0" * 64
+            write_json(paths["label_evaluator"], evaluator)
+            with self.assertRaisesRegex(ValueError, "output is not bound"):
+                self.validate(freeze, paths)
+
+    def test_false_context_distance_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            freeze, paths = self.fixture(Path(raw))
+            pairs = PROTOCOL.read_jsonl(paths["pairs"])
+            pairs[0]["context_distance"] = 0.01
+            write_jsonl(paths["pairs"], pairs)
+            with self.assertRaisesRegex(ValueError, "context distance"):
+                self.validate(freeze, paths)
+
+    def test_control_reuse_and_recipe_forgery_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            freeze, paths = self.fixture(Path(raw))
+            controls = PROTOCOL.read_jsonl(paths["robustness_cases"])
+            controls[1]["base_content_hash"] = controls[0]["base_content_hash"]
+            write_jsonl(paths["robustness_cases"], controls)
+            with self.assertRaisesRegex(ValueError, "base_content_hash"):
+                self.validate(freeze, paths)
+
+        with tempfile.TemporaryDirectory() as raw:
+            freeze, paths = self.fixture(Path(raw))
+            controls = PROTOCOL.read_jsonl(paths["robustness_cases"])
+            controls[0]["generator_config_sha256"] = "0" * 64
+            write_jsonl(paths["robustness_cases"], controls)
+            with self.assertRaisesRegex(ValueError, "transform recipe"):
+                self.validate(freeze, paths)
+
+    def test_spot_selection_is_invariant_to_pair_ids_and_order(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            freeze, paths = self.fixture(Path(raw))
+            pairs = PROTOCOL.read_jsonl(paths["pairs"])
+            manifest = PROTOCOL.read_jsonl(paths["manifest"])
+            manifest_by_id = {row["sample_id"]: row for row in manifest}
+            before = sorted(PROTOCOL.spot_selection_key(row, manifest_by_id) for row in pairs)
+            for index, row in enumerate(reversed(pairs)):
+                row["pair_id"] = f"renamed-{index:03d}"
+            after = sorted(PROTOCOL.spot_selection_key(row, manifest_by_id) for row in pairs)
+            self.assertEqual(before, after)
+
+    def test_runtime_bytecode_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            freeze, paths = self.fixture(Path(raw))
+            runtime = json.loads(paths["runtime_attestation"].read_text())
+            runtime["site_manifest"]["sonara/__pycache__/runner.pyc"] = "7" * 64
+            write_json(paths["runtime_attestation"], runtime)
+            with self.assertRaisesRegex(ValueError, "bytecode"):
                 self.validate(freeze, paths)
 
 

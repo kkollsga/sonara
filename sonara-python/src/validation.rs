@@ -104,6 +104,7 @@ mod tests {
             format: "sonara.validation-capsule.v1".into(),
             feature: "python-contract".into(),
             model_id: "model".into(),
+            command_digest: digest('0'),
             candidate: CandidateIdentity {
                 commit: "a".repeat(40),
                 tree: "b".repeat(40),

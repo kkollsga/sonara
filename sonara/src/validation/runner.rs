@@ -16,6 +16,7 @@ use super::{
 
 const BINDING_FORMAT: &str = "sonara.validation-bindings.v1";
 const PREPARED_FORMAT: &str = "sonara.prepared-validation.v1";
+const COMMAND_DOMAIN: &str = "sonara-validation-command-v1";
 
 #[derive(Debug, Error)]
 pub enum RunnerError {
@@ -82,6 +83,12 @@ pub enum CommandArgument {
 pub struct CommandSpec {
     pub executable_id: String,
     pub arguments: Vec<CommandArgument>,
+}
+
+impl CommandSpec {
+    pub fn digest(&self) -> Result<DigestRef, ValidationError> {
+        Ok(DigestRef::sha256(canonical_digest(COMMAND_DOMAIN, self)?))
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -300,6 +307,9 @@ pub fn run_command<P: CustodyProvider>(
     bindings: &BindingManifest,
     command: &CommandSpec,
 ) -> Result<RunArtifacts, RunnerError> {
+    if command.digest()? != capsule.command_digest {
+        return Err(RunnerError::InvalidBindings("command digest"));
+    }
     run_with(
         provider,
         capsule,

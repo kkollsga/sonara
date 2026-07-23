@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Adversarial tests for custodian-authorized aggression results."""
+"""Adversarial tests for the aggression adapter over generic custody."""
 
 from __future__ import annotations
 
-import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -13,143 +13,148 @@ import sys
 import tempfile
 import unittest
 
+import sonara
+
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "scripts"))
-SPEC = importlib.util.spec_from_file_location(
-    "verify_aggression_custody", ROOT / "scripts/verify_aggression_custody.py"
-)
-assert SPEC is not None and SPEC.loader is not None
-VERIFY = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(VERIFY)
-import freeze_aggression_locked_protocol as FREEZE
 
 
-def write(path: Path, value: dict) -> None:
-    path.write_text(json.dumps(value, sort_keys=True) + "\n", encoding="utf-8")
+def load(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+ADAPTER = load("aggression_validation_adapter", ROOT / "scripts/aggression_validation_adapter.py")
+VERIFY = load("verify_aggression_custody", ROOT / "scripts/verify_aggression_custody.py")
+
+
+def write_json(path: Path, value: dict, *, canonical: bool = False) -> None:
+    content = sonara.validation.canonical_json(value) if canonical else json.dumps(value, indent=2, sort_keys=True) + "\n"
+    path.write_text(content, encoding="utf-8")
 
 
 @unittest.skipUnless(shutil.which("ssh-keygen"), "ssh-keygen is required")
-class CustodyTests(unittest.TestCase):
-    def fixture(self, root: Path) -> dict[str, Path]:
-        key = root / "custodian"
-        subprocess.run(
-            ["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(key)],
-            check=True,
-        )
-        identity = "sonagram-aggression-custodian"
-        namespace = "sonara-aggression-v2"
-        allowed = root / "allowed_signers"
-        allowed.write_text(f"{identity} {key.with_suffix('.pub').read_text()}", encoding="utf-8")
-        authorization_hash = "a" * 64
-        freeze = {
-            "candidate": {"commit": "c" * 40},
-            "custody": {
-                "status": "ready",
-                "allowed_signers_sha256": hashlib.sha256(allowed.read_bytes()).hexdigest(),
-                "signer_identity": identity,
-                "signature_namespace": namespace,
-                "ledger_repository": "https://github.com/kkollsga/sonagram.git",
+class AggressionCustodyTests(unittest.TestCase):
+    def fixture(self, root: Path) -> dict:
+        output = sonara.validation.canonical_json({
+            "disclosure": "aggregate_only",
+            "evidence": [],
+            "metrics": [{"name": "decisive-correct", "value": "52"}],
+            "outcome": "pass",
+        })
+        if os.name == "nt":
+            runner = root / "runner.cmd"
+            runner.write_bytes(f"@echo off\r\n<nul set /p ={output}\r\n".encode())
+        else:
+            runner = root / "runner.sh"
+            runner.write_bytes(f"#!/bin/sh\nprintf '%s' '{output}'\n".encode())
+        evaluator_output = root / "labels.bin"
+        evaluator_attestation = root / "evaluator-attestation.json"
+        evaluator_output.write_bytes(b"sealed-independent-labels")
+        evaluator_attestation.write_bytes(b'{"audio_perception_confirmed":true}')
+        freeze = root / "freeze.json"
+        freeze_value = {
+            "candidate": {
+                "binary_diff_sha256": "1" * 64,
+                "commit": "2" * 40,
+                "tree": "3" * 40,
             },
+            "evaluation_protocol": {"required_thresholds": {"decisive_correct": 52, "mae_max": 0.15}},
+            "format": "sonara.aggression-freeze.v1",
+            "model": {"analysis_schema_version": 5, "model_id": "aggression-rank-v2"},
         }
-        protocol = {
-            "evaluation_identity": "e" * 64,
-            "custody": {"authorization_sha256": authorization_hash, "sequence": 4},
+        write_json(freeze, freeze_value)
+        manifest = root / "manifest.json"
+        manifest_value = {
+            "command": {"arguments": [], "executable_id": runner.name},
+            "evaluator": {
+                "attestation_path": str(evaluator_attestation),
+                "id": "independent-audio-rater",
+                "kind": "executable",
+                "output_path": str(evaluator_output),
+            },
+            "format": ADAPTER.MANIFEST_FORMAT,
+            "resources": [
+                {"id": runner.name, "path": str(runner), "role": "runtime-executable", "section": "runtime"},
+                {"id": "labels.bin", "path": str(evaluator_output), "role": "evaluator-output", "section": "evaluator"},
+                {"id": "evaluator-attestation.json", "path": str(evaluator_attestation), "role": "evaluator-attestation", "section": "evaluator"},
+            ],
         }
-        paths = {name: root / f"{name}.json" for name in ("freeze", "protocol", "result", "attestation")}
-        paths.update({"allowed": allowed, "key": key})
-        write(paths["freeze"], freeze)
-        write(paths["protocol"], protocol)
-        result = {
-            "format": "sonara.aggression-locked-result.v2",
-            "candidate_commit": freeze["candidate"]["commit"],
-            "evaluation_identity": protocol["evaluation_identity"],
-            "protocol_sha256": hashlib.sha256(paths["protocol"].read_bytes()).hexdigest(),
-            "custody_authorization_sha256": authorization_hash,
-            **{name: {"status": "pass"} for name in ("locked_evaluation", "independence", "robustness", "non_music")},
-        }
-        write(paths["result"], result)
-        attestation = {
-            "format": "sonagram.aggression-result-attestation.v1",
-            "evaluation_identity": protocol["evaluation_identity"],
-            "protocol_sha256": hashlib.sha256(paths["protocol"].read_bytes()).hexdigest(),
-            "result_sha256": hashlib.sha256(paths["result"].read_bytes()).hexdigest(),
-            "custody_authorization_sha256": authorization_hash,
-            "previous_entry_sha256": authorization_hash,
-            "ledger_repository": freeze["custody"]["ledger_repository"],
-            "action": "accept-first-and-final-result",
-            "cohort_retired": True,
-            "sequence": 5,
-        }
-        write(paths["attestation"], attestation)
-        subprocess.run(
-            ["ssh-keygen", "-q", "-Y", "sign", "-f", str(key), "-n", namespace, str(paths["attestation"])],
-            check=True,
-        )
-        paths["signature"] = Path(f"{paths['attestation']}.sig")
-        return paths
+        write_json(manifest, manifest_value)
+        capsule, bindings, command = ADAPTER.build_artifacts(freeze, manifest)
+        capsule_path = root / "capsule.json"
+        write_json(capsule_path, capsule, canonical=True)
 
-    def verify(self, paths: dict[str, Path]):
+        key = root / "custodian"
+        subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(key)], check=True)
+        public_key = subprocess.run(
+            ["ssh-keygen", "-y", "-f", str(key)], check=True, capture_output=True, text=True
+        ).stdout.strip()
+        run = sonara.validation.run(
+            capsule, bindings, command, ledger=root / "ledger.db", ledger_id="aggression-locked",
+            private_key=key, principal="aggression-custodian",
+        )
+        receipt = root / "receipt.json"
+        proof = root / "proof.json"
+        trust_root = root / "trust-root.json"
+        receipt.write_text(run.receipt_json, encoding="utf-8")
+        proof.write_text(run.proof_json, encoding="utf-8")
+        write_json(trust_root, {"principal": "aggression-custodian", "public_key_openssh": public_key}, canonical=True)
+        return {
+            "capsule": capsule_path, "receipt": receipt, "proof": proof, "trust_root": trust_root,
+            "freeze": freeze, "manifest": manifest, "freeze_value": freeze_value,
+        }
+
+    def verify(self, fixture: dict) -> dict:
         return VERIFY.verify_result_attestation(
-            paths["freeze"], paths["protocol"], paths["result"], paths["attestation"],
-            paths["signature"], paths["allowed"],
+            fixture["capsule"], fixture["receipt"], fixture["proof"], fixture["trust_root"]
         )
 
-    def test_signed_first_and_final_result_passes(self) -> None:
+    def test_generic_pass_verifies(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
-            self.verify(self.fixture(Path(raw)))
+            receipt = self.verify(self.fixture(Path(raw)))
+            self.assertEqual(receipt["outcome"], "pass")
 
-    def test_result_substitution_is_rejected(self) -> None:
+    def test_modified_freeze_cannot_reuse_old_receipt(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
-            paths = self.fixture(Path(raw))
-            result = json.loads(paths["result"].read_text())
-            result["locked_evaluation"]["decisive_correct"] = 64
-            write(paths["result"], result)
-            with self.assertRaisesRegex(ValueError, "result attestation mismatch"):
-                self.verify(paths)
+            fixture = self.fixture(Path(raw))
+            changed = dict(fixture["freeze_value"])
+            changed["model"] = {**changed["model"], "model_id": "changed-ranker"}
+            write_json(fixture["freeze"], changed)
+            capsule, _, _ = ADAPTER.build_artifacts(fixture["freeze"], fixture["manifest"])
+            write_json(fixture["capsule"], capsule, canonical=True)
+            with self.assertRaisesRegex(ValueError, "different aggression capsule"):
+                self.verify(fixture)
 
-    def test_signature_replay_on_new_attestation_is_rejected(self) -> None:
+    def test_receipt_substitution_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
-            paths = self.fixture(Path(raw))
-            attestation = json.loads(paths["attestation"].read_text())
-            attestation["sequence"] += 1
-            write(paths["attestation"], attestation)
-            with self.assertRaisesRegex(ValueError, "signature verification failed"):
-                self.verify(paths)
+            fixture = self.fixture(Path(raw))
+            receipt = json.loads(fixture["receipt"].read_text())
+            receipt["metrics"][0]["value"] = "51"
+            write_json(fixture["receipt"], receipt, canonical=True)
+            with self.assertRaises(ValueError):
+                self.verify(fixture)
 
-    def test_authorization_cannot_be_retargeted(self) -> None:
+    def test_wrong_trust_root_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
-            paths = self.fixture(Path(raw))
-            freeze = json.loads(paths["freeze"].read_text())
-            freeze["protected_cohort"] = {"manifest_sha256": "m" * 64}
-            write(paths["freeze"], freeze)
-            authorization = {
-                "format": "sonagram.aggression-custody-authorization.v1",
-                "evaluation_identity": "e" * 64,
-                "candidate_commit": freeze["candidate"]["commit"],
-                "cohort_manifest_sha256": "m" * 64,
-                "action": "retire-cohort-and-authorize-one-candidate",
-                "cohort_retired": True,
-                "ledger_repository": freeze["custody"]["ledger_repository"],
-                "sequence": 4,
-                "previous_entry_sha256": "0" * 64,
-            }
-            auth_path = Path(raw) / "authorization.json"
-            write(auth_path, authorization)
-            subprocess.run(
-                ["ssh-keygen", "-q", "-Y", "sign", "-f", str(paths["key"]), "-n", freeze["custody"]["signature_namespace"], str(auth_path)],
-                check=True,
-            )
-            signature = Path(f"{auth_path}.sig")
-            FREEZE.validate_custody_authorization(
-                freeze, "e" * 64, auth_path, signature, paths["allowed"]
-            )
-            authorization["evaluation_identity"] = "x" * 64
-            write(auth_path, authorization)
-            with self.assertRaisesRegex(ValueError, "authorization mismatch"):
-                FREEZE.validate_custody_authorization(
-                    freeze, "e" * 64, auth_path, signature, paths["allowed"]
-                )
+            fixture = self.fixture(Path(raw))
+            root = json.loads(fixture["trust_root"].read_text())
+            root["principal"] = "other-custodian"
+            write_json(fixture["trust_root"], root, canonical=True)
+            with self.assertRaises(ValueError):
+                self.verify(fixture)
+
+    def test_public_artifacts_do_not_disclose_private_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            fixture = self.fixture(Path(raw))
+            private_root = str(Path(raw).resolve())
+            for name in ("capsule", "receipt", "proof"):
+                content = fixture[name].read_text(encoding="utf-8")
+                self.assertNotIn(private_root, content)
+                self.assertNotIn("sealed-independent-labels", content)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Execute the custodian-authorized aggression-v2 audit and emit aggregates only."""
+"""Execute the claimed aggression-v2 audit and emit a canonical aggregate result."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-from freeze_aggression_locked_protocol import verify_declared_candidate, verify_ssh_signature
+from freeze_aggression_locked_protocol import verify_declared_candidate
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,11 +31,23 @@ def read_jsonl(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
+def decimal(value: int | float | bool) -> str:
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    if isinstance(value, int):
+        return str(value)
+    return f"{value:.12f}".rstrip("0").rstrip(".") or "0"
+
+
+def metric(name: str, value: int | float | bool) -> dict[str, str]:
+    return {"name": name, "value": decimal(value)}
+
+
 def tree_manifest(root: Path) -> dict[str, str]:
     return {
         path.relative_to(root).as_posix(): sha256(path)
         for path in sorted(root.rglob("*"))
-        if path.is_file() and "__pycache__" not in path.parts
+        if path.is_file()
     }
 
 
@@ -92,6 +104,11 @@ def score_path(sonara, path: Path) -> dict:
 
 
 def verify_runtime(attestation: dict, site: Path, content_hasher: Path, freeze: dict):
+    if any(
+        "__pycache__" in Path(relative).parts or Path(relative).suffix == ".pyc"
+        for relative in attestation.get("site_manifest", {})
+    ):
+        raise ValueError("sealed runtime contains forbidden Python bytecode")
     if tree_manifest(site) != attestation["site_manifest"]:
         raise ValueError("sealed runtime site changed after attestation")
     if sha256(Path(sys.executable).resolve()) != attestation["probe"]["python_sha256"]:
@@ -159,11 +176,12 @@ def main() -> int:
     parser.add_argument("--robustness-paths", type=Path, required=True)
     parser.add_argument("--non-music-cases", type=Path, required=True)
     parser.add_argument("--non-music-paths", type=Path, required=True)
-    parser.add_argument("--custody-authorization", type=Path, required=True)
-    parser.add_argument("--custody-signature", type=Path, required=True)
-    parser.add_argument("--allowed-signers", type=Path, required=True)
-    parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
+
+    evaluation_digest = os.environ.get("SONARA_VALIDATION_EVALUATION_DIGEST", "")
+    claim_digest = os.environ.get("SONARA_VALIDATION_CLAIM_DIGEST", "")
+    if len(evaluation_digest) != 64 or len(claim_digest) != 64:
+        raise ValueError("aggression audit must run through claimed generic validation custody")
 
     freeze = read_json(args.freeze)
     verify_declared_candidate(freeze)
@@ -195,23 +213,6 @@ def main() -> int:
         "non_music_paths": args.non_music_paths,
     }
     verify_hashes(protocol, input_paths)
-    if sha256(args.custody_authorization) != protocol["custody"]["authorization_sha256"]:
-        raise ValueError("custody authorization substitution")
-    if sha256(args.custody_signature) != protocol["custody"]["signature_sha256"]:
-        raise ValueError("custody signature substitution")
-    if sha256(args.allowed_signers) != protocol["custody"]["allowed_signers_sha256"]:
-        raise ValueError("custodian root substitution")
-    verify_ssh_signature(
-        args.custody_authorization,
-        args.custody_signature,
-        args.allowed_signers,
-        freeze["custody"]["signer_identity"],
-        freeze["custody"]["signature_namespace"],
-    )
-    authorization = read_json(args.custody_authorization)
-    if authorization.get("evaluation_identity") != protocol["evaluation_identity"] or not authorization.get("cohort_retired"):
-        raise ValueError("custodian did not retire the cohort to this evaluation")
-
     attestation = read_json(args.runtime_attestation)
     sonara = verify_runtime(attestation, args.runtime_site, args.content_hasher, freeze)
 
@@ -313,43 +314,39 @@ def main() -> int:
     }
     non_music_pass = all(value["abstain_or_low_confidence_ratio"] >= 0.95 for value in non_music.values())
 
-    result = {
-        "format": "sonara.aggression-locked-result.v2",
-        "candidate_commit": freeze["candidate"]["commit"],
-        "evaluation_identity": protocol["evaluation_identity"],
-        "protocol_sha256": sha256(args.protocol),
-        "runtime_attestation_sha256": sha256(args.runtime_attestation),
-        "custody_authorization_sha256": sha256(args.custody_authorization),
-        "locked_evaluation": {
-            "status": "pass" if locked_pass else "no_go",
-            "decisive_correct": decisive_correct,
-            "decisive_total": 64,
-            "hard_correct": hard_correct,
-            "hard_total": 24,
-            "tie_correct": tie_correct,
-            "tie_total": 16,
-            "spearman": rho,
-            "mae": mae,
-            "score_range": score_range,
-            "abstentions": abstentions,
-        },
-        "independence": {
-            "status": "pass",
-            "spot_check_correct": round(protocol["independent_agreement"] * protocol["counts"]["spot_checks"]),
-            "spot_check_total": protocol["counts"]["spot_checks"],
-            "agreement": protocol["independent_agreement"],
-            "label_evaluator_identity_sha256": protocol["label_evaluator_identity_sha256"],
-            "spot_evaluator_identity_sha256": protocol["spot_evaluator_identity_sha256"],
-        },
-        "robustness": {"status": "pass" if robustness_pass else "no_go", "families": robustness, **physical},
-        "non_music": {"status": "pass" if non_music_pass else "no_go", "families": non_music},
-    }
-    with args.output.open("x", encoding="utf-8") as handle:
-        json.dump(result, handle, indent=2, sort_keys=True)
-        handle.write("\n")
     all_pass = locked_pass and robustness_pass and non_music_pass
-    print(f"locked evaluation: {'PASS' if all_pass else 'NO-GO'} receipt={args.output} sha256={sha256(args.output)}")
-    return 0 if all_pass else 1
+    metrics = [
+        metric("decisive-correct", decisive_correct), metric("decisive-total", 64),
+        metric("hard-correct", hard_correct), metric("hard-total", 24),
+        metric("tie-correct", tie_correct), metric("tie-total", 16),
+        metric("spearman", rho), metric("mae", mae), metric("score-range", score_range),
+        metric("abstentions", abstentions),
+        metric("spot-check-correct", round(protocol["independent_agreement"] * protocol["counts"]["spot_checks"])),
+        metric("spot-check-total", protocol["counts"]["spot_checks"]),
+        metric("independent-agreement", protocol["independent_agreement"]),
+        metric("evaluator-identities-distinct", protocol["label_evaluator_identity_sha256"] != protocol["spot_evaluator_identity_sha256"]),
+        metric("harsh-minus-loud-clean", physical["harsh_minus_loud_clean"]),
+        metric("silence-abstains", physical["silence_abstains"]),
+    ]
+    for family, values in sorted(robustness.items()):
+        metrics.extend([
+            metric(f"robustness-{family.replace('_', '-')}-count", values["count"]),
+            metric(f"robustness-{family.replace('_', '-')}-within-tolerance-ratio", values["within_tolerance_ratio"]),
+            metric(f"robustness-{family.replace('_', '-')}-direction-preserved-ratio", values["direction_preserved_ratio"]),
+        ])
+    for family, values in sorted(non_music.items()):
+        metrics.extend([
+            metric(f"non-music-{family}-count", values["count"]),
+            metric(f"non-music-{family}-abstain-or-low-confidence-ratio", values["abstain_or_low_confidence_ratio"]),
+        ])
+    output = {
+        "disclosure": "aggregate_only",
+        "evidence": [],
+        "metrics": metrics,
+        "outcome": "pass" if all_pass else "no_go",
+    }
+    sys.stdout.write(json.dumps(output, ensure_ascii=False, allow_nan=False, separators=(",", ":"), sort_keys=True))
+    return 0
 
 
 if __name__ == "__main__":

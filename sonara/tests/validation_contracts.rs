@@ -20,6 +20,7 @@ fn capsule() -> ValidationCapsule {
         format: "sonara.validation-capsule.v1".into(),
         feature: "aggression".into(),
         model_id: "aggression-rank-v2".into(),
+        command_digest: digest('0'),
         candidate: CandidateIdentity {
             commit: "a".repeat(40),
             tree: "b".repeat(40),

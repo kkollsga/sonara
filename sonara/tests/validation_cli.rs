@@ -22,10 +22,15 @@ fn artifact(id: &str, role: &str, bytes: &[u8]) -> ArtifactRef {
 }
 
 fn capsule(runner: &[u8], input: &[u8]) -> ValidationCapsule {
+    let command = CommandSpec {
+        executable_id: "runner.sh".into(),
+        arguments: vec![CommandArgument::Resource("input.bin".into())],
+    };
     ValidationCapsule {
         format: "sonara.validation-capsule.v1".into(),
         feature: "cli-contract".into(),
         model_id: "cli-model".into(),
+        command_digest: command.digest().unwrap(),
         candidate: CandidateIdentity {
             commit: "a".repeat(40),
             tree: "b".repeat(40),

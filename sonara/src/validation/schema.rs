@@ -184,6 +184,8 @@ pub struct ValidationCapsule {
     pub format: String,
     pub feature: String,
     pub model_id: String,
+    /// Domain-separated identity of the exact runner command specification.
+    pub command_digest: DigestRef,
     pub candidate: CandidateIdentity,
     pub runtime: RuntimeIdentity,
     pub suite: ValidationSuite,
@@ -218,6 +220,7 @@ impl ValidationCapsule {
         }
         validate_logical(&self.feature)?;
         validate_logical(&self.model_id)?;
+        self.command_digest.validate()?;
         validate_logical(&self.runtime.model_id)?;
         validate_logical(&self.suite.kind)?;
         self.candidate.validate()?;

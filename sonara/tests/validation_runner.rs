@@ -34,6 +34,7 @@ fn fixture(runner: &[u8], input: &[u8]) -> ValidationCapsule {
         format: "sonara.validation-capsule.v1".into(),
         feature: "generic-validation".into(),
         model_id: "candidate-model".into(),
+        command_digest: hash(b"fixture-command"),
         candidate: CandidateIdentity {
             commit: "a".repeat(40),
             tree: "b".repeat(40),
@@ -233,20 +234,43 @@ printf '%s' '{"disclosure":"aggregate_only","evidence":[],"metrics":[{"name":"sc
     let input_path = root.path().join("input.bin");
     fs::write(&runner_path, runner).unwrap();
     fs::write(&input_path, input).unwrap();
-    let capsule = fixture(runner, input);
+    let command = CommandSpec {
+        executable_id: "runner.sh".into(),
+        arguments: vec![CommandArgument::Resource("input.bin".into())],
+    };
+    let mut capsule = fixture(runner, input);
+    capsule.command_digest = command.digest().unwrap();
     let manifest = bindings(&runner_path, &input_path);
     let mut ledger =
         SqliteCustody::open(root.path().join("ledger.db"), "command-ledger", signer()).unwrap();
 
-    let result = run_command(
+    let result = run_command(&mut ledger, &capsule, &manifest, &command).unwrap();
+    assert_eq!(result.receipt.outcome, Outcome::Pass);
+}
+
+#[cfg(unix)]
+#[test]
+fn command_substitution_is_rejected_before_execution() {
+    let runner = b"runner";
+    let input = b"input";
+    let capsule = fixture(runner, input);
+    let root = tempfile::tempdir().unwrap();
+    let mut ledger =
+        SqliteCustody::open(root.path().join("ledger.db"), "command-binding", signer()).unwrap();
+    let error = match run_command(
         &mut ledger,
         &capsule,
-        &manifest,
+        &bindings(root.path(), root.path()),
         &CommandSpec {
             executable_id: "runner.sh".into(),
-            arguments: vec![CommandArgument::Resource("input.bin".into())],
+            arguments: Vec::new(),
         },
-    )
-    .unwrap();
-    assert_eq!(result.receipt.outcome, Outcome::Pass);
+    ) {
+        Err(error) => error,
+        Ok(_) => panic!("substituted command was accepted"),
+    };
+    assert!(matches!(
+        error,
+        RunnerError::InvalidBindings("command digest")
+    ));
 }
