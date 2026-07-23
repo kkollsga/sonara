@@ -1,0 +1,90 @@
+{
+  "format": "sonara.aggression-freeze.v1",
+  "candidate": {
+    "commit": "33d905acab2e2b38c86fbeb1aecfa76fb9ed9d2d",
+    "tree": "df1a306952b365ea71c9f619a6e5d9477a85138a",
+    "base_commit": "37b5247e1808be75b58d68868bc4a3d1503e4839",
+    "binary_diff_sha256": "b7daf9707f245db8de73bec015f66d04c4fc88d04e7bb4d03258ec16395ea7f3",
+    "files": {
+      "sonara/src/aggression.rs": "52c0889241db1fb69df155957af3c0ff94421b68278cae34764d40e049af77b7",
+      "sonara/src/analyze.rs": "f64914d91cb0df3e8577900807ea0e63066afa37e81cce1bdf1b08093d2151d1",
+      "sonara-python/src/aggression.rs": "d43fdc1f641a8d1df872af2803db9e3c96759a9ae6e522a38d9f951aadb8c512",
+      "sonara-python/src/analyze.rs": "d332d5fda01622a7c3cbbcb8a09309b26d77d6b10da44584838b4cb467b953ce",
+      "sonara/src/aggression_model.bin": "fb38de2a715dce77688c0b8b9247ca079a4d1c533f52d7e27fe9210ca8e7db03",
+      "sonara/src/aggression_linear.ferricml": "2ece8e2849b5fc5a9210e78b30c73c280e943c31e32cd19264af512c72f3c86c"
+    },
+    "research_sources": {
+      "dev-docs/bench/scripts/sonagram-aggression-ranking/extract_features.py": "01b7e76969d73417053d69e01bec749aa788204b4dc5655051946a0f08e81d8c",
+      "dev-docs/bench/scripts/sonagram-aggression-ranking/build_pairs.py": "8d39e186ef20fa9f2f7b04d22457d6169d6a1ad016a2cf10d5e05821f49d59bf",
+      "dev-docs/bench/scripts/sonagram-aggression-ranking/freeze_compact_candidate.py": "b4f192fc385e402eec3adf6efa921548e01d59a5eb8419d0cf8def05b363d33e",
+      "dev-docs/bench/scripts/sonagram-aggression-ranking/pack_rust_artifact.py": "b4d9087a034a32c2243c9f302d3eb07db39a479ba76da00fc49dac64a8cb82e0",
+      "dev-docs/bench/out/sonagram-aggression-ranking/rank_target_transform.json": "c9fecb5a50f100be4e14a7b6e479d105682cc15a5e3c3af21119a04a5db1b6f9"
+    }
+  },
+  "model": {
+    "model_id": "aggression-rank-v2",
+    "model_version": 2,
+    "analysis_schema_version": 5,
+    "feature_count": 39,
+    "feature_schema_sha256": "6ac03f40126b7025fd2890f8a8f40c950653117db47adf13b6e9ac376db4b785",
+    "tie_band": 0.07,
+    "rank_target_transform": {
+      "source": "mean-top-two-excerpt-logit-margin",
+      "lower_train_quantile": 0.02,
+      "upper_train_quantile": 0.98,
+      "lower": -6.040744138696225,
+      "upper": 4.100396964057553
+    }
+  },
+  "protected_cohort": {
+    "manifest_sha256": "207efd39726d6ec98e128e788752ca3129a15eb4ceb08fcd122d14e95c668f1c",
+    "identity_canonicalization": "sorted compact JSON lines of sample_id, content_hash, acoustic_fingerprint, split with final newline",
+    "splits": {
+      "train": {
+        "count": 704,
+        "identity_sha256": "9a550439e6e3fb1c34e42cd05ecd383cd43adf6310d2c4c411f1bd408974d93c"
+      },
+      "development": {
+        "count": 160,
+        "identity_sha256": "81973aa9628a3bce87b87b5005f2f9e15217e1f1f703a3f5859e04c1ce3e481f"
+      },
+      "locked": {
+        "count": 160,
+        "identity_sha256": "a70d823a67eb701d31760a0ae35b5813b142284f1af9ebd7f565ba4d39b0fdce"
+      }
+    }
+  },
+  "performance": {
+    "evidence_path": "tests/reference_data/aggression_v2_performance.json",
+    "evidence_sha256": "365ff0179c21aafbfb75dca78c781c66ce1dd5bd1a70ba7f91cf723f6ac88417",
+    "raw_record_sha256": "419526cb984853aa60c3d35464928a67701576a69583f9877c38cfe105308ca8",
+    "duration_seconds": 1,
+    "baseline_95_us": [446.09, 451.43],
+    "fused_95_us": [480.88, 483.93],
+    "midpoint_overhead_ratio": 0.074441080,
+    "conservative_cross_bound_overhead_ratio": 0.084825932,
+    "maximum_allowed_ratio": 0.10
+  },
+  "evaluation_protocol": {
+    "freeze_script_sha256": "e776bcdb618f75a0c7438fccd96ea8605123496bc97ffe6df23873670be08608",
+    "one_shot_script_sha256": "5fba68f14b4e0af01398f65ec5c34ee0818dd882e93a1f6141ed708b2f3711c6",
+    "excluded_evaluator_family_sha256": [
+      "f7f23332d4ef092112f2f6ff4cc4f59b825dd02eb55a471bf279af3832f581fe"
+    ],
+    "locked_strata": {
+      "hard": 24,
+      "near": 20,
+      "broad": 20,
+      "tie": 16
+    },
+    "required_thresholds": {
+      "decisive_correct": 52,
+      "hard_correct": 20,
+      "tie_correct": 12,
+      "spearman": 0.65,
+      "mae_max": 0.15,
+      "score_range": 0.65,
+      "independent_spot_check_agreement": 0.80
+    }
+  }
+}

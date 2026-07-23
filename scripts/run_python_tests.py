@@ -78,6 +78,7 @@ def check_contract() -> None:
     for relative in (
         "scripts/run_fidelity_gate.py",
         "tests/scripts/test_run_fidelity_gate.py",
+        "tests/scripts/test_aggression_locked_protocol.py",
     ):
         command = [sys.executable, str(ROOT / relative)]
         if relative.startswith("scripts/"):

@@ -5,6 +5,8 @@
     "python/sonara/*.pyi",
     "python/sonara/models/*.json",
     "scripts/mood_aggression_probe.py",
+    "scripts/freeze_aggression_locked_protocol.py",
+    "scripts/evaluate_aggression_locked.py",
     "scripts/run_fidelity_gate.py",
     "sonara-python/src/*.rs",
     "sonara-python/src/**/*.rs",
@@ -17,7 +19,8 @@
     "tests/fidelity_gates.json",
     "tests/python/test_*.py",
     "tests/reference_data/*",
-    "tests/scripts/test_run_fidelity_gate.py"
+    "tests/scripts/test_run_fidelity_gate.py",
+    "tests/scripts/test_aggression_locked_protocol.py"
   ],
   "reviewed_transitions": [
     {
@@ -95,8 +98,13 @@
       "paths": [
         "sonara/src/aggression_model.bin",
         "sonara/src/aggression_linear.ferricml",
+        "scripts/freeze_aggression_locked_protocol.py",
+        "scripts/evaluate_aggression_locked.py",
         "tests/python/test_aggression_semantic.py",
-        "tests/reference_data/aggression_v2_acceptance.json"
+        "tests/reference_data/aggression_v2_acceptance.json",
+        "tests/reference_data/aggression_v2_freeze.json",
+        "tests/reference_data/aggression_v2_performance.json",
+        "tests/scripts/test_aggression_locked_protocol.py"
       ],
       "domains": ["aggression_semantic"]
     },

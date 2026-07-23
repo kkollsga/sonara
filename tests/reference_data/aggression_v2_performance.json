@@ -1,0 +1,15 @@
+{
+  "format": "sonara.aggression-performance.v1",
+  "candidate_commit": "33d905acab2e2b38c86fbeb1aecfa76fb9ed9d2d",
+  "benchmark": "aggression_audio/(embedding|embedding+aggression)/1s",
+  "warm_up_seconds": 1,
+  "measurement_seconds": 8,
+  "sample_size": 50,
+  "raw_output_sha256": "419526cb984853aa60c3d35464928a67701576a69583f9877c38cfe105308ca8",
+  "baseline_95_us": [446.09, 451.43],
+  "fused_95_us": [480.88, 483.93],
+  "midpoint_overhead_ratio": 0.074441080,
+  "conservative_cross_bound_overhead_ratio": 0.084825932,
+  "criterion_maximum_ratio": 0.10,
+  "status": "pass"
+}

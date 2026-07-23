@@ -16,7 +16,36 @@ sys.path.insert(0, str(ROOT / "python"))
 import sonara
 
 
-def check_receipt() -> None:
+def check_frozen_candidate() -> dict:
+    freeze_path = ROOT / "tests/reference_data/aggression_v2_freeze.json"
+    freeze = json.loads(freeze_path.read_text())
+    assert freeze["format"] == "sonara.aggression-freeze.v1"
+    assert freeze["candidate"]["commit"] == "33d905acab2e2b38c86fbeb1aecfa76fb9ed9d2d"
+    assert freeze["candidate"]["tree"] == "df1a306952b365ea71c9f619a6e5d9477a85138a"
+    assert freeze["model"]["model_id"] == sonara.AGGRESSION_MODEL_ID
+    assert freeze["model"]["analysis_schema_version"] == 5
+    assert abs(freeze["model"]["tie_band"] - sonara.AGGRESSION_TIE_BAND) <= 1.0e-7
+    for relative, expected in freeze["candidate"]["files"].items():
+        assert hashlib.sha256((ROOT / relative).read_bytes()).hexdigest() == expected
+    scripts = freeze["evaluation_protocol"]
+    assert hashlib.sha256(
+        (ROOT / "scripts/freeze_aggression_locked_protocol.py").read_bytes()
+    ).hexdigest() == scripts["freeze_script_sha256"]
+    assert hashlib.sha256(
+        (ROOT / "scripts/evaluate_aggression_locked.py").read_bytes()
+    ).hexdigest() == scripts["one_shot_script_sha256"]
+    performance = freeze["performance"]
+    evidence_path = ROOT / performance["evidence_path"]
+    assert hashlib.sha256(evidence_path.read_bytes()).hexdigest() == performance["evidence_sha256"]
+    evidence = json.loads(evidence_path.read_text())
+    assert evidence["candidate_commit"] == freeze["candidate"]["commit"]
+    assert evidence["status"] == "pass"
+    assert evidence["conservative_cross_bound_overhead_ratio"] <= evidence["criterion_maximum_ratio"]
+    assert performance["conservative_cross_bound_overhead_ratio"] <= performance["maximum_allowed_ratio"]
+    return freeze
+
+
+def check_receipt(freeze: dict) -> None:
     receipt = json.loads(
         (ROOT / "tests/reference_data/aggression_v2_acceptance.json").read_text()
     )
@@ -44,6 +73,43 @@ def check_receipt() -> None:
     assert controls["harsh_minus_loud_clean"] >= 0.30
     assert controls["silence_abstains"] is True
     assert controls["offline_rust_max_abs_error"] <= 0.0001
+
+    locked = receipt["locked_evaluation"]
+    assert locked["status"] == "pass", "sealed/pending locked evidence is not release acceptance"
+    assert locked["candidate_commit"] == freeze["candidate"]["commit"]
+    assert locked["freeze_sha256"] == hashlib.sha256(
+        (ROOT / "tests/reference_data/aggression_v2_freeze.json").read_bytes()
+    ).hexdigest()
+    assert len(locked["protocol_sha256"]) == 64
+    assert locked["decisive_total"] == 64 and locked["decisive_correct"] >= 52
+    assert locked["hard_total"] == 24 and locked["hard_correct"] >= 20
+    assert locked["tie_total"] == 16 and locked["tie_correct"] >= 12
+    assert locked["spearman"] >= 0.65
+    assert locked["mae"] <= 0.15
+    assert locked["score_range"] >= 0.65
+    assert locked["abstentions"] == 0
+
+    independence = receipt["independence"]
+    assert independence["status"] == "pass"
+    assert independence["spot_check_total"] >= 20
+    assert independence["agreement"] >= 0.80
+    assert independence["label_evaluator_id_sha256"] != independence["spot_evaluator_id_sha256"]
+
+    robustness = receipt["robustness"]
+    assert robustness["status"] == "pass"
+    assert robustness["gain_channel_resample_within_0_03_ratio"] >= 0.95
+    assert robustness["codec_within_0_05_ratio"] >= 0.95
+    assert robustness["quarter_removal_within_0_10_ratio"] >= 0.90
+    assert robustness["direction_preserved"] is True
+    assert robustness["harsh_minus_loud_clean"] >= 0.30
+    assert robustness["silence_abstains"] is True
+
+    non_music = receipt["non_music"]
+    assert non_music["status"] == "pass"
+    assert set(non_music["families"]) == {"speech", "noise", "sparse"}
+    for result in non_music["families"].values():
+        assert result["count"] >= 1
+        assert result["abstain_or_low_confidence_ratio"] >= 0.95
 
 
 def synthesized_controls() -> None:
@@ -91,6 +157,7 @@ def synthesized_controls() -> None:
     assert silence["aggression_confidence"] == 0.0
 
 
-check_receipt()
+freeze = check_frozen_candidate()
 synthesized_controls()
+check_receipt(freeze)
 print("aggression semantic fidelity: PASS")
