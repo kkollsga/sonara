@@ -2,6 +2,43 @@
 
 All notable changes to sonara are documented in this file.
 
+## [0.3.1] - 2026-07-23
+
+### Validated on real music
+
+On the fixed 80-pair development comparison set, the fused aggression analyzer
+gets 52/64 decisive directions correct (81.3%), including 20/24 hard pairs
+(83.3%), and 12/16 ties correct (75.0%). Its scalar rank reaches Spearman
+0.8709 with MAE 0.0965; the weakest grouped fold remains at Spearman 0.7599.
+Synthesized loudness-matched controls separate harsh from loud-clean audio by
+0.4365, preserve rank under gain changes, and abstain on silence. Default
+compact analysis remains within 1.93% of `main` across 1/5/30-second signals;
+requested aggression adds 6.39–8.19% over the shared embedding analysis.
+
+### Added
+
+- A 39-feature fused aggression analyzer with Rust and Python signal, file,
+  batch, and shared-pipeline APIs, plus support, forcefulness, harshness,
+  tension, rhythm, and model-provenance outputs.
+- Repository-owned semantic, artifact-integrity, physical-control, API-parity,
+  and performance gates for the bundled aggression model.
+
+### Changed
+
+- Aggression analysis now reuses physical and perceptual evidence from the
+  single fused audio pipeline; the retained 48D embedding scorer is explicitly
+  the legacy v1 compatibility API.
+- Pair-ranking thresholds and tie policy are no longer public analyzer API;
+  consumers define their own product-level adjudication.
+- Fidelity routing can retire a protected artifact only through an exact,
+  content-hash-reviewed deletion.
+
+### Fixed
+
+- Removed application-specific research probes, fixtures, and provenance from
+  the generic analyzer repository and release boundary.
+- Kept compiled-but-unrequested aggression work out of the compact hot loop.
+
 ## [0.3.0] - 2026-07-22
 
 ### Validated on real music

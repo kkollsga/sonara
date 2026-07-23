@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "sonara"
-version = "0.3.0"
+version = "0.3.1"
 description = "High-performance audio analysis and music information retrieval in Rust"
 requires-python = ">=3.10"
 dependencies = ["numpy>=1.23,<3"]
