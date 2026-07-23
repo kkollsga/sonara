@@ -1,0 +1,10 @@
+[package]
+name = "sonara-aggression-content-hash"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+blake3 = "1"

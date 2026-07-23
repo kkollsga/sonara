@@ -7,6 +7,12 @@
     "scripts/mood_aggression_probe.py",
     "scripts/freeze_aggression_locked_protocol.py",
     "scripts/evaluate_aggression_locked.py",
+    "scripts/build_aggression_candidate.py",
+    "scripts/probe_aggression_runtime.py",
+    "scripts/verify_aggression_custody.py",
+    "tools/aggression-content-hash/Cargo.toml",
+    "tools/aggression-content-hash/Cargo.lock",
+    "tools/aggression-content-hash/src/main.rs",
     "scripts/run_fidelity_gate.py",
     "sonara-python/src/*.rs",
     "sonara-python/src/**/*.rs",
@@ -20,7 +26,8 @@
     "tests/python/test_*.py",
     "tests/reference_data/*",
     "tests/scripts/test_run_fidelity_gate.py",
-    "tests/scripts/test_aggression_locked_protocol.py"
+    "tests/scripts/test_aggression_locked_protocol.py",
+    "tests/scripts/test_aggression_custody.py"
   ],
   "reviewed_transitions": [
     {
@@ -100,11 +107,18 @@
         "sonara/src/aggression_linear.ferricml",
         "scripts/freeze_aggression_locked_protocol.py",
         "scripts/evaluate_aggression_locked.py",
+        "scripts/build_aggression_candidate.py",
+        "scripts/probe_aggression_runtime.py",
+        "scripts/verify_aggression_custody.py",
+        "tools/aggression-content-hash/Cargo.toml",
+        "tools/aggression-content-hash/Cargo.lock",
+        "tools/aggression-content-hash/src/main.rs",
         "tests/python/test_aggression_semantic.py",
         "tests/reference_data/aggression_v2_acceptance.json",
         "tests/reference_data/aggression_v2_freeze.json",
         "tests/reference_data/aggression_v2_performance.json",
-        "tests/scripts/test_aggression_locked_protocol.py"
+        "tests/scripts/test_aggression_locked_protocol.py",
+        "tests/scripts/test_aggression_custody.py"
       ],
       "domains": ["aggression_semantic"]
     },

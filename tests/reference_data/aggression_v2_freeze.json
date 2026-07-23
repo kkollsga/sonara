@@ -1,5 +1,6 @@
 {
   "format": "sonara.aggression-freeze.v1",
+  "freeze_identity_sha256": "ddbe26bb5e71707b13ae7dae08d7ef5b122142ee06fb2cc825f7b816b8dbde17",
   "candidate": {
     "commit": "33d905acab2e2b38c86fbeb1aecfa76fb9ed9d2d",
     "tree": "df1a306952b365ea71c9f619a6e5d9477a85138a",
@@ -66,11 +67,20 @@
     "maximum_allowed_ratio": 0.10
   },
   "evaluation_protocol": {
-    "freeze_script_sha256": "e776bcdb618f75a0c7438fccd96ea8605123496bc97ffe6df23873670be08608",
-    "one_shot_script_sha256": "5fba68f14b4e0af01398f65ec5c34ee0818dd882e93a1f6141ed708b2f3711c6",
+    "freeze_script_sha256": "1a0f01b04b75ae9f351b86f0245f85a4615c837d961ea17f01ddead378aacfd3",
+    "one_shot_script_sha256": "2ed2f85a577c0b4e15c1abf25ef01b35dba46aee75be40ad7ef15d82a3cbcd3e",
+    "immutable_dependencies": {
+      "scripts/build_aggression_candidate.py": "ceeeb5eebc9ac4b74cb32984fe66f6473ec4284248af06005be76f71bed49768",
+      "scripts/probe_aggression_runtime.py": "3ffef4852578dac7f3be672fcffc642b7f95f509c456e04d00d0b1bbd8b10e33",
+      "scripts/verify_aggression_custody.py": "a261e31b60a6de31d4e8fbd28bd4c18a17c509a57689b74ebe0740ff21408e2e",
+      "tools/aggression-content-hash/Cargo.toml": "3f512ea8954afff8486248cb44fade5d38e16d664b28818d4ffab1908eaa3240",
+      "tools/aggression-content-hash/Cargo.lock": "cfbcd8df76f8ef7c59642ab8aa20b7dc6cd44e1d54643be29783182ab0ac905a",
+      "tools/aggression-content-hash/src/main.rs": "286a9a85fbb33c90c7fcb55a7fb1c0262975496bbea6cd944d9114349435c2fb"
+    },
     "excluded_evaluator_family_sha256": [
       "f7f23332d4ef092112f2f6ff4cc4f59b825dd02eb55a471bf279af3832f581fe"
     ],
+    "excluded_evaluator_artifact_sha256": [],
     "locked_strata": {
       "hard": 24,
       "near": 20,
@@ -86,5 +96,12 @@
       "score_range": 0.65,
       "independent_spot_check_agreement": 0.80
     }
+  },
+  "custody": {
+    "status": "awaiting_sonagram-root",
+    "ledger_repository": "https://github.com/kkollsga/sonagram.git",
+    "signer_identity": "sonagram-aggression-custodian",
+    "signature_namespace": "sonara-aggression-v2",
+    "allowed_signers_sha256": null
   }
 }

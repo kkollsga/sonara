@@ -12,8 +12,10 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "python"))
+sys.path.insert(0, str(ROOT / "scripts"))
 
 import sonara
+from verify_aggression_custody import verify_result_attestation
 
 
 def check_frozen_candidate() -> dict:
@@ -34,6 +36,8 @@ def check_frozen_candidate() -> dict:
     assert hashlib.sha256(
         (ROOT / "scripts/evaluate_aggression_locked.py").read_bytes()
     ).hexdigest() == scripts["one_shot_script_sha256"]
+    for relative, expected in scripts["immutable_dependencies"].items():
+        assert hashlib.sha256((ROOT / relative).read_bytes()).hexdigest() == expected
     performance = freeze["performance"]
     evidence_path = ROOT / performance["evidence_path"]
     assert hashlib.sha256(evidence_path.read_bytes()).hexdigest() == performance["evidence_sha256"]
@@ -76,35 +80,43 @@ def check_receipt(freeze: dict) -> None:
 
     locked = receipt["locked_evaluation"]
     assert locked["status"] == "pass", "sealed/pending locked evidence is not release acceptance"
-    assert locked["candidate_commit"] == freeze["candidate"]["commit"]
-    assert locked["freeze_sha256"] == hashlib.sha256(
-        (ROOT / "tests/reference_data/aggression_v2_freeze.json").read_bytes()
-    ).hexdigest()
-    assert len(locked["protocol_sha256"]) == 64
-    assert locked["decisive_total"] == 64 and locked["decisive_correct"] >= 52
-    assert locked["hard_total"] == 24 and locked["hard_correct"] >= 20
-    assert locked["tie_total"] == 16 and locked["tie_correct"] >= 12
-    assert locked["spearman"] >= 0.65
-    assert locked["mae"] <= 0.15
-    assert locked["score_range"] >= 0.65
-    assert locked["abstentions"] == 0
+    required = (
+        "protocol_path", "result_path", "result_attestation_path",
+        "result_signature_path", "allowed_signers_path",
+    )
+    assert all(isinstance(locked.get(field), str) for field in required)
+    result = verify_result_attestation(
+        ROOT / "tests/reference_data/aggression_v2_freeze.json",
+        ROOT / locked["protocol_path"], ROOT / locked["result_path"],
+        ROOT / locked["result_attestation_path"], ROOT / locked["result_signature_path"],
+        ROOT / locked["allowed_signers_path"],
+    )
+    locked_result = result["locked_evaluation"]
+    assert locked_result["decisive_total"] == 64 and locked_result["decisive_correct"] >= 52
+    assert locked_result["hard_total"] == 24 and locked_result["hard_correct"] >= 20
+    assert locked_result["tie_total"] == 16 and locked_result["tie_correct"] >= 12
+    assert locked_result["spearman"] >= 0.65
+    assert locked_result["mae"] <= 0.15
+    assert locked_result["score_range"] >= 0.65
+    assert locked_result["abstentions"] == 0
 
-    independence = receipt["independence"]
+    independence = result["independence"]
     assert independence["status"] == "pass"
     assert independence["spot_check_total"] >= 20
     assert independence["agreement"] >= 0.80
-    assert independence["label_evaluator_id_sha256"] != independence["spot_evaluator_id_sha256"]
+    assert independence["label_evaluator_identity_sha256"] != independence["spot_evaluator_identity_sha256"]
 
-    robustness = receipt["robustness"]
+    robustness = result["robustness"]
     assert robustness["status"] == "pass"
-    assert robustness["gain_channel_resample_within_0_03_ratio"] >= 0.95
-    assert robustness["codec_within_0_05_ratio"] >= 0.95
-    assert robustness["quarter_removal_within_0_10_ratio"] >= 0.90
-    assert robustness["direction_preserved"] is True
+    for family in ("gain", "channel", "resample", "codec"):
+        assert robustness["families"][family]["within_tolerance_ratio"] >= 0.95
+        assert robustness["families"][family]["direction_preserved_ratio"] == 1.0
+    assert robustness["families"]["quarter_removal"]["within_tolerance_ratio"] >= 0.90
+    assert robustness["families"]["quarter_removal"]["direction_preserved_ratio"] == 1.0
     assert robustness["harsh_minus_loud_clean"] >= 0.30
     assert robustness["silence_abstains"] is True
 
-    non_music = receipt["non_music"]
+    non_music = result["non_music"]
     assert non_music["status"] == "pass"
     assert set(non_music["families"]) == {"speech", "noise", "sparse"}
     for result in non_music["families"].values():
