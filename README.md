@@ -789,7 +789,7 @@ sonara is a two-crate Rust workspace:
 ```text
 sonara/src/
   analyze.rs      — Fused analysis pipeline (compact/playlist/full modes)
-  aggression.rs   — Versioned 48-term aggression model
+  aggression.rs   — Versioned 39-feature fused aggression model
   perceptual.rs   — LUFS, energy, danceability, key detection, valence, acousticness
   loudness_ext.rs — True peak (dBTP), ReplayGain, short-term curve, momentary max, EBU R128 LRA
   tonal.rs        — HPCP, chord detection, dissonance (Sethares 1998)

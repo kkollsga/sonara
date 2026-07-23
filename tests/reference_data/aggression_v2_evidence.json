@@ -1,5 +1,5 @@
 {
-  "format": "sonara.aggression-acceptance.v1",
+  "format": "sonara.aggression-evidence.v1",
   "model_id": "aggression-rank-v2",
   "analysis_schema_version": 5,
   "feature_schema_sha256": "6ac03f40126b7025fd2890f8a8f40c950653117db47adf13b6e9ac376db4b785",
@@ -28,8 +28,5 @@
     "harsh_minus_loud_clean": 0.436450,
     "silence_abstains": true,
     "offline_rust_max_abs_error": 0.000078
-  },
-  "locked_evaluation": {
-    "status": "sealed"
   }
 }

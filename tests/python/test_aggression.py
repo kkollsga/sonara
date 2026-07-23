@@ -28,7 +28,6 @@ def metadata():
     assert sonara.AGGRESSION_EMBEDDING_VERSION == sonara.SIMILARITY_VERSION
     assert sonara.AGGRESSION_MODEL_ID == "aggression-rank-v2"
     assert sonara.LEGACY_AGGRESSION_MODEL_ID == "aggression-logistic-v1"
-    assert sonara.AGGRESSION_TIE_BAND == np.float32(0.07)
 
 
 def frozen_vectors():

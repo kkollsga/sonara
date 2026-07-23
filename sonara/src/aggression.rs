@@ -32,8 +32,9 @@ pub const LEGACY_AGGRESSION_MODEL_ID: &str = "aggression-logistic-v1";
 /// Number of fused evidence values consumed by the current rank model.
 pub const AGGRESSION_FEATURE_COUNT: usize = 39;
 
-/// A seed-relative difference at or below this value is a model tie.
-pub const AGGRESSION_TIE_BAND: Float = 0.07;
+// Retained only to validate the bundled artifact format. Pairwise tie policy is
+// deliberately outside Sonara's inference contract.
+const ARTIFACT_TIE_BAND: Float = 0.07;
 
 const LEGACY_FEATURE_SCHEMA_SHA256: [u8; 32] = [
     0xc5, 0x35, 0x88, 0x39, 0x3c, 0xeb, 0xf1, 0xd6, 0x09, 0xa3, 0xa6, 0x83, 0xdb, 0x61, 0x4e, 0xc9,
@@ -410,7 +411,7 @@ fn decode_rank_model() -> std::result::Result<RankModel, String> {
         || tree_weight < 0.0
         || (linear_weight + tree_weight - 1.0).abs() > 1.0e-6
         || calibration_slope <= 0.0
-        || tie_band.to_bits() != AGGRESSION_TIE_BAND.to_bits()
+        || tie_band.to_bits() != ARTIFACT_TIE_BAND.to_bits()
         || !(0.0..=0.25).contains(&harshness_correction)
     {
         return Err("invalid rank artifact transforms".to_owned());

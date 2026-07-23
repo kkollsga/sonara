@@ -4,7 +4,6 @@
     "python/sonara/*.py",
     "python/sonara/*.pyi",
     "python/sonara/models/*.json",
-    "scripts/mood_aggression_probe.py",
     "scripts/run_fidelity_gate.py",
     "sonara-python/src/*.rs",
     "sonara-python/src/**/*.rs",
@@ -68,9 +67,6 @@
     "mood_aggression": {
       "blocked": "no frozen aggression semantics and real-music gate are available"
     },
-    "mood_research": {
-      "command": ["{python}", "scripts/mood_aggression_probe.py", "--self-test"]
-    },
     "cross_cutting": {
       "blocked": "cross-cutting analysis changes require reviewed domain isolation or comprehensive fidelity evidence"
     }
@@ -96,7 +92,7 @@
         "sonara/src/aggression_model.bin",
         "sonara/src/aggression_linear.ferricml",
         "tests/python/test_aggression_semantic.py",
-        "tests/reference_data/aggression_v2_acceptance.json"
+        "tests/reference_data/aggression_v2_evidence.json"
       ],
       "domains": ["aggression_semantic"]
     },
@@ -165,15 +161,6 @@
     {
       "paths": ["sonara/src/mood.rs"],
       "domains": ["mood_aggression"]
-    },
-    {
-      "paths": [
-        "scripts/mood_aggression_probe.py",
-        "tests/reference_data/mood_aggression_development.json",
-        "tests/reference_data/mood_aggression_phase6_decision.json",
-        "tests/reference_data/mood_aggression_preregistration.json"
-      ],
-      "domains": ["mood_research"]
     },
     {
       "paths": ["sonara/src/perceptual.rs", "tests/python/test_misc_features.py"],

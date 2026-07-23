@@ -342,7 +342,6 @@ AGGRESSION_MODEL_VERSION: int
 AGGRESSION_EMBEDDING_VERSION: int
 AGGRESSION_MODEL_ID: str
 LEGACY_AGGRESSION_MODEL_ID: str
-AGGRESSION_TIE_BAND: float
 
 class AggressionAnalysis(TypedDict):
     aggression_score: Optional[float]

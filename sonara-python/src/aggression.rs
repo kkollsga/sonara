@@ -100,7 +100,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     )?;
     m.add("AGGRESSION_MODEL_ID", rs::AGGRESSION_MODEL_ID)?;
     m.add("LEGACY_AGGRESSION_MODEL_ID", rs::LEGACY_AGGRESSION_MODEL_ID)?;
-    m.add("AGGRESSION_TIE_BAND", rs::AGGRESSION_TIE_BAND)?;
     m.add_function(wrap_pyfunction!(py_aggression_score, m)?)?;
     m.add_function(wrap_pyfunction!(py_analyze_aggression_file, m)?)?;
     m.add_function(wrap_pyfunction!(py_analyze_aggression_signal, m)?)?;

@@ -33,7 +33,7 @@ LABELS = os.path.join(
     os.path.dirname(__file__), "..", "reference_data", "vocal_labels.csv"
 )
 MAX_MATCHES_PER_PATTERN = 3
-CURATION_THRESHOLD = 0.35  # sonagram's max_vocalness focus gate
+CURATION_THRESHOLD = 0.35  # local corpus curation threshold
 
 
 def list_audio(roots):

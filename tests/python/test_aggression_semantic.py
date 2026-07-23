@@ -1,4 +1,4 @@
-"""Fail-closed semantic checks for the bundled aggression ranker."""
+"""Repository-owned semantic checks for the bundled aggression analyzer."""
 
 from __future__ import annotations
 
@@ -16,17 +16,26 @@ sys.path.insert(0, str(ROOT / "python"))
 import sonara
 
 
-def check_receipt() -> None:
-    receipt = json.loads(
-        (ROOT / "tests/reference_data/aggression_v2_acceptance.json").read_text()
+def check_evidence() -> None:
+    evidence = json.loads(
+        (ROOT / "tests/reference_data/aggression_v2_evidence.json").read_text()
     )
-    assert receipt["format"] == "sonara.aggression-acceptance.v1"
-    assert receipt["model_id"] == sonara.AGGRESSION_MODEL_ID
-    assert receipt["analysis_schema_version"] == 5
-    for relative, expected in receipt["artifacts"].items():
+    assert set(evidence) == {
+        "format",
+        "model_id",
+        "analysis_schema_version",
+        "feature_schema_sha256",
+        "artifacts",
+        "development",
+        "physical_controls",
+    }
+    assert evidence["format"] == "sonara.aggression-evidence.v1"
+    assert evidence["model_id"] == sonara.AGGRESSION_MODEL_ID
+    assert evidence["analysis_schema_version"] == 5
+    for relative, expected in evidence["artifacts"].items():
         assert hashlib.sha256((ROOT / relative).read_bytes()).hexdigest() == expected
 
-    development = receipt["development"]
+    development = evidence["development"]
     assert development["status"] == "pass"
     assert development["decisive_correct"] >= 52
     assert development["hard_correct"] >= 20
@@ -39,7 +48,7 @@ def check_receipt() -> None:
     assert 0.45 <= development["shuffled_directional_accuracy"] <= 0.55
     assert abs(development["shuffled_spearman"]) <= 0.10
 
-    controls = receipt["physical_controls"]
+    controls = evidence["physical_controls"]
     assert controls["status"] == "pass"
     assert controls["harsh_minus_loud_clean"] >= 0.30
     assert controls["silence_abstains"] is True
@@ -91,6 +100,6 @@ def synthesized_controls() -> None:
     assert silence["aggression_confidence"] == 0.0
 
 
-check_receipt()
+check_evidence()
 synthesized_controls()
 print("aggression semantic fidelity: PASS")

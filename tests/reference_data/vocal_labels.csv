@@ -4,7 +4,7 @@
 # (max 3 matches per pattern, sorted). Only artist/title facts live here;
 # no audio is committed. Labels curated 2026-07-19.
 #
-# --- vocal: the five reported clear-vocal false negatives (sonagram 2026-07-18) ---
+# --- vocal: clear-vocal regression cases curated 2026-07-18 ---
 vocal,Paul Anka Crazy Love
 vocal, Mother Nature's Son
 vocal,La Fleur Que Tu M'avais Jetée
