@@ -555,36 +555,40 @@ The metric is a **weighted, normalized Euclidean distance** (not cosine): all di
 
 ## Aggression model
 
-sonara includes a bundled aggression model over the versioned 48-dimensional
-embedding. It returns a score in `[0, 1]` and is exposed separately from the
-older `mood_aggressive` heuristic:
+sonara includes a bundled perceptual aggression ranker. It combines physical
+force, harshness, tension, and rhythm evidence in the existing analysis pass,
+then applies a compact FerricML linear rank plus a small tree ensemble. The
+rank is in `[0, 1]`; it is not a probability.
 
 ```python
 # Preferred: include the score in Sonara's single fused analysis pass.
-r = sonara.analyze_file("track.mp3", features=["embedding", "aggression"])
+r = sonara.analyze_file("track.mp3", features=["aggression"])
 score = r["aggression_score"]
+support = r["aggression_confidence"]
+harshness = r["aggression_harshness"]
 
-# Reuse a stored or already-computed embedding without analyzing audio again:
+# The older embedding-only scorer remains available for stored v1 values:
 score = sonara.aggression_score(
-    r["embedding"], embedding_version=r["embedding_version"]
+    stored_embedding, embedding_version=stored_embedding_version
 )
 
 # A convenience call is available when aggression is the only desired output:
-score = sonara.analyze_aggression_file("track.mp3")
+aggression = sonara.analyze_aggression_file("track.mp3")
+score = aggression["aggression_score"]  # None when evidence is insufficient
 
 # Parallel fused library scan with one input-ordered result per path:
 results = sonara.analyze_batch(["a.mp3", "b.flac"], features=["aggression"])
 results[0]["aggression_score"]
 ```
 
-The model artifact is checksum- and schema-validated once through FerricML.
-Inference reuses the internal similarity vector and does not expose dependency
-fields unless they were separately requested. Rust users enable the
+The model artifacts are checksum- and schema-validated once. Feature extraction
+reuses the pipeline's FFT, onset, rhythm, and perceptual work; internal
+dependencies are not exposed unless separately requested. Rust users enable the
 `aggression` Cargo feature and request `"aggression"`, or call
 `sonara::aggression::{score, score_versioned, analyze_file, analyze_signal,
 analyze_batch}`.
-Per-track scoring is an allocation-free 48-term dot product plus sigmoid;
-FerricML and the model remain absent from Sonara's default Rust build.
+Model inference is allocation-free after one-time artifact loading. FerricML
+and the rank model remain absent from Sonara's default Rust build.
 
 ## Bring your own genre model
 

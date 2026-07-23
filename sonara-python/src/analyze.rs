@@ -161,8 +161,13 @@ fn result_to_dict<'py>(py: Python<'py>, r: &rs::TrackAnalysis) -> PyResult<Bound
     if let Some(v) = r.embedding_version {
         d.set_item("embedding_version", v)?;
     }
-    if let Some(v) = r.aggression_score {
-        d.set_item("aggression_score", v)?;
+    if let Some(v) = r.aggression_confidence {
+        d.set_item("aggression_score", r.aggression_score)?;
+        d.set_item("aggression_confidence", v)?;
+        d.set_item("aggression_forcefulness", r.aggression_forcefulness)?;
+        d.set_item("aggression_harshness", r.aggression_harshness)?;
+        d.set_item("aggression_tension", r.aggression_tension)?;
+        d.set_item("aggression_rhythm", r.aggression_rhythm)?;
     }
 
     // Tier 3 placeholders (only included when not None)

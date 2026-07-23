@@ -839,6 +839,7 @@ dependencies = [
  "realfft",
  "rubato",
  "rustfft",
+ "sha2",
  "symphonia",
  "thiserror",
 ]

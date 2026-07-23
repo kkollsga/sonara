@@ -9,6 +9,8 @@
     "sonara-python/src/*.rs",
     "sonara-python/src/**/*.rs",
     "sonara/models/*.json",
+    "sonara/src/aggression_model.bin",
+    "sonara/src/aggression_linear.ferricml",
     "sonara/src/*.rs",
     "sonara/src/**/*.rs",
     "sonara/tests/*.rs",
@@ -18,12 +20,6 @@
     "tests/scripts/test_run_fidelity_gate.py"
   ],
   "reviewed_transitions": [
-    {
-      "path": "sonara/src/lib.rs",
-      "base_sha256": "8679cf7912fa38f3669d05a82b194021c861d5414041dffe54bcfd41142544a4",
-      "head_sha256": "3ec8dbee90b0cd1fb2539b19fbdd4683747ff1436c4394c8eb22b663b605f556",
-      "reason": "one-time mood-module extraction and cfg-gated aggression module boundary guarded by frozen behavior tests"
-    },
     {
       "path": "sonara/src/mood.rs",
       "base_sha256": null,
@@ -35,47 +31,15 @@
       "base_sha256": "cbbd1056cd517f412bd0310f4bce4b1c6807afc87b434028030f736c319b9203",
       "head_sha256": "c155879147650103802c47d215d356bfe75438b7427ea379a5755a6b0a626eab",
       "reason": "one-time re-export transition guarded by frozen scalar outputs"
-    },
-    {
-      "path": "python/sonara/__init__.py",
-      "base_sha256": "987d2781c72600eb41a227d77c3e12f8e30d96dc66785c6effc464d29671763e",
-      "head_sha256": "cc743cadf36cf11d62ef65ceafb2b5bd9ba8c26ee823fdeb1e86c3d56a48d533",
-      "reason": "one-time public aggression API export guarded by the routed aggression gate"
-    },
-    {
-      "path": "python/sonara/__init__.pyi",
-      "base_sha256": "afebfc377c46581eee21ac519247aba085f759892e098bad59905af2aeec197e",
-      "head_sha256": "08b10afa06b7814abd758632ab72b1ad4c3a54086c779f6f4f0438f0c62f020a",
-      "reason": "one-time typed aggression API export guarded by the routed aggression gate"
-    },
-    {
-      "path": "python/sonara/_result.py",
-      "base_sha256": "424d5390dd0c100660da4233fd4f1d46687456e4b7063c2f2651400de1e9431e",
-      "head_sha256": "0cad7730f43fc9b1cdcd83518d327cd1efaa50fb42d2b574879dddcb87061fb1",
-      "reason": "one-time aggression result projection guarded by Rust and Python parity tests"
-    },
-    {
-      "path": "sonara-python/src/analyze.rs",
-      "base_sha256": "523ddbbbdb0231dd931aeeb592e6f1f9fcb71e5ab0fdb045b282547e0fa83e9c",
-      "head_sha256": "558c2e42f7b47f19882d7f2a7c6452b0467d2075a4313151677caea040976fc2",
-      "reason": "one-time fused aggression binding guarded by Rust and Python parity tests"
-    },
-    {
-      "path": "sonara-python/src/lib.rs",
-      "base_sha256": "ed59623fcf3834645c39deaf2fd2d20a225ebce70302f531ea11359982fe168a",
-      "head_sha256": "61208cc67584dfe0ea3f6a7c540f7bbf5f7f7ce7479219d40e4da0faa8a78673",
-      "reason": "one-time aggression binding registration guarded by the routed aggression gate"
-    },
-    {
-      "path": "sonara/src/analyze.rs",
-      "base_sha256": "e5cf8f1450ef04bb5a12e510f1ece9c3be24e18da9127cfb58f5461a63740af1",
-      "head_sha256": "63975aebb11f67fcf547362c775779ef496715c81fbb185fc0316df15a52b48c",
-      "reason": "one-time fused aggression analysis guarded by parity, fidelity, and performance gates"
     }
   ],
   "domains": {
-    "aggression": {
+    "aggression_api": {
       "command": ["{python}", "tests/python/test_aggression.py"]
+    },
+    "aggression_semantic": {
+      "command": ["{python}", "tests/python/test_aggression_semantic.py"],
+      "transition_policy": "forbid"
     },
     "vocalness": {
       "command": ["{python}", "tests/python/test_vocalness_frozen.py"]
@@ -116,9 +80,25 @@
       "paths": [
         "sonara/src/aggression.rs",
         "sonara-python/src/aggression.rs",
-        "tests/python/test_aggression.py"
+        "tests/python/test_aggression.py",
+        "python/sonara/__init__.py",
+        "python/sonara/__init__.pyi",
+        "python/sonara/_result.py",
+        "sonara-python/src/analyze.rs",
+        "sonara-python/src/lib.rs",
+        "sonara/src/analyze.rs",
+        "sonara/src/lib.rs"
       ],
-      "domains": ["aggression"]
+      "domains": ["aggression_api", "aggression_semantic"]
+    },
+    {
+      "paths": [
+        "sonara/src/aggression_model.bin",
+        "sonara/src/aggression_linear.ferricml",
+        "tests/python/test_aggression_semantic.py",
+        "tests/reference_data/aggression_v2_acceptance.json"
+      ],
+      "domains": ["aggression_semantic"]
     },
     {
       "paths": [
@@ -201,11 +181,7 @@
     },
     {
       "paths": [
-        "python/sonara/__init__.py",
-        "python/sonara/__init__.pyi",
-        "python/sonara/_result.py",
         "python/sonara/display.py",
-        "sonara-python/src/analyze.rs",
         "sonara-python/src/core/audio.rs",
         "sonara-python/src/core/convert.rs",
         "sonara-python/src/core/mod.rs",
@@ -215,10 +191,8 @@
         "sonara-python/src/feature/mod.rs",
         "sonara-python/src/feature/spectral.rs",
         "sonara-python/src/filters.rs",
-        "sonara-python/src/lib.rs",
         "sonara-python/src/onset.rs",
         "sonara-python/src/util.rs",
-        "sonara/src/analyze.rs",
         "sonara/src/core/audio.rs",
         "sonara/src/core/constantq.rs",
         "sonara/src/core/convert.rs",
@@ -240,7 +214,6 @@
         "sonara/src/feature/mod.rs",
         "sonara/src/feature/spectral.rs",
         "sonara/src/filters.rs",
-        "sonara/src/lib.rs",
         "sonara/src/loudness_ext.rs",
         "sonara/src/onset.rs",
         "sonara/src/segment.rs",

@@ -24,9 +24,11 @@ def test(name, fn):
 
 
 def metadata():
-    assert sonara.AGGRESSION_MODEL_VERSION == 1
+    assert sonara.AGGRESSION_MODEL_VERSION == 2
     assert sonara.AGGRESSION_EMBEDDING_VERSION == sonara.SIMILARITY_VERSION
-    assert sonara.AGGRESSION_MODEL_ID == "aggression-logistic-v1"
+    assert sonara.AGGRESSION_MODEL_ID == "aggression-rank-v2"
+    assert sonara.LEGACY_AGGRESSION_MODEL_ID == "aggression-logistic-v1"
+    assert sonara.AGGRESSION_TIE_BAND == np.float32(0.07)
 
 
 def frozen_vectors():
@@ -64,8 +66,15 @@ def signal_parity():
     scored = sonara.aggression_score(
         analysis["embedding"], embedding_version=analysis["embedding_version"]
     )
-    assert 0.0 <= direct <= 1.0
-    assert direct == fused["aggression_score"] == analysis["aggression_score"] == scored
+    assert 0.0 <= direct["aggression_score"] <= 1.0
+    assert direct["aggression_score"] == fused["aggression_score"] == analysis["aggression_score"]
+    assert 0.0 <= scored <= 1.0  # Explicitly retained legacy embedding scorer.
+    assert direct["aggression_model_id"] == sonara.AGGRESSION_MODEL_ID
+    for key in (
+        "aggression_confidence", "aggression_forcefulness", "aggression_harshness",
+        "aggression_tension", "aggression_rhythm",
+    ):
+        assert 0.0 <= direct[key] <= 1.0, key
     assert fused["provenance"]["aggression_model_id"] == sonara.AGGRESSION_MODEL_ID
     assert "embedding" not in fused and "embedding_version" not in fused
     for dependency in (
@@ -90,9 +99,15 @@ def batch_contract():
         results = sonara.analyze_aggression_batch([str(valid), str(missing)], sr=sr)
         assert len(results) == 2
         assert results[0]["path"] == str(valid)
-        assert results[0]["aggression_score"] == sonara.analyze_aggression_file(str(valid), sr=sr)
+        assert results[0]["aggression_score"] == sonara.analyze_aggression_file(str(valid), sr=sr)["aggression_score"]
         assert results[1]["path"] == str(missing)
         assert results[1]["error_kind"] == "io"
+
+
+def silence_abstains():
+    result = sonara.analyze_aggression_signal(np.zeros(22_050, dtype=np.float32))
+    assert result["aggression_score"] is None
+    assert result["aggression_confidence"] == 0.0
 
 
 test("model metadata", metadata)
@@ -100,5 +115,6 @@ test("frozen vectors", frozen_vectors)
 test("invalid inputs", errors)
 test("signal and embedding parity", signal_parity)
 test("batch order and error isolation", batch_contract)
+test("silence abstention", silence_abstains)
 
 print(f"\n{passed} aggression API checks passed")

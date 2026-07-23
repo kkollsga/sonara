@@ -1,0 +1,35 @@
+{
+  "format": "sonara.aggression-acceptance.v1",
+  "model_id": "aggression-rank-v2",
+  "analysis_schema_version": 5,
+  "feature_schema_sha256": "6ac03f40126b7025fd2890f8a8f40c950653117db47adf13b6e9ac376db4b785",
+  "artifacts": {
+    "sonara/src/aggression_model.bin": "fb38de2a715dce77688c0b8b9247ca079a4d1c533f52d7e27fe9210ca8e7db03",
+    "sonara/src/aggression_linear.ferricml": "2ece8e2849b5fc5a9210e78b30c73c280e943c31e32cd19264af512c72f3c86c"
+  },
+  "development": {
+    "status": "pass",
+    "decisive_correct": 52,
+    "decisive_total": 64,
+    "hard_correct": 20,
+    "hard_total": 24,
+    "tie_correct": 12,
+    "tie_total": 16,
+    "spearman": 0.870894,
+    "mae": 0.096521,
+    "score_range": 0.864337,
+    "grouped_fold_spearman_min": 0.759934,
+    "grouped_fold_mae_max": 0.117217,
+    "shuffled_directional_accuracy": 0.528125,
+    "shuffled_spearman": 0.061050
+  },
+  "physical_controls": {
+    "status": "pass",
+    "harsh_minus_loud_clean": 0.436450,
+    "silence_abstains": true,
+    "offline_rust_max_abs_error": 0.000078
+  },
+  "locked_evaluation": {
+    "status": "sealed"
+  }
+}

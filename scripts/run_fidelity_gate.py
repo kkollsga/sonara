@@ -141,6 +141,8 @@ def validate_map(
                     raise ValueError(f"{name}: gate target is missing: {target}")
         elif not isinstance(route["blocked"], str) or not route["blocked"].strip():
             raise ValueError(f"{name}: blocked reason must be non-empty")
+        if route.get("transition_policy", "allow") not in {"allow", "forbid"}:
+            raise ValueError(f"{name}: invalid transition_policy")
 
     ownership = data["ownership"]
     if not isinstance(ownership, list) or not ownership:
@@ -220,6 +222,17 @@ def validate_map(
         current = canonical_text_sha256((root / path).read_bytes())
         if current != transition["head_sha256"]:
             raise ValueError(f"reviewed transition head hash is stale: {path}")
+        owner = next(owner for owner in ownership if matches(path, owner["paths"]))
+        forbidden = [
+            name
+            for name in owner.get("domains", [])
+            if domains[name].get("transition_policy") == "forbid"
+        ]
+        if forbidden:
+            raise ValueError(
+                f"reviewed transition cannot suppress {path}: "
+                f"transition forbidden by {sorted(forbidden)}"
+            )
 
 
 def load_map(path: Path = MAP_PATH, root: Path = ROOT) -> dict:
@@ -276,11 +289,11 @@ def reviewed_transition_applies(data: dict, path: str, root: Path, merge_base: s
 def check_contract(data: dict) -> None:
     expected = {
         "sonara/models/vocalness_v2.json": {"vocalness"},
-        "sonara/src/aggression.rs": {"aggression"},
+        "sonara/src/aggression.rs": {"aggression_api", "aggression_semantic"},
         "sonara/src/beat.rs": {"bpm"},
         "sonara/src/fingerprint.rs": {"fingerprint"},
         "sonara/src/genre.rs": {"genre"},
-        "sonara/src/analyze.rs": {"cross_cutting"},
+        "sonara/src/analyze.rs": {"aggression_api", "aggression_semantic"},
         "sonara/src/perceptual.rs": {"cross_cutting", "mood_aggression"},
     }
     for path, domains in expected.items():

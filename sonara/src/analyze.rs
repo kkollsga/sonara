@@ -332,6 +332,10 @@ impl AnalysisConfig {
         if self.has_internal_embedding_consumer() && EMBEDDING_DEPS.contains(&name) {
             return true;
         }
+        #[cfg(feature = "aggression")]
+        if self.needs_aggression() && AGGRESSION_DEPS.contains(&name) {
+            return true;
+        }
         if self.features.is_some() {
             self.emits(name)
         } else {
@@ -377,16 +381,12 @@ impl AnalysisConfig {
     }
 
     fn has_internal_embedding_consumer(&self) -> bool {
-        self.has_embedding_model() || {
-            #[cfg(feature = "aggression")]
-            {
-                self.feature_requested("aggression")
-            }
-            #[cfg(not(feature = "aggression"))]
-            {
-                false
-            }
-        }
+        self.has_embedding_model()
+    }
+
+    #[cfg(feature = "aggression")]
+    fn needs_aggression(&self) -> bool {
+        self.feature_requested("aggression")
     }
 
     /// True if the similarity embedding must be computed: either it was
@@ -404,6 +404,10 @@ impl AnalysisConfig {
         // An embedding model needs the embedding, which requires the extended
         // pass (mfcc/chroma/contrast/spectral scalars).
         if self.has_internal_embedding_consumer() {
+            return true;
+        }
+        #[cfg(feature = "aggression")]
+        if self.needs_aggression() {
             return true;
         }
         if let Some(ref features) = self.features {
@@ -451,6 +455,9 @@ const EMBEDDING_COMPONENTS: &[&str] = &[
     "chords",
 ];
 
+#[cfg(feature = "aggression")]
+const AGGRESSION_DEPS: &[&str] = &["energy", "danceability", "dissonance"];
+
 /// Version of the `TrackAnalysis` result schema. Bump whenever the meaning,
 /// unit, or time base of an existing field changes (e.g. a different
 /// `HOP_LENGTH`, a re-derived curve, renamed/retyped fields) — additions of
@@ -475,7 +482,11 @@ const EMBEDDING_COMPONENTS: &[&str] = &[
 /// lexicographically smallest label instead of depending on randomized map
 /// iteration. Persisted analyses must be refreshed because an old tied result
 /// may contain any of the equally frequent chord labels.
-pub const ANALYSIS_SCHEMA_VERSION: u32 = 4;
+///
+/// v5 (2026-07-22): `aggression_score` is now a fused physical/perceptual rank
+/// with independent support and diagnostics, not the legacy similarity-vector
+/// probability. Stored aggression values require an audio rescan.
+pub const ANALYSIS_SCHEMA_VERSION: u32 = 5;
 
 /// STFT hop length (samples) used by the main analysis pass. All frame-index
 /// fields on [`TrackAnalysis`] (`beats`, `onset_frames`, `downbeats`) convert
@@ -670,11 +681,23 @@ pub struct TrackAnalysis {
     /// Learned audio embedding vector (future ONNX integration).
     pub embedding: Option<Vec<Float>>,
 
-    /// Bundled model score in `[0, 1]`, opt-in via `features=["aggression"]`.
-    /// Computed from the same internal vector as `embedding`, without exposing
-    /// that vector unless it was separately requested.
+    /// Bundled perceptual rank in `[0, 1]`, opt-in via
+    /// `features=["aggression"]`. This is a rank, not a probability. `None`
+    /// with a present confidence means the model abstained for insufficient
+    /// musical evidence.
     #[cfg(feature = "aggression")]
     pub aggression_score: Option<Float>,
+    /// Independent content/evidence support for `aggression_score`.
+    #[cfg(feature = "aggression")]
+    pub aggression_confidence: Option<Float>,
+    #[cfg(feature = "aggression")]
+    pub aggression_forcefulness: Option<Float>,
+    #[cfg(feature = "aggression")]
+    pub aggression_harshness: Option<Float>,
+    #[cfg(feature = "aggression")]
+    pub aggression_tension: Option<Float>,
+    #[cfg(feature = "aggression")]
+    pub aggression_rhythm: Option<Float>,
 
     // -- Mood + instrumentalness (heuristic v1, opt-in) --
     /// Mood affinities in `[0, 1]`, **heuristic v1 (not ML)**. Opt-in via
@@ -807,6 +830,16 @@ struct FrameResult {
     contrast_bands: [Float; N_CONTRAST_BANDS + 1],
     hpcp_col: [Float; 12],
     dissonance: Float,
+    #[cfg(feature = "aggression")]
+    aggression_crest_db: Float,
+    #[cfg(feature = "aggression")]
+    aggression_high_energy_ratio: Float,
+    #[cfg(feature = "aggression")]
+    aggression_high_flatness: Float,
+    #[cfg(feature = "aggression")]
+    aggression_high_total: Float,
+    #[cfg(feature = "aggression")]
+    aggression_peak_ratio: Float,
 }
 
 // ============================================================
@@ -902,6 +935,8 @@ fn analyze_signal_inner(
     zero_crossing_rate: Float,
     config: &AnalysisConfig,
 ) -> Result<TrackAnalysis> {
+    #[cfg(feature = "aggression")]
+    let wants_aggression = config.needs_aggression();
     // Fail fast (before any heavy DSP) if a supplied genre model was trained
     // against a different embedding layout — classifying on a mismatched
     // embedding is silently wrong, so refuse rather than produce a bogus label.
@@ -1108,6 +1143,18 @@ fn analyze_signal_inner(
     // Fused contrast + dissonance accumulators
     let contrast_acc;
     let dissonance_acc;
+    #[cfg(feature = "aggression")]
+    let mut aggression_crest_db = wants_aggression.then(|| vec![0.0; n_frames]);
+    #[cfg(feature = "aggression")]
+    let mut aggression_dissonance = wants_aggression.then(|| vec![0.0; n_frames]);
+    #[cfg(feature = "aggression")]
+    let mut aggression_high_energy_ratio = wants_aggression.then(|| vec![0.0; n_frames]);
+    #[cfg(feature = "aggression")]
+    let mut aggression_high_flatness = wants_aggression.then(|| vec![0.0; n_frames]);
+    #[cfg(feature = "aggression")]
+    let mut aggression_high_total = wants_aggression.then(|| vec![0.0; n_frames]);
+    #[cfg(feature = "aggression")]
+    let mut aggression_peak_ratio = wants_aggression.then(|| vec![0.0; n_frames]);
 
     let freqs_raw = freqs.as_slice().unwrap();
     let roll_percent: Float = 0.85;
@@ -1158,6 +1205,27 @@ fn analyze_signal_inner(
         }
         let rms = (sum_sq / n_fft as Float).sqrt();
 
+        #[cfg(feature = "aggression")]
+        let aggression_crest_db = if wants_aggression {
+            const EPS: Float = 1.0e-12;
+            let peak = y_raw[start..start + n_fft]
+                .iter()
+                .copied()
+                .map(Float::abs)
+                .fold(0.0, Float::max);
+            20.0 * ((peak + EPS) / (rms + EPS)).log10()
+        } else {
+            0.0
+        };
+        #[cfg(feature = "aggression")]
+        let mut aggression_high_energy_ratio = 0.0;
+        #[cfg(feature = "aggression")]
+        let mut aggression_high_flatness = 0.0;
+        #[cfg(feature = "aggression")]
+        let mut aggression_high_total = 0.0;
+        #[cfg(feature = "aggression")]
+        let mut aggression_peak_ratio = 0.0;
+
         let (bandwidth, rolloff, flatness) = if extended {
             // Bandwidth — reuse mag_col
             let bw = if cent_den > 0.0 {
@@ -1187,10 +1255,36 @@ fn analyze_signal_inner(
             let amin: Float = 1e-10;
             let mut log_sum = 0.0_f32;
             let mut arith_sum = 0.0_f32;
+            #[cfg(feature = "aggression")]
+            let mut aggression_total = 0.0_f32;
+            #[cfg(feature = "aggression")]
+            let mut aggression_high_log_sum = 0.0_f32;
+            #[cfg(feature = "aggression")]
+            let mut aggression_high_arith_sum = 0.0_f32;
+            #[cfg(feature = "aggression")]
+            let mut aggression_high_count = 0_usize;
+            #[cfg(feature = "aggression")]
+            let mut aggression_strongest = [0.0_f32; 8];
             for i in 0..n_bins {
                 let v = power_col[i].max(amin);
-                log_sum += v.ln();
+                let log_v = v.ln();
+                log_sum += log_v;
                 arith_sum += v;
+                #[cfg(feature = "aggression")]
+                if wants_aggression {
+                    let power = power_col[i];
+                    aggression_total += power;
+                    if freqs_raw[i] >= 4_000.0 {
+                        aggression_high_total += power;
+                        aggression_high_log_sum += log_v;
+                        aggression_high_arith_sum += v;
+                        aggression_high_count += 1;
+                    }
+                    if power > aggression_strongest[0] {
+                        aggression_strongest[0] = power;
+                        aggression_strongest.sort_by(Float::total_cmp);
+                    }
+                }
             }
             let geo_mean = (log_sum / n_bins as Float).exp();
             let arith_mean = arith_sum / n_bins as Float;
@@ -1199,6 +1293,20 @@ fn analyze_signal_inner(
             } else {
                 0.0
             };
+            #[cfg(feature = "aggression")]
+            if wants_aggression {
+                const EPS: Float = 1.0e-12;
+                let high_mean = aggression_high_arith_sum / aggression_high_count.max(1) as Float;
+                aggression_high_energy_ratio = aggression_high_total / (aggression_total + EPS);
+                aggression_high_flatness = if high_mean > 0.0 {
+                    (aggression_high_log_sum / aggression_high_count.max(1) as Float).exp()
+                        / high_mean
+                } else {
+                    0.0
+                };
+                aggression_peak_ratio =
+                    aggression_strongest.iter().sum::<Float>() / (aggression_total + EPS);
+            }
 
             (bw, ro, fl)
         } else {
@@ -1355,6 +1463,16 @@ fn analyze_signal_inner(
             contrast_bands: contrast_bands_out,
             hpcp_col,
             dissonance: frame_diss,
+            #[cfg(feature = "aggression")]
+            aggression_crest_db,
+            #[cfg(feature = "aggression")]
+            aggression_high_energy_ratio,
+            #[cfg(feature = "aggression")]
+            aggression_high_flatness,
+            #[cfg(feature = "aggression")]
+            aggression_high_total,
+            #[cfg(feature = "aggression")]
+            aggression_peak_ratio,
         }
     };
 
@@ -1381,6 +1499,16 @@ fn analyze_signal_inner(
                         hpcp_raw[(c, t)] = fr.hpcp_col[c];
                     }
                     d_acc += fr.dissonance;
+                }
+                #[cfg(feature = "aggression")]
+                if wants_aggression {
+                    aggression_crest_db.as_mut().unwrap()[t] = fr.aggression_crest_db;
+                    aggression_dissonance.as_mut().unwrap()[t] = fr.dissonance;
+                    aggression_high_energy_ratio.as_mut().unwrap()[t] =
+                        fr.aggression_high_energy_ratio;
+                    aggression_high_flatness.as_mut().unwrap()[t] = fr.aggression_high_flatness;
+                    aggression_high_total.as_mut().unwrap()[t] = fr.aggression_high_total;
+                    aggression_peak_ratio.as_mut().unwrap()[t] = fr.aggression_peak_ratio;
                 }
                 for (m, val) in fr.mel_col.into_iter().enumerate() {
                     mel_spec[(m, t)] = val;
@@ -1833,6 +1961,113 @@ fn analyze_signal_inner(
         None
     };
 
+    #[cfg(feature = "aggression")]
+    let aggression_analysis = if wants_aggression {
+        let crest = aggression_crest_db.as_deref().unwrap();
+        let diss = aggression_dissonance.as_deref().unwrap();
+        let high_energy = aggression_high_energy_ratio.as_deref().unwrap();
+        let high_flatness = aggression_high_flatness.as_deref().unwrap();
+        let high_total = aggression_high_total.as_deref().unwrap();
+        let peak_ratio = aggression_peak_ratio.as_deref().unwrap();
+
+        let onset_p90 = aggression_quantile(oenv_padded.as_slice().unwrap(), 0.90);
+        let onset_norm = oenv_padded
+            .iter()
+            .map(|value| (value / onset_p90.max(1.0e-12)).clamp(0.0, 4.0))
+            .collect::<Vec<_>>();
+        let onset_sorted = aggression_sorted(&onset_norm);
+        let onset_p50 = aggression_quantile_sorted(&onset_sorted, 0.50);
+        let onset_threshold = (onset_p50 + 0.25).max(0.30);
+        let aggression_onsets = onset_norm
+            .iter()
+            .enumerate()
+            .filter_map(|(index, value)| (*value >= onset_threshold).then_some(index))
+            .collect::<Vec<_>>();
+        let aggression_onset_density = aggression_onsets.len() as Float / duration_sec;
+        let high_flux = high_total
+            .windows(2)
+            .map(|pair| (pair[1] - pair[0]).max(0.0) / pair[1].max(1.0e-12))
+            .collect::<Vec<_>>();
+        let rms_slice = rms_frames.as_slice().unwrap();
+        let rms_sorted = aggression_sorted(rms_slice);
+        let rms_p10 = aggression_quantile_sorted(&rms_sorted, 0.10);
+        let rms_p90 = aggression_quantile_sorted(&rms_sorted, 0.90);
+        let signal_rms =
+            (y.iter().map(|value| value * value).sum::<Float>() / y.len() as Float).sqrt();
+        let non_silent_threshold = 0.10 * rms_p90.max(1.0e-12);
+        let non_silent = rms_slice
+            .iter()
+            .filter(|value| **value >= non_silent_threshold)
+            .count() as Float
+            / rms_slice.len().max(1) as Float;
+        let peak_sorted = aggression_sorted(peak_ratio);
+        let peak_p50 = aggression_quantile_sorted(&peak_sorted, 0.50);
+        let high_flatness_sorted = aggression_sorted(high_flatness);
+        let high_flatness_p50 = aggression_quantile_sorted(&high_flatness_sorted, 0.50);
+        let content_support = if signal_rms <= 1.0e-6 {
+            0.0
+        } else {
+            non_silent * (0.5 * peak_p50 + 0.5 * (1.0 - high_flatness_p50))
+        }
+        .clamp(0.0, 1.0);
+        let (
+            window_force_top2,
+            window_harshness_top2,
+            window_impact_persistence,
+            window_impact_top2,
+        ) = aggression_window_summaries(
+            crest,
+            high_energy,
+            high_flatness,
+            peak_ratio,
+            &onset_norm,
+            sr,
+            hop_length,
+        );
+        let mfcc = mfcc_mean.as_deref().unwrap_or(&[]);
+        let contrast = spectral_contrast_mean.as_deref().unwrap_or(&[]);
+        let crest_sorted = aggression_sorted(crest);
+        let diss_sorted = aggression_sorted(&aggression_evenly_sample(diss, 48));
+        let high_energy_sorted = aggression_sorted(high_energy);
+        let high_flux_sorted = aggression_sorted(&high_flux);
+        Some(crate::aggression::score_evidence(
+            &crate::aggression::AggressionEvidence {
+                crest_p50: aggression_quantile_sorted(&crest_sorted, 0.50),
+                crest_p90: aggression_quantile_sorted(&crest_sorted, 0.90),
+                dissonance_p50: aggression_quantile_sorted(&diss_sorted, 0.50),
+                dissonance_p90: aggression_quantile_sorted(&diss_sorted, 0.90),
+                mfcc_0: mfcc.first().copied().unwrap_or(-180.0),
+                mfcc_2: mfcc.get(2).copied().unwrap_or(0.0),
+                contrast: std::array::from_fn(|index| contrast.get(index).copied().unwrap_or(0.0)),
+                centroid: centroid_mean,
+                bandwidth: bw_mean,
+                bpm,
+                onset_density_embedding: onset_density,
+                danceability: danceability.unwrap_or(0.5),
+                grid_regularity: aggression_grid_regularity(&beats),
+                dynamic_range_db,
+                energy: energy.unwrap_or(0.5),
+                high_energy_p50: aggression_quantile_sorted(&high_energy_sorted, 0.50),
+                high_energy_p90: aggression_quantile_sorted(&high_energy_sorted, 0.90),
+                high_flatness_p50,
+                high_flux_p90: aggression_quantile_sorted(&high_flux_sorted, 0.90),
+                onset_density: aggression_onset_density,
+                onset_interval_cv: aggression_interval_cv(&aggression_onsets),
+                onset_strength_p50: onset_p50,
+                onset_strength_p90: aggression_quantile_sorted(&onset_sorted, 0.90),
+                rms_dynamic_ratio: rms_p90 / rms_p10.max(1.0e-12),
+                spectral_peak_ratio: peak_p50,
+                window_force_top2,
+                window_harshness_top2,
+                window_impact_persistence,
+                window_impact_top2,
+                content_support,
+            },
+        )?)
+    } else {
+        None
+    };
+
     // --- fingerprint ---
     // Strictly opt-in (see FEATURE_REGISTRY): never runs unless
     // the caller explicitly requested the "fingerprint" feature, so default modes
@@ -2032,7 +2267,27 @@ fn analyze_signal_inner(
         // Embedding placeholder — future ONNX integration
         embedding: None,
         #[cfg(feature = "aggression")]
-        aggression_score: None,
+        aggression_score: aggression_analysis
+            .as_ref()
+            .and_then(|analysis| analysis.score),
+        #[cfg(feature = "aggression")]
+        aggression_confidence: aggression_analysis
+            .as_ref()
+            .map(|analysis| analysis.confidence),
+        #[cfg(feature = "aggression")]
+        aggression_forcefulness: aggression_analysis
+            .as_ref()
+            .map(|analysis| analysis.forcefulness),
+        #[cfg(feature = "aggression")]
+        aggression_harshness: aggression_analysis
+            .as_ref()
+            .map(|analysis| analysis.harshness),
+        #[cfg(feature = "aggression")]
+        aggression_tension: aggression_analysis
+            .as_ref()
+            .map(|analysis| analysis.tension),
+        #[cfg(feature = "aggression")]
+        aggression_rhythm: aggression_analysis.as_ref().map(|analysis| analysis.rhythm),
         // Mood + instrumentalness: heuristic v1 (opt-in), None unless requested.
         mood_happy: mood.as_ref().map(|m| m.happy),
         mood_aggressive: mood.as_ref().map(|m| m.aggressive),
@@ -2080,10 +2335,6 @@ fn analyze_signal_inner(
     // genre model that classifies over it.
     if config.needs_embedding() {
         let emb = crate::similarity::embed(&result);
-        #[cfg(feature = "aggression")]
-        if config.feature_requested("aggression") {
-            result.aggression_score = Some(crate::aggression::score(&emb)?);
-        }
         // Run the user-supplied genre model, if any (the version match was
         // verified up front). Populate genre + genre_confidence.
         if let Some(ref model) = config.genre_model {
@@ -2104,9 +2355,20 @@ fn analyze_signal_inner(
             result.embedding = Some(emb);
             result.embedding_version = Some(crate::similarity::SIMILARITY_VERSION);
         }
+    }
 
-        // Internal classifiers reuse the same complete vector, but only the
-        // caller's requested groups belong in the returned TrackAnalysis.
+    // Internal models reuse computed components, but only explicitly requested
+    // groups belong in the returned TrackAnalysis.
+    if config.has_internal_embedding_consumer() || {
+        #[cfg(feature = "aggression")]
+        {
+            config.needs_aggression()
+        }
+        #[cfg(not(feature = "aggression"))]
+        {
+            false
+        }
+    } {
         suppress_internal_embedding_components(&mut result, config);
     }
 
@@ -2155,6 +2417,160 @@ fn suppress_internal_embedding_components(result: &mut TrackAnalysis, config: &A
     if !config.emits("valence") {
         result.valence = None;
     }
+}
+
+#[cfg(feature = "aggression")]
+fn aggression_quantile(values: &[Float], fraction: Float) -> Float {
+    if values.is_empty() {
+        return 0.0;
+    }
+    let mut sorted = values.to_vec();
+    sorted.sort_by(Float::total_cmp);
+    let position = fraction.clamp(0.0, 1.0) * (sorted.len() - 1) as Float;
+    let lower = position.floor() as usize;
+    let upper = (lower + 1).min(sorted.len() - 1);
+    let weight = position - lower as Float;
+    sorted[lower] * (1.0 - weight) + sorted[upper] * weight
+}
+
+#[cfg(feature = "aggression")]
+fn aggression_sorted(values: &[Float]) -> Vec<Float> {
+    let mut sorted = values.to_vec();
+    sorted.sort_by(Float::total_cmp);
+    sorted
+}
+
+#[cfg(feature = "aggression")]
+fn aggression_quantile_sorted(sorted: &[Float], fraction: Float) -> Float {
+    if sorted.is_empty() {
+        return 0.0;
+    }
+    let position = fraction.clamp(0.0, 1.0) * (sorted.len() - 1) as Float;
+    let lower = position.floor() as usize;
+    let upper = (lower + 1).min(sorted.len() - 1);
+    let weight = position - lower as Float;
+    sorted[lower] * (1.0 - weight) + sorted[upper] * weight
+}
+
+#[cfg(feature = "aggression")]
+fn aggression_evenly_sample(values: &[Float], limit: usize) -> Vec<Float> {
+    if values.len() <= limit {
+        return values.to_vec();
+    }
+    let last = values.len() - 1;
+    (0..limit)
+        .map(|index| {
+            let position = index * last;
+            values[(position + (limit - 1) / 2) / (limit - 1)]
+        })
+        .collect()
+}
+
+#[cfg(feature = "aggression")]
+fn aggression_interval_cv(frames: &[usize]) -> Float {
+    if frames.len() < 3 {
+        return 0.0;
+    }
+    let intervals = frames
+        .windows(2)
+        .map(|pair| (pair[1] - pair[0]) as Float)
+        .collect::<Vec<_>>();
+    let mean = intervals.iter().sum::<Float>() / intervals.len() as Float;
+    if mean <= 0.0 {
+        return 0.0;
+    }
+    let variance = intervals
+        .iter()
+        .map(|value| (value - mean).powi(2))
+        .sum::<Float>()
+        / intervals.len() as Float;
+    variance.sqrt() / mean
+}
+
+#[cfg(feature = "aggression")]
+fn aggression_grid_regularity(beats: &[usize]) -> Float {
+    if beats.len() < 3 {
+        return 0.0;
+    }
+    let intervals = beats
+        .windows(2)
+        .map(|pair| (pair[1] - pair[0]) as Float)
+        .collect::<Vec<_>>();
+    let mean = intervals.iter().sum::<Float>() / intervals.len() as Float;
+    if mean <= 0.0 {
+        return 0.0;
+    }
+    let variance = intervals
+        .iter()
+        .map(|value| (value - mean).powi(2))
+        .sum::<Float>()
+        / intervals.len() as Float;
+    (1.0 - variance.sqrt() / mean).clamp(0.0, 1.0)
+}
+
+#[cfg(feature = "aggression")]
+fn aggression_window_summaries(
+    crest: &[Float],
+    high_energy: &[Float],
+    high_flatness: &[Float],
+    peak_ratio: &[Float],
+    onset: &[Float],
+    sr: u32,
+    hop_length: usize,
+) -> (Float, Float, Float, Float) {
+    let length = crest
+        .len()
+        .min(high_energy.len())
+        .min(high_flatness.len())
+        .min(peak_ratio.len())
+        .min(onset.len());
+    if length == 0 {
+        return (0.0, 0.0, 0.0, 0.0);
+    }
+    let block = ((20.0 * sr as Float / hop_length as Float).round() as usize).max(1);
+    let step = (block / 2).max(1);
+    let mut starts = (0..=length.saturating_sub(block))
+        .step_by(step)
+        .collect::<Vec<_>>();
+    let final_start = length.saturating_sub(block);
+    if starts.last().copied() != Some(final_start) {
+        starts.push(final_start);
+    }
+    let mut windows = Vec::with_capacity(starts.len());
+    for start in starts {
+        let end = (start + block).min(length);
+        let onset_slice = &onset[start..end];
+        let threshold = (aggression_quantile(onset_slice, 0.50) + 0.25).max(0.30);
+        let duration = (end - start) as Float * hop_length as Float / sr as Float;
+        let onset_density = onset_slice
+            .iter()
+            .filter(|value| **value >= threshold)
+            .count() as Float
+            / duration.max(Float::EPSILON);
+        let force = ((1.0
+            - (aggression_quantile(&crest[start..end], 0.50) / 20.0).clamp(0.0, 1.0))
+            + (onset_density / 15.0).clamp(0.0, 1.0)
+            + (aggression_quantile(onset_slice, 0.50) / 2.0).clamp(0.0, 1.0))
+            / 3.0;
+        let harshness = ((aggression_quantile(&high_energy[start..end], 0.50) / 0.35)
+            .clamp(0.0, 1.0)
+            + aggression_quantile(&high_flatness[start..end], 0.50).clamp(0.0, 1.0)
+            + 1.0
+            - aggression_quantile(&peak_ratio[start..end], 0.50).clamp(0.0, 1.0))
+            / 3.0;
+        windows.push((force, harshness, force * harshness));
+    }
+    let top_two = |index: usize| {
+        let mut values = windows
+            .iter()
+            .map(|window| [window.0, window.1, window.2][index])
+            .collect::<Vec<_>>();
+        values.sort_by(|left, right| right.total_cmp(left));
+        values.iter().take(2).sum::<Float>() / values.len().min(2) as Float
+    };
+    let impact_persistence =
+        windows.iter().filter(|window| window.2 >= 0.25).count() as Float / windows.len() as Float;
+    (top_two(0), top_two(1), impact_persistence, top_two(2))
 }
 
 // ============================================================
@@ -2588,7 +3004,7 @@ mod tests {
 
     #[cfg(feature = "aggression")]
     #[test]
-    fn test_aggression_uses_fused_embedding_without_dependency_leakage() {
+    fn test_aggression_uses_fused_evidence_without_dependency_leakage() {
         let y = sine(440.0, 22050, 2.0);
         let aggression_only = AnalysisConfig {
             features: Some(HashSet::from(["aggression".to_owned()])),
@@ -2598,6 +3014,11 @@ mod tests {
         let result = analyze_signal(y.view(), 22050, &aggression_only).unwrap();
         let score = result.aggression_score.expect("aggression requested");
         assert!((0.0..=1.0).contains(&score));
+        assert!(result.aggression_confidence.is_some());
+        assert!(result.aggression_forcefulness.is_some());
+        assert!(result.aggression_harshness.is_some());
+        assert!(result.aggression_tension.is_some());
+        assert!(result.aggression_rhythm.is_some());
         assert_eq!(
             result.provenance.aggression_model_id.as_deref(),
             Some(crate::aggression::AGGRESSION_MODEL_ID)
@@ -2628,12 +3049,10 @@ mod tests {
                 .expect("aggression requested")
                 .to_bits()
         );
-        assert_eq!(
-            score.to_bits(),
-            crate::aggression::score(both.embedding.as_deref().unwrap())
-                .unwrap()
-                .to_bits()
-        );
+        // The retained embedding scorer is explicitly legacy-v1 and does not
+        // define the fused audio rank.
+        assert!((0.0..=1.0)
+            .contains(&crate::aggression::score(both.embedding.as_deref().unwrap()).unwrap()));
         assert_eq!(
             both.embedding_version,
             Some(crate::similarity::SIMILARITY_VERSION)
@@ -2784,7 +3203,7 @@ mod tests {
     #[test]
     fn test_analysis_schema_version_pinned() {
         // Bump deliberately (with a changelog note), never accidentally.
-        assert_eq!(ANALYSIS_SCHEMA_VERSION, 4);
+        assert_eq!(ANALYSIS_SCHEMA_VERSION, 5);
     }
 
     #[test]
