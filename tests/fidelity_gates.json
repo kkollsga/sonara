@@ -97,6 +97,7 @@
         "sonara/src/validation/*.rs",
         "sonara/contracts/validation/v1/*.json",
         "sonara/tests/validation_contracts.rs",
+        "sonara/tests/validation_custody.rs",
         "tests/scripts/test_validation_protocol.py"
       ],
       "domains": ["validation_protocol"]

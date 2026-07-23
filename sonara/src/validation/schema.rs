@@ -11,6 +11,7 @@ pub const ENVELOPE_FORMAT: &str = "sonara.custody-envelope.v1";
 pub const PROOF_FORMAT: &str = "sonara.custody-proof.v1";
 pub const CLAIM_NAMESPACE: &str = "sonara.validation.claim.v1";
 pub const COMPLETION_NAMESPACE: &str = "sonara.validation.completion.v1";
+pub const CHECKPOINT_NAMESPACE: &str = "sonara.validation.checkpoint.v1";
 const CAPSULE_DOMAIN: &str = "sonara-validation-capsule-v1";
 const RECEIPT_DOMAIN: &str = "sonara-evaluation-receipt-v1";
 const ENVELOPE_DOMAIN: &str = "sonara-custody-envelope-v1";
@@ -353,11 +354,45 @@ pub struct SignedEnvelope {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct ClaimToken {
+    pub ledger_id: String,
+    pub evaluation_digest: DigestRef,
+    pub claim_digest: DigestRef,
+    pub sequence: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TrustRoot {
+    pub principal: String,
+    pub public_key_openssh: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProtectedCheckpoint {
+    pub format: String,
+    pub ledger_id: String,
+    pub sequence: u64,
+    pub head_digest: DigestRef,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SignedCheckpoint {
+    pub checkpoint: ProtectedCheckpoint,
+    pub namespace: String,
+    pub principal: String,
+    pub signature: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CustodyProof {
     pub format: String,
     pub ledger_id: String,
-    pub trust_root: ArtifactRef,
-    pub checkpoint_digest: DigestRef,
+    pub trust_root: TrustRoot,
+    pub checkpoint: SignedCheckpoint,
     pub claim: SignedEnvelope,
     pub completion: SignedEnvelope,
 }
@@ -368,10 +403,14 @@ impl CustodyProof {
             return Err(ValidationError::InvalidField("proof format"));
         }
         validate_logical(&self.ledger_id)?;
-        self.trust_root.validate()?;
-        self.checkpoint_digest.validate()?;
+        validate_logical(&self.trust_root.principal)?;
+        if self.trust_root.public_key_openssh.is_empty() {
+            return Err(ValidationError::InvalidField("trust root"));
+        }
+        self.checkpoint.checkpoint.head_digest.validate()?;
         if self.claim.namespace != CLAIM_NAMESPACE
             || self.completion.namespace != COMPLETION_NAMESPACE
+            || self.checkpoint.namespace != CHECKPOINT_NAMESPACE
         {
             return Err(ValidationError::InvalidField("signature namespace"));
         }
