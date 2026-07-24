@@ -867,6 +867,44 @@ pub fn analyze_file(path: &Path, sr: u32, config: &AnalysisConfig) -> Result<Tra
     // requested, then post-fill the result. When not requested, `load_with_tags`
     // does zero extra work — identical to the plain `load` fast path.
     let want_tags = config.wants("tags");
+    #[cfg(feature = "aggression")]
+    if config.needs_aggression() {
+        // Decode once at the source rate, then derive the caller and model
+        // lanes independently. This prevents a lossy caller-rate roundtrip,
+        // preserves generic field semantics, and avoids a second file decode.
+        let (native, native_sr, tags) = audio::load_with_tags(path, 0, true, 0.0, 0.0, want_tags)?;
+        let caller_sr = if sr == 0 { native_sr } else { sr };
+        let caller = (caller_sr != native_sr)
+            .then(|| audio::resample(native.view(), native_sr, caller_sr))
+            .transpose()?;
+        let caller_view = caller
+            .as_ref()
+            .map(|audio| audio.view())
+            .unwrap_or_else(|| native.view());
+        let canonical = (native_sr != crate::aggression::AGGRESSION_SAMPLE_RATE)
+            .then(|| {
+                audio::resample(
+                    native.view(),
+                    native_sr,
+                    crate::aggression::AGGRESSION_SAMPLE_RATE,
+                )
+            })
+            .transpose()?;
+        let canonical_view = canonical
+            .as_ref()
+            .map(|audio| audio.view())
+            .unwrap_or_else(|| native.view());
+        let mut result = analyze_signal_with_precomputed_aggression(
+            caller_view,
+            caller_sr,
+            canonical_view,
+            crate::aggression::AGGRESSION_SAMPLE_RATE,
+            config,
+        )?;
+        result.tags = tags;
+        return Ok(result);
+    }
+
     let (y, actual_sr, tags) = audio::load_with_tags(path, sr, true, 0.0, 0.0, want_tags)?;
     let mut result = analyze_signal(y.view(), actual_sr, config)?;
     result.tags = tags;
@@ -908,6 +946,33 @@ fn analyze_signal_with_canonical_aggression(
     sr: u32,
     config: &AnalysisConfig,
 ) -> Result<TrackAnalysis> {
+    // Own a contiguous buffer before resampling because the optimized 2:1
+    // resampler requires a contiguous slice.
+    let source = y.to_owned();
+    let canonical = audio::resample(source.view(), sr, crate::aggression::AGGRESSION_SAMPLE_RATE)?;
+    analyze_signal_with_precomputed_aggression(
+        y,
+        sr,
+        canonical.view(),
+        crate::aggression::AGGRESSION_SAMPLE_RATE,
+        config,
+    )
+}
+
+#[cfg(feature = "aggression")]
+fn analyze_signal_with_precomputed_aggression(
+    y: ndarray::ArrayView1<Float>,
+    sr: u32,
+    canonical: ndarray::ArrayView1<Float>,
+    canonical_sr: u32,
+    config: &AnalysisConfig,
+) -> Result<TrackAnalysis> {
+    if canonical_sr != crate::aggression::AGGRESSION_SAMPLE_RATE {
+        return Err(SonaraError::ModelError(format!(
+            "aggression model requires {} Hz audio, got {canonical_sr} Hz",
+            crate::aggression::AGGRESSION_SAMPLE_RATE
+        )));
+    }
     // Preserve every generic field in the caller's sample-rate domain. Merely
     // remove the opt-in aggression request so its trained DSP dependencies do
     // not force an unnecessary native-rate extended pass.
@@ -926,18 +991,14 @@ fn analyze_signal_with_canonical_aggression(
         &native_config,
     )?;
 
-    // Own a contiguous buffer before resampling because the optimized 2:1
-    // resampler requires a contiguous slice.
-    let source = y.to_owned();
-    let canonical = audio::resample(source.view(), sr, crate::aggression::AGGRESSION_SAMPLE_RATE)?;
     let aggression_config = AnalysisConfig {
         features: Some(HashSet::from(["aggression".to_owned()])),
         ..AnalysisConfig::default()
     };
-    let canonical_zcr = validated_zero_crossing_rate(canonical.view())?;
+    let canonical_zcr = validated_zero_crossing_rate(canonical)?;
     let aggression = analyze_signal_inner(
-        canonical.view(),
-        crate::aggression::AGGRESSION_SAMPLE_RATE,
+        canonical,
+        canonical_sr,
         true,
         canonical_zcr,
         &aggression_config,

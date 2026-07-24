@@ -137,13 +137,20 @@ def cross_rate_routes():
             output.setsampwidth(2)
             output.setframerate(sr)
             output.writeframes((np.clip(signal, -1, 1) * 32767).astype("<i2").tobytes())
-        file_result = sonara.analyze_aggression_file(str(path), sr=sr)
-        fused_file = sonara.analyze_file(str(path), sr=sr, features=["aggression"])
+        file_reference = sonara.analyze_aggression_file(
+            str(path), sr=sonara.AGGRESSION_SAMPLE_RATE
+        )
+        for requested_rate in (0, 32_000, 44_100, 48_000):
+            file_result = sonara.analyze_aggression_file(str(path), sr=requested_rate)
+            fused_file = sonara.analyze_file(
+                str(path), sr=requested_rate, features=["aggression"]
+            )
+            for key in component_keys:
+                assert file_result[key] == file_reference[key], (requested_rate, key)
+                assert file_result[key] == fused_file[key], (requested_rate, key)
         batch = sonara.analyze_aggression_batch([str(path), str(path)], sr=sr)
         for key in component_keys:
-            assert abs(file_result[key] - direct[key]) <= 0.01, key
-            assert file_result[key] == fused_file[key]
-            assert batch[0][key] == file_result[key] == batch[1][key]
+            assert batch[0][key] == file_reference[key] == batch[1][key]
 
 
 def batch_contract():

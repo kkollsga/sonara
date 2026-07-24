@@ -28,6 +28,7 @@ def check_evidence() -> None:
         "artifacts",
         "development",
         "physical_controls",
+        "sample_rate_robustness",
     }
     assert evidence["format"] == "sonara.aggression-evidence.v1"
     assert evidence["model_id"] == sonara.AGGRESSION_MODEL_ID
@@ -53,6 +54,22 @@ def check_evidence() -> None:
     assert controls["harsh_minus_loud_clean"] >= 0.30
     assert controls["silence_abstains"] is True
     assert controls["offline_rust_max_abs_error"] <= 0.0001
+
+    robustness = evidence["sample_rate_robustness"]
+    assert robustness["status"] == "pass"
+    assert robustness["canonical_sample_rate"] == sonara.AGGRESSION_SAMPLE_RATE
+    assert robustness["requested_sample_rates"] == [22_050, 32_000, 44_100, 48_000]
+    file_routes = robustness["real_music_file_routes"]
+    assert file_routes["track_count"] == 117
+    assert file_routes["within_0_03_fraction"] >= 0.95
+    assert file_routes["max_abs_delta"] <= 0.05
+    assert file_routes["min_spearman"] >= 0.99
+    assert file_routes["decisive_pair_flips"] == 0
+    assert file_routes["component_p90_max_abs_delta"] <= 0.03
+    anchors = robustness["named_file_anchors"]
+    assert anchors["count"] == 6
+    assert anchors["max_abs_delta"] <= 0.03
+    assert anchors["directions_preserved"] == anchors["directions_total"] == 9
 
 
 def synthesized_controls() -> None:

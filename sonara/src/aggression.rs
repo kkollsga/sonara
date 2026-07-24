@@ -577,6 +577,7 @@ fn analysis_result(analysis: &analyze::TrackAnalysis) -> Result<AggressionAnalys
 mod tests {
     use super::*;
     use ndarray::Array1;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn aggression_fixture(sample_rate: u32) -> Array1<Float> {
         let duration = 10 * sample_rate as usize;
@@ -775,6 +776,39 @@ mod tests {
             with_aggression.provenance.aggression_model_id.as_deref(),
             Some(AGGRESSION_MODEL_ID)
         );
+    }
+
+    #[test]
+    fn file_lane_decodes_aggression_directly_at_canonical_rate() {
+        let source_rate = 48_000;
+        let signal = aggression_fixture(source_rate);
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "sonara-aggression-rate-{}-{unique}.wav",
+            std::process::id()
+        ));
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: source_rate,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut writer = hound::WavWriter::create(&path, spec).unwrap();
+        for sample in signal {
+            writer
+                .write_sample((sample.clamp(-1.0, 1.0) * i16::MAX as Float) as i16)
+                .unwrap();
+        }
+        writer.finalize().unwrap();
+
+        let reference = analyze_file(&path, AGGRESSION_SAMPLE_RATE).unwrap();
+        for sample_rate in [0, 32_000, 44_100, 48_000] {
+            assert_eq!(analyze_file(&path, sample_rate).unwrap(), reference);
+        }
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]

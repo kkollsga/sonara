@@ -28,5 +28,34 @@
     "harsh_minus_loud_clean": 0.436450,
     "silence_abstains": true,
     "offline_rust_max_abs_error": 0.000078
+  },
+  "sample_rate_robustness": {
+    "status": "pass",
+    "canonical_sample_rate": 22050,
+    "requested_sample_rates": [22050, 32000, 44100, 48000],
+    "real_music_file_routes": {
+      "track_count": 117,
+      "within_0_03_fraction": 1.0,
+      "max_abs_delta": 0.0,
+      "min_spearman": 1.0,
+      "decisive_pair_flips": 0,
+      "component_p90_max_abs_delta": 0.0
+    },
+    "named_file_anchors": {
+      "count": 6,
+      "max_abs_delta": 0.0,
+      "directions_preserved": 9,
+      "directions_total": 9,
+      "minimum_margin": 0.291464
+    },
+    "preloaded_signal_roundtrip_diagnostic": {
+      "within_0_03_fraction": 0.971510,
+      "max_abs_delta": 0.060893,
+      "min_spearman": 0.994890,
+      "decisive_pair_flips": 1,
+      "decisive_pairs_per_rate": 5516,
+      "anchor_max_abs_delta": 0.029088,
+      "note": "Includes loss introduced before inference by an external upsample/downsample roundtrip; the signal API cannot reconstruct discarded source information."
+    }
   }
 }
