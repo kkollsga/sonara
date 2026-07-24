@@ -2,6 +2,41 @@
 
 All notable changes to sonara are documented in this file.
 
+## [0.3.3] - 2026-07-24
+
+### Validated on real music
+
+On a frozen, directory-group-disjoint 117-track audit, file-based aggression
+analysis is identical when requested at 22.05, 32, 44.1, or 48 kHz: 100% of
+scores are within 0.03, maximum score and component deltas are zero, Spearman
+is 1.0, all six anchors are exact, and none of 5,516 decisive pairs flips at
+any rate. Caller-pre-resampled signal input remains a deliberately harsher
+diagnostic: 97.15% is within 0.03 with minimum Spearman 0.9949, but one 44.1 kHz
+round-trip reaches 0.0609 and flips one decisive pair. Default compact analysis
+changed by +0.45%, -0.08%, and -1.50% at 1/5/30 seconds.
+
+### Added
+
+- Public aggression sample-rate metadata and cross-rate Rust/Python contract,
+  semantic, fidelity, allocation, and performance coverage.
+
+### Changed
+
+- Aggression inference now runs in its trained 22.05 kHz feature domain while
+  preserving caller-rate semantics for every generic analysis field.
+- The optional aggression feature now uses FerricML 0.1.2 with default
+  features disabled; the default dependency graph remains FerricML-free.
+- The corrected aggression scale uses model version 3, a new model identity,
+  and analysis schema 6 so persisted results cannot mix incompatible scales.
+
+### Fixed
+
+- File, batch, signal, standalone, and fused aggression routes no longer apply
+  sample-rate-dependent feature definitions; file analysis derives both lanes
+  from one native decode and avoids a lossy caller-rate round-trip.
+- Canonical/native alternating analyses retain both feature-gated cache entries
+  instead of rebuilding analysis tables for every track.
+
 ## [0.3.2] - 2026-07-24
 
 ### Validated on real music
