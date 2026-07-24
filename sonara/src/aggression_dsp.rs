@@ -4,6 +4,7 @@
 //! model inputs while omitting public products the caller will discard.
 
 use std::cell::RefCell;
+use std::sync::OnceLock;
 
 use ndarray::{s, Array1, Array2, ArrayView1};
 use rayon::prelude::*;
@@ -28,7 +29,6 @@ const N_BINS: usize = N_FFT / 2 + 1;
 const MAX_PEAKS: usize = 50;
 const EVIDENCE_CONTRAST_BANDS: usize = 5;
 
-#[derive(Clone)]
 struct AggressionCache {
     sparse_mel: Vec<(usize, Vec<Float>)>,
     freqs: Array1<Float>,
@@ -37,12 +37,40 @@ struct AggressionCache {
     contrast_bands: [(usize, usize); EVIDENCE_CONTRAST_BANDS],
 }
 
+static AGGRESSION_CACHE: OnceLock<AggressionCache> = OnceLock::new();
+
+struct AggressionScratch {
+    fft_input: Vec<Float>,
+    fft_output: Vec<num_complex::Complex<Float>>,
+    power: Vec<Float>,
+    magnitude: Vec<Float>,
+    band_values: Vec<Float>,
+    peak_frequencies: Vec<Float>,
+    peak_magnitudes: Vec<Float>,
+    peak_indices: Vec<usize>,
+}
+
+impl AggressionScratch {
+    fn new() -> Self {
+        Self {
+            fft_input: vec![0.0; N_FFT],
+            fft_output: vec![num_complex::Complex::new(0.0, 0.0); N_BINS],
+            power: vec![0.0; N_BINS],
+            magnitude: vec![0.0; N_BINS],
+            band_values: Vec::with_capacity(N_BINS),
+            peak_frequencies: Vec::with_capacity(MAX_PEAKS * 2),
+            peak_magnitudes: Vec::with_capacity(MAX_PEAKS * 2),
+            peak_indices: Vec::with_capacity(MAX_PEAKS * 2),
+        }
+    }
+}
+
 thread_local! {
-    static AGGRESSION_CACHE: RefCell<Option<AggressionCache>> = const { RefCell::new(None) };
+    static AGGRESSION_SCRATCH: RefCell<AggressionScratch> = RefCell::new(AggressionScratch::new());
 }
 
 struct AggressionFrame {
-    mel: Vec<Float>,
+    mel: [Float; N_MELS],
     centroid: Float,
     rms: Float,
     bandwidth: Float,
@@ -55,12 +83,8 @@ struct AggressionFrame {
     peak_ratio: Float,
 }
 
-fn cache() -> AggressionCache {
-    AGGRESSION_CACHE.with(|cached| {
-        if let Some(cache) = cached.borrow().as_ref() {
-            return cache.clone();
-        }
-
+fn cache() -> &'static AggressionCache {
+    AGGRESSION_CACHE.get_or_init(|| {
         let sample_rate = AGGRESSION_SAMPLE_RATE as Float;
         let mel = filters::mel(
             sample_rate,
@@ -124,15 +148,13 @@ fn cache() -> AggressionCache {
             (start, end)
         });
 
-        let cache = AggressionCache {
+        AggressionCache {
             sparse_mel,
             freqs,
             win_padded,
             dct_rows,
             contrast_bands,
-        };
-        *cached.borrow_mut() = Some(cache.clone());
-        cache
+        }
     })
 }
 
@@ -156,24 +178,20 @@ pub(super) fn analyze_signal(y: ArrayView1<'_, Float>) -> Result<AggressionAnaly
     let frequencies = cache.freqs.as_slice().unwrap();
     let frame_count = 1 + (padded.len() - N_FFT) / HOP_LENGTH;
 
-    let compute_frame = |frame_index: usize| {
+    let compute_frame = |frame_index: usize, scratch: &mut AggressionScratch| {
         let start = frame_index * HOP_LENGTH;
-        let mut fft_input = vec![0.0; N_FFT];
         for index in 0..N_FFT {
-            fft_input[index] = samples[start + index] * window[index];
+            scratch.fft_input[index] = samples[start + index] * window[index];
         }
-        let mut fft_output = vec![num_complex::Complex::new(0.0, 0.0); N_BINS];
-        fft::rfft(&mut fft_input, &mut fft_output).expect("FFT failed");
+        fft::rfft(&mut scratch.fft_input, &mut scratch.fft_output).expect("FFT failed");
 
-        let mut power = vec![0.0; N_BINS];
-        let mut magnitude = vec![0.0; N_BINS];
         let mut centroid_numerator = 0.0;
         let mut magnitude_sum = 0.0;
         for index in 0..N_BINS {
-            let bin_power = fft_output[index].norm_sqr();
+            let bin_power = scratch.fft_output[index].norm_sqr();
             let bin_magnitude = bin_power.sqrt();
-            power[index] = bin_power;
-            magnitude[index] = bin_magnitude;
+            scratch.power[index] = bin_power;
+            scratch.magnitude[index] = bin_magnitude;
             centroid_numerator += frequencies[index] * bin_magnitude;
             magnitude_sum += bin_magnitude;
         }
@@ -200,7 +218,7 @@ pub(super) fn analyze_signal(y: ArrayView1<'_, Float>) -> Result<AggressionAnaly
             let mut numerator = 0.0;
             for index in 0..N_BINS {
                 let deviation = frequencies[index] - centroid;
-                numerator += magnitude[index] * deviation * deviation;
+                numerator += scratch.magnitude[index] * deviation * deviation;
             }
             (numerator / magnitude_sum).sqrt()
         } else {
@@ -215,9 +233,9 @@ pub(super) fn analyze_signal(y: ArrayView1<'_, Float>) -> Result<AggressionAnaly
         let mut high_count = 0_usize;
         let mut strongest = [0.0; 8];
         for index in 0..N_BINS {
-            let value = power[index].max(minimum_power);
+            let value = scratch.power[index].max(minimum_power);
             let log_value = value.ln();
-            let bin_power = power[index];
+            let bin_power = scratch.power[index];
             total += bin_power;
             if frequencies[index] >= 4_000.0 {
                 high_total += bin_power;
@@ -239,17 +257,14 @@ pub(super) fn analyze_signal(y: ArrayView1<'_, Float>) -> Result<AggressionAnaly
         };
         let peak_ratio = strongest.iter().sum::<Float>() / (total + EPSILON);
 
-        let mel = cache
-            .sparse_mel
-            .iter()
-            .map(|(start_bin, weights)| {
-                let mut sum = 0.0;
-                for (offset, &weight) in weights.iter().enumerate() {
-                    sum += weight * power[start_bin + offset];
-                }
-                sum
-            })
-            .collect();
+        let mel = std::array::from_fn(|mel_index| {
+            let (start_bin, weights) = &cache.sparse_mel[mel_index];
+            let mut sum = 0.0;
+            for (offset, &weight) in weights.iter().enumerate() {
+                sum += weight * scratch.power[start_bin + offset];
+            }
+            sum
+        });
 
         let mut contrast = [0.0; EVIDENCE_CONTRAST_BANDS];
         for (band, &(start_bin, end_bin)) in cache.contrast_bands.iter().enumerate() {
@@ -257,30 +272,36 @@ pub(super) fn analyze_signal(y: ArrayView1<'_, Float>) -> Result<AggressionAnaly
                 continue;
             }
             let length = end_bin - start_bin;
-            let mut values = (start_bin..end_bin)
-                .map(|index| magnitude[index].max(1.0e-10))
-                .collect::<Vec<_>>();
+            scratch.band_values.clear();
+            scratch
+                .band_values
+                .extend((start_bin..end_bin).map(|index| scratch.magnitude[index].max(1.0e-10)));
             let quantile_index = ((length as Float * 0.02) as usize).min(length - 1);
-            values.select_nth_unstable_by(quantile_index, Float::total_cmp);
-            let valley = values[quantile_index];
+            scratch
+                .band_values
+                .select_nth_unstable_by(quantile_index, Float::total_cmp);
+            let valley = scratch.band_values[quantile_index];
             let peak_index = (length - 1).saturating_sub(quantile_index);
-            values.select_nth_unstable_by(peak_index, Float::total_cmp);
-            contrast[band] = values[peak_index].log10() - valley.log10();
+            scratch
+                .band_values
+                .select_nth_unstable_by(peak_index, Float::total_cmp);
+            contrast[band] = scratch.band_values[peak_index].log10() - valley.log10();
         }
 
-        let mut peak_frequencies = Vec::new();
-        let mut peak_magnitudes = Vec::new();
+        scratch.peak_frequencies.clear();
+        scratch.peak_magnitudes.clear();
         for index in 1..N_BINS - 1 {
-            if magnitude[index] <= magnitude[index - 1] || magnitude[index] <= magnitude[index + 1]
+            if scratch.magnitude[index] <= scratch.magnitude[index - 1]
+                || scratch.magnitude[index] <= scratch.magnitude[index + 1]
             {
                 continue;
             }
             if frequencies[index] < 40.0 || frequencies[index] > 5_000.0 {
                 continue;
             }
-            let alpha = magnitude[index - 1];
-            let beta = magnitude[index];
-            let gamma = magnitude[index + 1];
+            let alpha = scratch.magnitude[index - 1];
+            let beta = scratch.magnitude[index];
+            let gamma = scratch.magnitude[index + 1];
             let denominator = alpha - 2.0 * beta + gamma;
             let (frequency, peak_magnitude) = if denominator.abs() > 1.0e-10 {
                 let interpolation = 0.5 * (alpha - gamma) / denominator;
@@ -296,36 +317,35 @@ pub(super) fn analyze_signal(y: ArrayView1<'_, Float>) -> Result<AggressionAnaly
             } else {
                 (frequencies[index], beta)
             };
-            peak_frequencies.push(frequency);
-            peak_magnitudes.push(peak_magnitude);
+            scratch.peak_frequencies.push(frequency);
+            scratch.peak_magnitudes.push(peak_magnitude);
         }
-        let mut peak_indices = (0..peak_frequencies.len()).collect::<Vec<_>>();
-        peak_indices.sort_unstable_by(|&left, &right| {
-            peak_magnitudes[right].total_cmp(&peak_magnitudes[left])
+        scratch.peak_indices.clear();
+        scratch
+            .peak_indices
+            .extend(0..scratch.peak_frequencies.len());
+        scratch.peak_indices.sort_unstable_by(|&left, &right| {
+            scratch.peak_magnitudes[right].total_cmp(&scratch.peak_magnitudes[left])
         });
-        peak_indices.truncate(MAX_PEAKS);
-        let peak_frequencies = peak_indices
-            .iter()
-            .map(|&index| peak_frequencies[index])
-            .collect::<Vec<_>>();
-        let peak_magnitudes = peak_indices
-            .iter()
-            .map(|&index| peak_magnitudes[index])
-            .collect::<Vec<_>>();
+        scratch.peak_indices.truncate(MAX_PEAKS);
 
         let mut dissonance = 0.0;
-        if peak_frequencies.len() >= 2 {
+        if scratch.peak_indices.len() >= 2 {
             let mut dissonance_sum = 0.0;
             let mut weight_sum = 0.0;
-            for left in 0..peak_frequencies.len() {
-                for right in left + 1..peak_frequencies.len() {
-                    let minimum_frequency = peak_frequencies[left].min(peak_frequencies[right]);
-                    let frequency_difference =
-                        (peak_frequencies[left] - peak_frequencies[right]).abs();
+            for left in 0..scratch.peak_indices.len() {
+                for right in left + 1..scratch.peak_indices.len() {
+                    let left_index = scratch.peak_indices[left];
+                    let right_index = scratch.peak_indices[right];
+                    let left_frequency = scratch.peak_frequencies[left_index];
+                    let right_frequency = scratch.peak_frequencies[right_index];
+                    let minimum_frequency = left_frequency.min(right_frequency);
+                    let frequency_difference = (left_frequency - right_frequency).abs();
                     let scale = 0.24 / (0.0207 * minimum_frequency + 18.96);
                     let roughness = (-3.5144 * scale * frequency_difference).exp()
                         - (-5.7564 * scale * frequency_difference).exp();
-                    let weight = peak_magnitudes[left] * peak_magnitudes[right];
+                    let weight =
+                        scratch.peak_magnitudes[left_index] * scratch.peak_magnitudes[right_index];
                     dissonance_sum += weight * roughness.max(0.0);
                     weight_sum += weight;
                 }
@@ -353,10 +373,18 @@ pub(super) fn analyze_signal(y: ArrayView1<'_, Float>) -> Result<AggressionAnaly
     let frames = if frame_count >= PARALLEL_THRESHOLD {
         (0..frame_count)
             .into_par_iter()
-            .map(compute_frame)
+            .map(|frame_index| {
+                AGGRESSION_SCRATCH
+                    .with(|scratch| compute_frame(frame_index, &mut scratch.borrow_mut()))
+            })
             .collect::<Vec<_>>()
     } else {
-        (0..frame_count).map(compute_frame).collect::<Vec<_>>()
+        (0..frame_count)
+            .map(|frame_index| {
+                AGGRESSION_SCRATCH
+                    .with(|scratch| compute_frame(frame_index, &mut scratch.borrow_mut()))
+            })
+            .collect::<Vec<_>>()
     };
 
     let mut mel_spectrogram = Array2::<Float>::zeros((N_MELS, frame_count));
