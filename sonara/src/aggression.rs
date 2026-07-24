@@ -761,6 +761,22 @@ mod tests {
     }
 
     #[test]
+    fn concurrent_canonical_extractors_are_bit_identical() {
+        let signal = aggression_fixture(AGGRESSION_SAMPLE_RATE);
+        let expected = analyze::analyze_canonical_aggression(signal.view()).unwrap();
+        std::thread::scope(|scope| {
+            let handles = (0..10)
+                .map(|_| {
+                    scope.spawn(|| analyze::analyze_canonical_aggression(signal.view()).unwrap())
+                })
+                .collect::<Vec<_>>();
+            for handle in handles {
+                assert_eq!(handle.join().unwrap(), expected);
+            }
+        });
+    }
+
+    #[test]
     fn canonical_lane_is_sample_rate_robust() {
         let canonical_signal = aggression_fixture(22_050);
         let reference = analyze_signal(canonical_signal.view(), 22_050).unwrap();

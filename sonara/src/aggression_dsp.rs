@@ -4,6 +4,7 @@
 //! model inputs while omitting public products the caller will discard.
 
 use std::cell::RefCell;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::OnceLock;
 
 use ndarray::{s, Array1, Array2, ArrayView1};
@@ -38,6 +39,22 @@ struct AggressionCache {
 }
 
 static AGGRESSION_CACHE: OnceLock<AggressionCache> = OnceLock::new();
+static ACTIVE_ANALYSES: AtomicUsize = AtomicUsize::new(0);
+
+struct ActiveAnalysis;
+
+impl ActiveAnalysis {
+    fn enter() -> (Self, bool) {
+        let was_idle = ACTIVE_ANALYSES.fetch_add(1, Ordering::AcqRel) == 0;
+        (Self, was_idle)
+    }
+}
+
+impl Drop for ActiveAnalysis {
+    fn drop(&mut self) {
+        ACTIVE_ANALYSES.fetch_sub(1, Ordering::AcqRel);
+    }
+}
 
 struct AggressionScratch {
     fft_input: Vec<Float>,
@@ -159,6 +176,7 @@ fn cache() -> &'static AggressionCache {
 }
 
 pub(super) fn analyze_signal(y: ArrayView1<'_, Float>) -> Result<AggressionAnalysis> {
+    let (_active, may_parallelize) = ActiveAnalysis::enter();
     let cache = cache();
     let sample_rate = AGGRESSION_SAMPLE_RATE;
     let sample_rate_float = sample_rate as Float;
@@ -370,7 +388,7 @@ pub(super) fn analyze_signal(y: ArrayView1<'_, Float>) -> Result<AggressionAnaly
         }
     };
 
-    let frames = if frame_count >= PARALLEL_THRESHOLD {
+    let frames = if may_parallelize && frame_count >= PARALLEL_THRESHOLD {
         (0..frame_count)
             .into_par_iter()
             .map(|frame_index| {
