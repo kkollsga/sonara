@@ -735,13 +735,21 @@ mod tests {
         let canonical_signal = aggression_fixture(22_050);
         let reference = analyze_signal(canonical_signal.view(), 22_050).unwrap();
         // Canonical-rate outputs are intentionally unchanged by the routing
-        // fix: only the model identity/schema changes.
+        // fix: only the model identity/schema changes. The physical component
+        // transforms may differ by one ULP across platform math libraries.
         assert_eq!(reference.score.unwrap().to_bits(), 0x3ee8_e262);
         assert_eq!(reference.confidence.to_bits(), 0x3f7a_f022);
-        assert_eq!(reference.forcefulness.to_bits(), 0x3f04_a1e1);
-        assert_eq!(reference.harshness.to_bits(), 0x3d0e_c9bd);
-        assert_eq!(reference.tension.to_bits(), 0x3d4a_50db);
-        assert_eq!(reference.rhythm.to_bits(), 0x3f35_aa3b);
+        for (name, actual, expected) in [
+            ("forcefulness", reference.forcefulness, 0x3f04_a1e1),
+            ("harshness", reference.harshness, 0x3d0e_c9bd),
+            ("tension", reference.tension, 0x3d4a_50db),
+            ("rhythm", reference.rhythm, 0x3f35_aa3b),
+        ] {
+            assert!(
+                actual.to_bits().abs_diff(expected) <= 1,
+                "{name} changed beyond one ULP: actual={actual:?}"
+            );
+        }
         let reference_score = reference.score.unwrap();
         for sample_rate in [32_000, 44_100, 48_000] {
             let signal =
