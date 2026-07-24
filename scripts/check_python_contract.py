@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Validate Sonara's runtime, abi3, documentation, and CI Python floor."""
+"""Validate Sonara's runtime, stub, abi3, documentation, and CI contracts."""
 
 from __future__ import annotations
 
 import argparse
+import ast
 from pathlib import Path
 import re
 import sys
@@ -15,6 +16,48 @@ ROOT = Path(__file__).resolve().parents[1]
 FLOOR_RE = re.compile(r"^>=(\d+)\.(\d+)$")
 ABI_FEATURE_RE = re.compile(r'"abi3-py(\d)(\d+)"')
 CLASSIFIER_RE = re.compile(r"^Programming Language :: Python :: (\d+)\.(\d+)$")
+FUSED_ANALYZER_CONTRACT = {
+    "analyze_file": (
+        "path",
+        {
+            "sr",
+            "mode",
+            "features",
+            "bpm_min",
+            "bpm_max",
+            "genre_model",
+            "vocalness_model",
+        },
+        "AnalysisResult",
+    ),
+    "analyze_signal": (
+        "y",
+        {
+            "sr",
+            "mode",
+            "features",
+            "bpm_min",
+            "bpm_max",
+            "genre_model",
+            "vocalness_model",
+        },
+        "AnalysisResult",
+    ),
+    "analyze_batch": (
+        "paths",
+        {
+            "sr",
+            "mode",
+            "features",
+            "bpm_min",
+            "bpm_max",
+            "progress",
+            "genre_model",
+            "vocalness_model",
+        },
+        "List[AnalysisResult]",
+    ),
+}
 
 
 def parse_runtime_floor(value: str) -> tuple[int, int]:
@@ -42,7 +85,55 @@ def abi_tag(root: Path = ROOT) -> str:
     return f"cp{major}{minor}-abi3"
 
 
+def check_fused_analyzer_stub(root: Path = ROOT) -> None:
+    stub_path = root / "python" / "sonara" / "__init__.pyi"
+    tree = ast.parse(stub_path.read_text(encoding="utf-8"), filename=str(stub_path))
+    definitions: dict[str, list[ast.FunctionDef | ast.AsyncFunctionDef]] = {}
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            definitions.setdefault(node.name, []).append(node)
+
+    duplicates = {
+        name: len(nodes)
+        for name, nodes in definitions.items()
+        if len(nodes) > 1
+    }
+    if duplicates:
+        raise AssertionError(f"duplicate top-level stub functions: {duplicates}")
+
+    for name, contract in FUSED_ANALYZER_CONTRACT.items():
+        positional, required_keywords, expected_return = contract
+        nodes = definitions.get(name, [])
+        if len(nodes) != 1:
+            raise AssertionError(f"stub must declare {name} exactly once, got {len(nodes)}")
+        node = nodes[0]
+        positional_names = [arg.arg for arg in (*node.args.posonlyargs, *node.args.args)]
+        if positional_names != [positional]:
+            raise AssertionError(
+                f"{name} positional parameters changed: expected {[positional]}, got {positional_names}"
+            )
+        keyword_names = {arg.arg for arg in node.args.kwonlyargs}
+        missing = required_keywords - keyword_names
+        if missing:
+            raise AssertionError(f"{name} stub is missing keyword parameters: {sorted(missing)}")
+        required_without_defaults = {
+            arg.arg
+            for arg, default in zip(node.args.kwonlyargs, node.args.kw_defaults)
+            if arg.arg in required_keywords and default is None
+        }
+        if required_without_defaults:
+            raise AssertionError(
+                f"{name} keywords unexpectedly became required: {sorted(required_without_defaults)}"
+            )
+        actual_return = ast.unparse(node.returns) if node.returns is not None else None
+        if actual_return != expected_return:
+            raise AssertionError(
+                f"{name} return changed: expected {expected_return}, got {actual_return}"
+            )
+
+
 def check_contract(root: Path = ROOT) -> None:
+    check_fused_analyzer_stub(root)
     project = project_data(root)
     floor = runtime_floor(root)
     floor_text = f"{floor[0]}.{floor[1]}"
@@ -103,7 +194,9 @@ def self_test() -> None:
             classifiers: tuple[str, ...] = ("3.10", "3.11"),
             readme_floor: str = "3.10",
             workflow_floor: str = "3.10",
+            stub_text: str | None = None,
         ) -> None:
+            (root / "python" / "sonara").mkdir(parents=True, exist_ok=True)
             classifier_text = "\n".join(
                 f'  "Programming Language :: Python :: {value}",' for value in classifiers
             )
@@ -131,6 +224,15 @@ def self_test() -> None:
                 "          python-version: ${{ matrix.python-version }}\n",
                 encoding="utf-8",
             )
+            (root / "python" / "sonara" / "__init__.pyi").write_text(
+                stub_text
+                or """
+def analyze_file(path: str, *, sr: int = 22050, mode: str = \"compact\", features=None, bpm_min=None, bpm_max=None, genre_model=None, vocalness_model=None) -> AnalysisResult: ...
+def analyze_signal(y: AudioArray, *, sr: int = 22050, mode: str = \"compact\", features=None, bpm_min=None, bpm_max=None, genre_model=None, vocalness_model=None) -> AnalysisResult: ...
+def analyze_batch(paths: list[str], *, sr: int = 22050, mode: str = \"compact\", features=None, bpm_min=None, bpm_max=None, progress=None, genre_model=None, vocalness_model=None) -> List[AnalysisResult]: ...
+""".lstrip(),
+                encoding="utf-8",
+            )
 
         def expect_failure(**kwargs: object) -> None:
             write_fixture(**kwargs)
@@ -147,6 +249,16 @@ def self_test() -> None:
         expect_failure(classifiers=("3.9", "3.10"))
         expect_failure(readme_floor="3.9")
         expect_failure(workflow_floor="3.12")
+        valid_stub = (root / "python" / "sonara" / "__init__.pyi").read_text(
+            encoding="utf-8"
+        )
+        expect_failure(stub_text=valid_stub + valid_stub.splitlines()[0] + "\n")
+        expect_failure(stub_text=valid_stub.replace(", features=None", ""))
+        expect_failure(
+            stub_text=valid_stub.replace(
+                ") -> AnalysisResult: ...", ") -> dict: ...", 1
+            )
+        )
 
 
 def main() -> int:
@@ -160,10 +272,10 @@ def main() -> int:
     try:
         if args.check:
             check_contract()
-            print("Python runtime/abi3 contract: PASS")
+            print("Python runtime/stub/abi3 contract: PASS")
         elif args.self_test:
             self_test()
-            print("Python runtime/abi3 self-test: PASS")
+            print("Python runtime/stub/abi3 self-test: PASS")
         elif args.runtime_floor:
             print(runtime_floor_text())
         else:
