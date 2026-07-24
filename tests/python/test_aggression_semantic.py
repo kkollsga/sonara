@@ -31,7 +31,7 @@ def check_evidence() -> None:
     }
     assert evidence["format"] == "sonara.aggression-evidence.v1"
     assert evidence["model_id"] == sonara.AGGRESSION_MODEL_ID
-    assert evidence["analysis_schema_version"] == 5
+    assert evidence["analysis_schema_version"] == 6
     for relative, expected in evidence["artifacts"].items():
         assert hashlib.sha256((ROOT / relative).read_bytes()).hexdigest() == expected
 

@@ -486,7 +486,14 @@ const AGGRESSION_DEPS: &[&str] = &["energy", "danceability", "dissonance"];
 /// v5 (2026-07-22): `aggression_score` is now a fused physical/perceptual rank
 /// with independent support and diagnostics, not the legacy similarity-vector
 /// probability. Stored aggression values require an audio rescan.
-pub const ANALYSIS_SCHEMA_VERSION: u32 = 5;
+///
+/// v6 (2026-07-24): bundled aggression values are evaluated at the model's
+/// canonical 22.05 kHz sample rate. Main-pass fields and frame provenance stay
+/// in the caller-requested sample-rate domain.
+pub const ANALYSIS_SCHEMA_VERSION: u32 = 6;
+
+#[cfg(feature = "aggression")]
+const AGGRESSION_SAMPLE_RATE: u32 = 22_050;
 
 /// STFT hop length (samples) used by the main analysis pass. All frame-index
 /// fields on [`TrackAnalysis`] (`beats`, `onset_frames`, `downbeats`) convert
@@ -503,6 +510,7 @@ const N_HPCP_HARMONICS: usize = 4;
 const MAX_PEAKS: usize = 50;
 
 /// Cached mel filterbank, sparse chroma, DCT matrix, and analysis constants.
+#[cfg_attr(feature = "aggression", derive(Clone))]
 struct AnalysisCache {
     key: (u32, usize, usize), // (sr, n_fft, n_mels)
     sparse_mel: Vec<(usize, Vec<Float>)>,
@@ -517,6 +525,15 @@ struct AnalysisCache {
     harmonic_weights: [Float; N_HPCP_HARMONICS],
 }
 
+#[cfg(feature = "aggression")]
+thread_local! {
+    // A canonical aggression pass commonly alternates between the caller's
+    // rate and 22.05 kHz. Retain both immutable DSP tables so this does not
+    // rebuild filterbanks on every track.
+    static ANALYSIS_CACHE: RefCell<Vec<AnalysisCache>> = const { RefCell::new(Vec::new()) };
+}
+
+#[cfg(not(feature = "aggression"))]
 thread_local! {
     static ANALYSIS_CACHE: RefCell<Option<AnalysisCache>> = const { RefCell::new(None) };
 }
@@ -877,9 +894,67 @@ pub fn analyze_signal(
             "signal must contain at least one sample".into(),
         ));
     }
+
+    #[cfg(feature = "aggression")]
+    if config.needs_aggression() && sr != AGGRESSION_SAMPLE_RATE {
+        return analyze_signal_with_canonical_aggression(y, sr, config);
+    }
+
     let zero_crossing_rate = validated_zero_crossing_rate(y)?;
     let extended = config.needs_extended();
     analyze_signal_inner(y, sr, extended, zero_crossing_rate, config)
+}
+
+#[cfg(feature = "aggression")]
+fn analyze_signal_with_canonical_aggression(
+    y: ndarray::ArrayView1<Float>,
+    sr: u32,
+    config: &AnalysisConfig,
+) -> Result<TrackAnalysis> {
+    // Preserve every generic field in the caller's sample-rate domain. Merely
+    // remove the opt-in aggression request so its trained DSP dependencies do
+    // not force an unnecessary native-rate extended pass.
+    let mut native_config = config.clone();
+    native_config
+        .features
+        .as_mut()
+        .expect("aggression is only enabled by an explicit feature request")
+        .retain(|feature| !feature.eq_ignore_ascii_case("aggression"));
+    let native_zcr = validated_zero_crossing_rate(y)?;
+    let mut result = analyze_signal_inner(
+        y,
+        sr,
+        native_config.needs_extended(),
+        native_zcr,
+        &native_config,
+    )?;
+
+    // Own a contiguous buffer before resampling because the optimized 2:1
+    // resampler requires a contiguous slice.
+    let source = y.to_owned();
+    let canonical = audio::resample(source.view(), sr, AGGRESSION_SAMPLE_RATE)?;
+    let aggression_config = AnalysisConfig {
+        features: Some(HashSet::from(["aggression".to_owned()])),
+        ..AnalysisConfig::default()
+    };
+    let canonical_zcr = validated_zero_crossing_rate(canonical.view())?;
+    let aggression = analyze_signal_inner(
+        canonical.view(),
+        AGGRESSION_SAMPLE_RATE,
+        true,
+        canonical_zcr,
+        &aggression_config,
+    )?;
+
+    result.aggression_score = aggression.aggression_score;
+    result.aggression_confidence = aggression.aggression_confidence;
+    result.aggression_forcefulness = aggression.aggression_forcefulness;
+    result.aggression_harshness = aggression.aggression_harshness;
+    result.aggression_tension = aggression.aggression_tension;
+    result.aggression_rhythm = aggression.aggression_rhythm;
+    result.provenance.requested_features = config.requested_feature_names();
+    result.provenance.aggression_model_id = Some(crate::aggression::AGGRESSION_MODEL_ID.to_owned());
+    Ok(result)
 }
 
 /// Analyze multiple files in parallel.
@@ -977,6 +1052,22 @@ fn analyze_signal_inner(
 
     let cache_data = ANALYSIS_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
+        #[cfg(feature = "aggression")]
+        if let Some(index) = cache.iter().position(|entry| entry.key == cache_key) {
+            let c = cache.remove(index);
+            let data = (
+                c.sparse_mel.clone(),
+                c.sparse_chroma.clone(),
+                c.freqs.clone(),
+                c.win_padded.clone(),
+                c.dct_matrix.clone(),
+                c.contrast_bands.clone(),
+                c.harmonic_weights,
+            );
+            cache.push(c);
+            return data;
+        }
+        #[cfg(not(feature = "aggression"))]
         if let Some(ref c) = *cache {
             if c.key == cache_key {
                 return (
@@ -1060,16 +1151,35 @@ fn analyze_signal_inner(
         let harmonic_weights: [Float; N_HPCP_HARMONICS] =
             std::array::from_fn(|h| 1.0 / (h as Float + 1.0));
 
-        *cache = Some(AnalysisCache {
-            key: cache_key,
-            sparse_mel: sparse_mel.clone(),
-            sparse_chroma: sparse_chroma.clone(),
-            freqs: f.clone(),
-            win_padded: wp.clone(),
-            dct_matrix: dct_matrix.clone(),
-            contrast_bands: contrast_bands.clone(),
-            harmonic_weights,
-        });
+        #[cfg(feature = "aggression")]
+        {
+            if cache.len() == 2 {
+                cache.remove(0);
+            }
+            cache.push(AnalysisCache {
+                key: cache_key,
+                sparse_mel: sparse_mel.clone(),
+                sparse_chroma: sparse_chroma.clone(),
+                freqs: f.clone(),
+                win_padded: wp.clone(),
+                dct_matrix: dct_matrix.clone(),
+                contrast_bands: contrast_bands.clone(),
+                harmonic_weights,
+            });
+        }
+        #[cfg(not(feature = "aggression"))]
+        {
+            *cache = Some(AnalysisCache {
+                key: cache_key,
+                sparse_mel: sparse_mel.clone(),
+                sparse_chroma: sparse_chroma.clone(),
+                freqs: f.clone(),
+                win_padded: wp.clone(),
+                dct_matrix: dct_matrix.clone(),
+                contrast_bands: contrast_bands.clone(),
+                harmonic_weights,
+            });
+        }
 
         (
             sparse_mel,
@@ -3217,7 +3327,7 @@ mod tests {
     #[test]
     fn test_analysis_schema_version_pinned() {
         // Bump deliberately (with a changelog note), never accidentally.
-        assert_eq!(ANALYSIS_SCHEMA_VERSION, 5);
+        assert_eq!(ANALYSIS_SCHEMA_VERSION, 6);
     }
 
     #[test]

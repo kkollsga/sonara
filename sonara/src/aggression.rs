@@ -18,13 +18,13 @@ use crate::similarity::{EMBEDDING_DIM, SIMILARITY_VERSION};
 use crate::types::Float;
 
 /// Version of the bundled aggression model.
-pub const AGGRESSION_MODEL_VERSION: u32 = 2;
+pub const AGGRESSION_MODEL_VERSION: u32 = 3;
 
 /// Similarity embedding layout consumed by this model.
 pub const AGGRESSION_EMBEDDING_VERSION: u32 = 2;
 
 /// Stable identifier for the bundled model artifact.
-pub const AGGRESSION_MODEL_ID: &str = "aggression-rank-v2";
+pub const AGGRESSION_MODEL_ID: &str = "aggression-rank-v3-sr22050";
 
 /// Stable identifier of the retained 48D embedding scorer.
 pub const LEGACY_AGGRESSION_MODEL_ID: &str = "aggression-logistic-v1";
@@ -575,9 +575,24 @@ mod tests {
     use super::*;
     use ndarray::Array1;
 
+    fn aggression_fixture(sample_rate: u32) -> Array1<Float> {
+        let duration = 10 * sample_rate as usize;
+        Array1::from_iter((0..duration).map(|index| {
+            let time = index as Float / sample_rate as Float;
+            let carrier = (2.0 * std::f32::consts::PI * 180.0 * time).sin();
+            let edge = (2.0 * std::f32::consts::PI * 2_900.0 * time).sin().signum();
+            let pulse = if (time * 5.0).fract() < 0.12 {
+                (2.0 * std::f32::consts::PI * 900.0 * time).sin()
+            } else {
+                0.0
+            };
+            0.28 * carrier + 0.08 * edge + 0.22 * pulse
+        }))
+    }
+
     #[test]
     fn model_metadata_and_artifacts_are_bound() {
-        assert_eq!(AGGRESSION_MODEL_VERSION, 2);
+        assert_eq!(AGGRESSION_MODEL_VERSION, 3);
         assert_eq!(AGGRESSION_EMBEDDING_VERSION, SIMILARITY_VERSION);
         assert_eq!(legacy_model().unwrap().n_features_in(), EMBEDDING_DIM);
         assert_eq!(LEGACY_MODEL_ARTIFACT.len(), 300);
@@ -681,6 +696,79 @@ mod tests {
         assert!(analysis.embedding.is_none());
         assert_eq!(
             analysis.provenance.aggression_model_id.as_deref(),
+            Some(AGGRESSION_MODEL_ID)
+        );
+    }
+
+    #[test]
+    fn canonical_lane_is_sample_rate_robust() {
+        let canonical_signal = aggression_fixture(22_050);
+        let reference = analyze_signal(canonical_signal.view(), 22_050).unwrap();
+        // Canonical-rate outputs are intentionally unchanged by the routing
+        // fix: only the model identity/schema changes.
+        assert_eq!(reference.score.unwrap().to_bits(), 0x3ee8_e262);
+        assert_eq!(reference.confidence.to_bits(), 0x3f7a_f022);
+        assert_eq!(reference.forcefulness.to_bits(), 0x3f04_a1e1);
+        assert_eq!(reference.harshness.to_bits(), 0x3d0e_c9bd);
+        assert_eq!(reference.tension.to_bits(), 0x3d4a_50db);
+        assert_eq!(reference.rhythm.to_bits(), 0x3f35_aa3b);
+        let reference_score = reference.score.unwrap();
+        for sample_rate in [32_000, 44_100, 48_000] {
+            let signal =
+                crate::core::audio::resample(canonical_signal.view(), 22_050, sample_rate).unwrap();
+            let result = analyze_signal(signal.view(), sample_rate).unwrap();
+            assert!(
+                (result.score.unwrap() - reference_score).abs() <= 0.03,
+                "score drifted at {sample_rate} Hz: reference={reference_score}, result={result:?}"
+            );
+            for (name, actual, expected) in [
+                ("confidence", result.confidence, reference.confidence),
+                ("forcefulness", result.forcefulness, reference.forcefulness),
+                ("harshness", result.harshness, reference.harshness),
+                ("tension", result.tension, reference.tension),
+                ("rhythm", result.rhythm, reference.rhythm),
+            ] {
+                assert!(
+                    (actual - expected).abs() <= 0.03,
+                    "{name} drifted at {sample_rate} Hz: reference={expected}, actual={actual}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn canonical_lane_preserves_native_generic_fields_and_provenance() {
+        let sample_rate = 48_000;
+        let signal = aggression_fixture(sample_rate);
+        let generic_config = AnalysisConfig {
+            features: Some(HashSet::from(["rms".to_owned()])),
+            ..AnalysisConfig::default()
+        };
+        let aggression_config = AnalysisConfig {
+            features: Some(HashSet::from(["rms".to_owned(), "aggression".to_owned()])),
+            ..AnalysisConfig::default()
+        };
+        let generic = analyze::analyze_signal(signal.view(), sample_rate, &generic_config).unwrap();
+        let with_aggression =
+            analyze::analyze_signal(signal.view(), sample_rate, &aggression_config).unwrap();
+
+        assert_eq!(with_aggression.bpm.to_bits(), generic.bpm.to_bits());
+        assert_eq!(with_aggression.beats, generic.beats);
+        assert_eq!(
+            with_aggression.rms_mean.to_bits(),
+            generic.rms_mean.to_bits()
+        );
+        assert_eq!(
+            with_aggression.spectral_centroid_mean.to_bits(),
+            generic.spectral_centroid_mean.to_bits()
+        );
+        assert_eq!(with_aggression.provenance.sample_rate, sample_rate);
+        assert_eq!(
+            with_aggression.provenance.requested_features.as_deref(),
+            Some(["aggression".to_owned(), "rms".to_owned()].as_slice())
+        );
+        assert_eq!(
+            with_aggression.provenance.aggression_model_id.as_deref(),
             Some(AGGRESSION_MODEL_ID)
         );
     }

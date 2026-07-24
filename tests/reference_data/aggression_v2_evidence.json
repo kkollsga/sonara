@@ -1,10 +1,10 @@
 {
   "format": "sonara.aggression-evidence.v1",
-  "model_id": "aggression-rank-v2",
-  "analysis_schema_version": 5,
+  "model_id": "aggression-rank-v3-sr22050",
+  "analysis_schema_version": 6,
   "feature_schema_sha256": "6ac03f40126b7025fd2890f8a8f40c950653117db47adf13b6e9ac376db4b785",
   "artifacts": {
-    "sonara/src/aggression_model.bin": "fb38de2a715dce77688c0b8b9247ca079a4d1c533f52d7e27fe9210ca8e7db03",
+    "sonara/src/aggression_model.bin": "d1b5ca5fdb4c69b419d6c934f4b8dd1da89584061f7a3e3fc6ce375f677c6f26",
     "sonara/src/aggression_linear.ferricml": "2ece8e2849b5fc5a9210e78b30c73c280e943c31e32cd19264af512c72f3c86c"
   },
   "development": {

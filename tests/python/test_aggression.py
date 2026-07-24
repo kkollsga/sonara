@@ -24,9 +24,9 @@ def test(name, fn):
 
 
 def metadata():
-    assert sonara.AGGRESSION_MODEL_VERSION == 2
+    assert sonara.AGGRESSION_MODEL_VERSION == 3
     assert sonara.AGGRESSION_EMBEDDING_VERSION == sonara.SIMILARITY_VERSION
-    assert sonara.AGGRESSION_MODEL_ID == "aggression-rank-v2"
+    assert sonara.AGGRESSION_MODEL_ID == "aggression-rank-v3-sr22050"
     assert sonara.LEGACY_AGGRESSION_MODEL_ID == "aggression-logistic-v1"
 
 
