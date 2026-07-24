@@ -597,6 +597,7 @@ pub struct ChordEvent {
 ///
 /// Core fields are always populated. Extended/perceptual fields are `Some`
 /// only when the selected mode or feature list includes them.
+#[cfg_attr(test, derive(Debug, PartialEq))]
 pub struct TrackAnalysis {
     // -- Basic (always computed) --
     /// How this result was produced (schema version, effective sample rate,
@@ -872,6 +873,18 @@ pub fn analyze_file(path: &Path, sr: u32, config: &AnalysisConfig) -> Result<Tra
         // preserves generic field semantics, and avoids a second file decode.
         let (native, native_sr, tags) = audio::load_with_tags(path, 0, true, 0.0, 0.0, want_tags)?;
         let caller_sr = if sr == 0 { native_sr } else { sr };
+        if caller_sr == crate::aggression::AGGRESSION_SAMPLE_RATE {
+            let canonical = (native_sr != caller_sr)
+                .then(|| audio::resample(native.view(), native_sr, caller_sr))
+                .transpose()?;
+            let canonical_view = canonical
+                .as_ref()
+                .map(|audio| audio.view())
+                .unwrap_or_else(|| native.view());
+            let mut result = analyze_signal(canonical_view, caller_sr, config)?;
+            result.tags = tags;
+            return Ok(result);
+        }
         let caller = (caller_sr != native_sr)
             .then(|| audio::resample(native.view(), native_sr, caller_sr))
             .transpose()?;
@@ -3234,6 +3247,96 @@ mod tests {
             both.embedding_version,
             Some(crate::similarity::SIMILARITY_VERSION)
         );
+    }
+
+    #[cfg(feature = "aggression")]
+    fn same_lane_file_config() -> AnalysisConfig {
+        AnalysisConfig {
+            mode: AnalysisMode::Playlist,
+            features: Some(HashSet::from([
+                "aggression".to_owned(),
+                "embedding".to_owned(),
+                "key".to_owned(),
+                "key_candidates".to_owned(),
+                "loudness".to_owned(),
+                "structure".to_owned(),
+                "tags".to_owned(),
+                "vocalness".to_owned(),
+            ])),
+            ..Default::default()
+        }
+    }
+
+    #[cfg(feature = "aggression")]
+    fn legacy_same_lane_file(path: &Path, config: &AnalysisConfig) -> TrackAnalysis {
+        let (native, native_sr, tags) =
+            audio::load_with_tags(path, 0, true, 0.0, 0.0, true).unwrap();
+        let canonical = (native_sr != crate::aggression::AGGRESSION_SAMPLE_RATE)
+            .then(|| {
+                audio::resample(
+                    native.view(),
+                    native_sr,
+                    crate::aggression::AGGRESSION_SAMPLE_RATE,
+                )
+            })
+            .transpose()
+            .unwrap();
+        let canonical_view = canonical
+            .as_ref()
+            .map(|audio| audio.view())
+            .unwrap_or_else(|| native.view());
+        let mut result = analyze_signal_with_precomputed_aggression(
+            canonical_view,
+            crate::aggression::AGGRESSION_SAMPLE_RATE,
+            canonical_view,
+            crate::aggression::AGGRESSION_SAMPLE_RATE,
+            config,
+        )
+        .unwrap();
+        result.tags = tags;
+        result
+    }
+
+    #[cfg(feature = "aggression")]
+    #[test]
+    fn test_aggression_file_same_lane_is_bit_identical_to_two_pass_route() {
+        let config = same_lane_file_config();
+        let native_canonical = fixture("tagged.flac");
+        assert_eq!(
+            analyze_file(&native_canonical, 0, &config).unwrap(),
+            legacy_same_lane_file(&native_canonical, &config),
+        );
+
+        let noncanonical = std::env::temp_dir().join(format!(
+            "sonara-aggression-same-lane-{}.wav",
+            std::process::id()
+        ));
+        let specification = hound::WavSpec {
+            channels: 1,
+            sample_rate: 44_100,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut writer = hound::WavWriter::create(&noncanonical, specification).unwrap();
+        for index in 0..44_100 * 2 {
+            let time = index as Float / 44_100.0;
+            let sample =
+                0.4 * (2.0 * PI * 220.0 * time).sin() + 0.2 * (2.0 * PI * 2_317.0 * time).sin();
+            writer
+                .write_sample((sample * i16::MAX as Float) as i16)
+                .unwrap();
+        }
+        writer.finalize().unwrap();
+        assert_eq!(
+            analyze_file(
+                &noncanonical,
+                crate::aggression::AGGRESSION_SAMPLE_RATE,
+                &config,
+            )
+            .unwrap(),
+            legacy_same_lane_file(&noncanonical, &config),
+        );
+        std::fs::remove_file(noncanonical).unwrap();
     }
 
     #[test]
