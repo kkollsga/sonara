@@ -642,6 +642,19 @@ mod tests {
     }
 
     #[test]
+    fn fused_rank_model_matches_fixed_feature_goldens() {
+        let model = rank_model().unwrap();
+        let zero = [0.0; AGGRESSION_FEATURE_COUNT];
+        let one = [1.0; AGGRESSION_FEATURE_COUNT];
+        let ramp = std::array::from_fn::<_, AGGRESSION_FEATURE_COUNT, _>(|index| {
+            index as Float / (AGGRESSION_FEATURE_COUNT - 1) as Float
+        });
+        assert_eq!(model.predict(&zero).to_bits(), 0x3f46_9505);
+        assert_eq!(model.predict(&one).to_bits(), 0x3e70_be88);
+        assert_eq!(model.predict(&ramp).to_bits(), 0x3f48_81b8);
+    }
+
+    #[test]
     fn audio_convenience_path_matches_fused_analysis() {
         let sample_rate = 22_050;
         let signal = Array1::from_iter((0..sample_rate).map(|index| {

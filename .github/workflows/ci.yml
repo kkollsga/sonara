@@ -33,6 +33,10 @@ jobs:
       - name: Rust tests
         run: cargo test -p sonara ${{ matrix.cargo-features }}
 
+      - name: Rust aggression-feature tests
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo test -p sonara --features aggression
+
       - name: Build Python bindings
         env:
           VIRTUAL_ENV: ${{ github.workspace }}/.venv
