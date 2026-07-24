@@ -25,6 +25,7 @@ def test(name, fn):
 
 def metadata():
     assert sonara.AGGRESSION_MODEL_VERSION == 3
+    assert sonara.AGGRESSION_SAMPLE_RATE == 22_050
     assert sonara.AGGRESSION_EMBEDDING_VERSION == sonara.SIMILARITY_VERSION
     assert sonara.AGGRESSION_MODEL_ID == "aggression-rank-v3-sr22050"
     assert sonara.LEGACY_AGGRESSION_MODEL_ID == "aggression-logistic-v1"
@@ -83,6 +84,68 @@ def signal_parity():
         assert dependency not in fused, dependency
 
 
+def _canonical_fixture():
+    sr = sonara.AGGRESSION_SAMPLE_RATE
+    time = np.arange(sr * 10, dtype=np.float32) / sr
+    carrier = np.sin(2 * np.pi * 180 * time)
+    edge = np.sign(np.sin(2 * np.pi * 2_900 * time))
+    pulse = np.where(
+        (time * 5.0) % 1.0 < 0.12,
+        np.sin(2 * np.pi * 900 * time),
+        0.0,
+    )
+    return (0.28 * carrier + 0.08 * edge + 0.22 * pulse).astype(np.float32)
+
+
+def _resample_linear(signal, source_rate, target_rate):
+    length = round(len(signal) * target_rate / source_rate)
+    positions = np.arange(length, dtype=np.float64) * source_rate / target_rate
+    return np.interp(positions, np.arange(len(signal)), signal).astype(np.float32)
+
+
+def cross_rate_routes():
+    canonical = _canonical_fixture()
+    reference = sonara.analyze_aggression_signal(
+        canonical, sr=sonara.AGGRESSION_SAMPLE_RATE
+    )
+    component_keys = (
+        "aggression_score", "aggression_confidence", "aggression_forcefulness",
+        "aggression_harshness", "aggression_tension", "aggression_rhythm",
+    )
+    for sr in (32_000, 44_100, 48_000):
+        signal = _resample_linear(canonical, sonara.AGGRESSION_SAMPLE_RATE, sr)
+        direct = sonara.analyze_aggression_signal(signal, sr=sr)
+        fused = sonara.analyze_signal(signal, sr=sr, features=["aggression"])
+        for key in component_keys:
+            assert abs(direct[key] - reference[key]) <= 0.03, (sr, key)
+            assert direct[key] == fused[key], (sr, key)
+        assert fused["provenance"]["sample_rate"] == sr
+        assert fused["provenance"]["aggression_model_id"] == sonara.AGGRESSION_MODEL_ID
+
+    sr = 48_000
+    signal = _resample_linear(canonical, sonara.AGGRESSION_SAMPLE_RATE, sr)
+    generic = sonara.analyze_signal(signal, sr=sr, features=["rms"])
+    fused = sonara.analyze_signal(signal, sr=sr, features=["rms", "aggression"])
+    for key in ("bpm", "beats", "rms_mean", "spectral_centroid_mean"):
+        assert fused[key] == generic[key], key
+    assert fused["provenance"]["requested_features"] == ["aggression", "rms"]
+
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "fixture-48k.wav"
+        with wave.open(str(path), "wb") as output:
+            output.setnchannels(1)
+            output.setsampwidth(2)
+            output.setframerate(sr)
+            output.writeframes((np.clip(signal, -1, 1) * 32767).astype("<i2").tobytes())
+        file_result = sonara.analyze_aggression_file(str(path), sr=sr)
+        fused_file = sonara.analyze_file(str(path), sr=sr, features=["aggression"])
+        batch = sonara.analyze_aggression_batch([str(path), str(path)], sr=sr)
+        for key in component_keys:
+            assert abs(file_result[key] - direct[key]) <= 0.01, key
+            assert file_result[key] == fused_file[key]
+            assert batch[0][key] == file_result[key] == batch[1][key]
+
+
 def batch_contract():
     sr = 22_050
     time = np.arange(sr, dtype=np.float32) / sr
@@ -113,6 +176,7 @@ test("model metadata", metadata)
 test("frozen vectors", frozen_vectors)
 test("invalid inputs", errors)
 test("signal and embedding parity", signal_parity)
+test("cross-rate signal/file/batch/fused routes", cross_rate_routes)
 test("batch order and error isolation", batch_contract)
 test("silence abstention", silence_abstains)
 

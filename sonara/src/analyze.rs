@@ -492,9 +492,6 @@ const AGGRESSION_DEPS: &[&str] = &["energy", "danceability", "dissonance"];
 /// in the caller-requested sample-rate domain.
 pub const ANALYSIS_SCHEMA_VERSION: u32 = 6;
 
-#[cfg(feature = "aggression")]
-const AGGRESSION_SAMPLE_RATE: u32 = 22_050;
-
 /// STFT hop length (samples) used by the main analysis pass. All frame-index
 /// fields on [`TrackAnalysis`] (`beats`, `onset_frames`, `downbeats`) convert
 /// to time as `frame * HOP_LENGTH / sample_rate`.
@@ -896,7 +893,7 @@ pub fn analyze_signal(
     }
 
     #[cfg(feature = "aggression")]
-    if config.needs_aggression() && sr != AGGRESSION_SAMPLE_RATE {
+    if config.needs_aggression() && sr != crate::aggression::AGGRESSION_SAMPLE_RATE {
         return analyze_signal_with_canonical_aggression(y, sr, config);
     }
 
@@ -932,7 +929,7 @@ fn analyze_signal_with_canonical_aggression(
     // Own a contiguous buffer before resampling because the optimized 2:1
     // resampler requires a contiguous slice.
     let source = y.to_owned();
-    let canonical = audio::resample(source.view(), sr, AGGRESSION_SAMPLE_RATE)?;
+    let canonical = audio::resample(source.view(), sr, crate::aggression::AGGRESSION_SAMPLE_RATE)?;
     let aggression_config = AnalysisConfig {
         features: Some(HashSet::from(["aggression".to_owned()])),
         ..AnalysisConfig::default()
@@ -940,7 +937,7 @@ fn analyze_signal_with_canonical_aggression(
     let canonical_zcr = validated_zero_crossing_rate(canonical.view())?;
     let aggression = analyze_signal_inner(
         canonical.view(),
-        AGGRESSION_SAMPLE_RATE,
+        crate::aggression::AGGRESSION_SAMPLE_RATE,
         true,
         canonical_zcr,
         &aggression_config,

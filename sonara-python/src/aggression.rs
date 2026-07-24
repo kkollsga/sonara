@@ -94,6 +94,7 @@ pub fn py_analyze_aggression_batch<'py>(
 
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("AGGRESSION_MODEL_VERSION", rs::AGGRESSION_MODEL_VERSION)?;
+    m.add("AGGRESSION_SAMPLE_RATE", rs::AGGRESSION_SAMPLE_RATE)?;
     m.add(
         "AGGRESSION_EMBEDDING_VERSION",
         rs::AGGRESSION_EMBEDDING_VERSION,

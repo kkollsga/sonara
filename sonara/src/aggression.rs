@@ -20,6 +20,9 @@ use crate::types::Float;
 /// Version of the bundled aggression model.
 pub const AGGRESSION_MODEL_VERSION: u32 = 3;
 
+/// Sample-rate domain in which the bundled model's audio features are defined.
+pub const AGGRESSION_SAMPLE_RATE: u32 = 22_050;
+
 /// Similarity embedding layout consumed by this model.
 pub const AGGRESSION_EMBEDDING_VERSION: u32 = 2;
 
@@ -593,6 +596,7 @@ mod tests {
     #[test]
     fn model_metadata_and_artifacts_are_bound() {
         assert_eq!(AGGRESSION_MODEL_VERSION, 3);
+        assert_eq!(AGGRESSION_SAMPLE_RATE, 22_050);
         assert_eq!(AGGRESSION_EMBEDDING_VERSION, SIMILARITY_VERSION);
         assert_eq!(legacy_model().unwrap().n_features_in(), EMBEDDING_DIM);
         assert_eq!(LEGACY_MODEL_ARTIFACT.len(), 300);
