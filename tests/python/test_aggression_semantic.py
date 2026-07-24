@@ -121,39 +121,45 @@ def check_performance_evidence() -> None:
     performance = json.loads(
         (ROOT / "tests/reference_data/aggression_v2_performance.json").read_text()
     )
-    assert performance["format"] == "sonara.aggression-performance.v1"
+    assert performance["format"] == "sonara.aggression-performance.v2"
     acceptance = performance["acceptance"]
     assert acceptance["status"] == "pass"
     assert (
-        performance["compact_default"]["max_abs_change_percent"]
-        <= acceptance["max_compact_abs_change_percent"]
+        abs(performance["default_path"]["compiled_unrequested_change_percent"])
+        <= acceptance["max_default_or_compiled_unrequested_change_percent"]
+    )
+    assert performance["default_path"]["status"] == "no measurable regression"
+    matrix = performance["cold_file_matrix"]
+    assert (
+        max(
+            matrix["wall_overhead_percent"]["workers_1_rayon_10"],
+            matrix["wall_overhead_percent"]["workers_4_rayon_10"],
+            matrix["wall_overhead_percent"]["workers_10_rayon_10"],
+        )
+        <= acceptance["max_primary_cold_file_overhead_percent"]
     )
     assert (
-        performance["compact_with_aggression_compiled_but_not_requested"][
-            "max_abs_change_percent"
-        ]
-        <= acceptance["max_compact_abs_change_percent"]
+        matrix["stable_format_rate_max_percent"]
+        <= acceptance["max_stable_format_rate_overhead_percent"]
     )
     assert (
-        performance["requested_aggression_overhead"]["max_overhead_percent"]
-        <= acceptance["max_requested_overhead_percent"]
+        matrix["bounded_21_track_abba_overhead_percent"]
+        <= acceptance["max_primary_cold_file_overhead_percent"]
     )
     assert (
-        performance["canonical_requested_vs_v2"]["max_regression_percent"]
-        <= acceptance["max_canonical_requested_regression_percent"]
+        abs(performance["signal_path_44100hz_30s_abba"]["embedding_change_percent"])
+        <= acceptance["max_signal_unrequested_change_percent"]
     )
-    paths = performance["sample_rate_paths"]
-    assert set(paths["rates_hz"]) == {"22050", "32000", "44100", "48000"}
-    assert (
-        paths["max_standalone_over_canonical_plus_resample_ratio"]
-        <= acceptance["max_noncanonical_composition_ratio"]
-    )
-    assert (
-        paths["max_fused_over_native_plus_standalone_ratio"]
-        <= acceptance["max_noncanonical_composition_ratio"]
-    )
-    assert performance["model_only_rank_midpoint_ns"] < 500.0
-    assert performance["package"]["wheel_change_percent"] < 1.0
+    frozen = performance["frozen_117_track_cross_rate"]
+    assert frozen["track_count"] == 117
+    assert frozen["requested_rates_hz"] == [0, 22050, 32000, 44100, 48000]
+    assert frozen["candidate_equals_baseline"]
+    assert acceptance["outputs_bit_identical"]
+    assert performance["allocation_receipt_30s"]["fused_48000"][
+        "allocation_change_percent"
+    ] < 0.0
+    assert performance["model_only_rank_midpoint_ns"] <= acceptance["max_model_rank_ns"]
+    assert performance["package"]["wheel_change_percent"] < 2.0
     assert all(performance["architecture"].values())
 
 

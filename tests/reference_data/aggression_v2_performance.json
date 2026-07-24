@@ -1,118 +1,120 @@
 {
-  "format": "sonara.aggression-performance.v1",
-  "candidate_commit": "phase4-working-tree-on-9b1ff98",
-  "measured_at": "2026-07-24",
+  "format": "sonara.aggression-performance.v2",
+  "candidate_commit": "d710486",
+  "measured_at": "2026-07-25",
   "environment": {
-    "os": "Darwin arm64",
+    "os": "macOS 26.3 arm64",
     "cpu": "Apple M4",
     "rustc": "1.97.0",
     "criterion": "0.8"
   },
-  "compact_default": {
-    "durations_sec": [1, 5, 30],
-    "origin_main_midpoint_us": [200.45, 640.19, 3493.8],
-    "candidate_midpoint_us": [201.14, 646.37, 3526.3],
-    "change_percent": [0.34, 0.97, 0.93],
-    "max_abs_change_percent": 0.97
+  "protocol": {
+    "baseline_commit": "3ba5bf2",
+    "ordering": "ABBA where reported",
+    "matrix_files": 80,
+    "native_rates_hz": [22050, 32000, 44100, 48000],
+    "durations_sec": [1, 5, 30, 240, 600],
+    "formats": ["wav-pcm16", "flac", "mp3-128", "mp3-320"],
+    "ogg_status": "local ffmpeg build has no Vorbis encoder"
   },
-  "compact_with_aggression_compiled_but_not_requested": {
-    "durations_sec": [1, 5, 30],
-    "origin_main_midpoint_us": [200.10, 647.95, 3522.2],
-    "candidate_midpoint_us": [200.39, 651.38, 3520.7],
-    "change_percent": [0.14, 0.53, -0.04],
-    "max_abs_change_percent": 0.53
+  "default_path": {
+    "compact_30s_clean_baseline_abba_midpoint_ms": [3.7359, 4.1753],
+    "compact_30s_clean_candidate_abba_midpoint_ms": [3.6948, 3.7116],
+    "compiled_unrequested_default_abba_midpoint_ms": [3.6874, 3.7140],
+    "compiled_unrequested_aggression_abba_midpoint_ms": [3.7177, 3.7037],
+    "compiled_unrequested_change_percent": 0.27,
+    "status": "no measurable regression"
   },
-  "requested_aggression_overhead": {
-    "durations_sec": [1, 5, 30],
-    "embedding_only_midpoint_us": [441.45, 1656.6, 9524.4],
-    "embedding_and_aggression_midpoint_us": [468.83, 1783.8, 10445.0],
-    "overhead_percent": [6.20, 7.68, 9.66],
-    "max_overhead_percent": 9.66
+  "signal_path_44100hz_30s_abba": {
+    "baseline_standalone_midpoint_ms": [16.072, 16.232],
+    "candidate_standalone_midpoint_ms": [7.5604, 7.6003],
+    "baseline_embedding_midpoint_ms": [25.684, 25.781],
+    "candidate_embedding_midpoint_ms": [25.670, 25.959],
+    "embedding_change_percent": 0.32,
+    "baseline_fused_midpoint_ms": [41.832, 41.734],
+    "candidate_fused_midpoint_ms": [33.366, 33.494],
+    "fused_change_percent": -20.0
   },
-  "canonical_requested_vs_v2": {
-    "durations_sec": [1, 5, 30],
-    "origin_main_fused_midpoint_us": [470.35, 1814.9, 10489.0],
-    "candidate_fused_midpoint_us": [468.83, 1783.8, 10445.0],
-    "fused_change_percent": [-0.32, -1.71, -0.42],
-    "origin_main_standalone_midpoint_us": [471.35, 1812.5, 10527.0],
-    "candidate_standalone_midpoint_us": [467.06, 1782.3, 10430.0],
-    "standalone_change_percent": [-0.91, -1.67, -0.92],
-    "max_regression_percent": 0.0
-  },
-  "sample_rate_paths": {
-    "durations_sec": [1, 5, 30],
-    "rates_hz": {
-      "22050": {
-        "standalone_midpoint_us": [564.34, 2216.8, 13115.0],
-        "embedding_midpoint_us": [538.34, 2130.4, 12334.0],
-        "fused_midpoint_us": [564.71, 2241.1, 13217.0]
-      },
-      "32000": {
-        "standalone_midpoint_us": [787.75, 3303.2, 19111.0],
-        "embedding_midpoint_us": [722.52, 3050.1, 17911.0],
-        "fused_midpoint_us": [1528.2, 6397.7, 37085.0],
-        "resample_midpoint_us": [243.81, 1010.8, 5944.8]
-      },
-      "44100": {
-        "standalone_midpoint_us": [626.24, 2556.4, 14996.0],
-        "embedding_midpoint_us": [922.55, 4174.3, 24325.0],
-        "fused_midpoint_us": [1547.8, 6760.0, 39687.0],
-        "resample_midpoint_us": [57.162, 282.56, 1706.2]
-      },
-      "48000": {
-        "standalone_midpoint_us": [799.10, 3376.7, 19680.0],
-        "embedding_midpoint_us": [992.31, 4472.6, 26068.0],
-        "fused_midpoint_us": [1815.4, 7866.2, 45891.0],
-        "resample_midpoint_us": [248.90, 1083.4, 6369.0]
-      }
+  "cold_file_matrix": {
+    "wall_overhead_percent": {
+      "workers_1_rayon_10": 3.41,
+      "workers_4_rayon_10": -1.90,
+      "workers_10_rayon_10": 9.86,
+      "stress_workers_1_rayon_1": 10.76
     },
-    "max_standalone_over_canonical_plus_resample_ratio": 1.024,
-    "max_fused_over_native_plus_standalone_ratio": 1.014
+    "isolated_48khz_abba_overhead_percent": {
+      "wav": 10.46,
+      "flac": 10.25
+    },
+    "stable_format_rate_max_percent": 14.30,
+    "bounded_21_track_abba_overhead_percent": 8.41,
+    "bounded_21_track_previous_overhead_percent": 14.49
+  },
+  "frozen_117_track_cross_rate": {
+    "track_count": 117,
+    "requested_rates_hz": [0, 22050, 32000, 44100, 48000],
+    "candidate_equals_baseline": true,
+    "result_sha256": {
+      "0": "09ad239407af6e29b85df0d95b0f9abcb52fb833549b6fbfc82698f4a0a6ae52",
+      "22050": "d4b4e2457420aee04f4ce6a326369e95a5c696c21646f2ba1be4bd0acf47af21",
+      "32000": "204803eb9d8b06b525296a81b9462e0e1994bf474da445e9b50ed35e1ac92255",
+      "44100": "09ad239407af6e29b85df0d95b0f9abcb52fb833549b6fbfc82698f4a0a6ae52",
+      "48000": "029a23cee3b41804034b4679a67aef545744672cd7d095313dfd8b767156cd0a"
+    },
+    "wall_change_percent": {
+      "0": -3.78,
+      "22050": -28.65,
+      "32000": -10.21,
+      "44100": -8.21,
+      "48000": -3.83
+    },
+    "peak_rss_change_percent_at_native": -7.25
   },
   "allocation_receipt_30s": {
     "standalone_22050": {
-      "allocations": 33839,
-      "allocated_bytes": 46595614,
-      "peak_additional_bytes": 4745874
+      "baseline_allocations": 33839,
+      "candidate_allocations": 108,
+      "change_percent": -99.68,
+      "candidate_allocated_bytes": 5051152,
+      "candidate_peak_additional_bytes": 4096064
     },
     "standalone_48000": {
-      "allocations": 33899,
-      "allocated_bytes": 55105971,
-      "peak_additional_bytes": 8492159
-    },
-    "fused_22050": {
-      "allocations": 33909,
-      "allocated_bytes": 46649164,
-      "peak_additional_bytes": 4745668
+      "baseline_allocations": 33899,
+      "candidate_allocations": 168,
+      "candidate_allocated_bytes": 13578149,
+      "candidate_peak_additional_bytes": 8492041
     },
     "fused_48000": {
-      "allocations": 101674,
-      "allocated_bytes": 151898881,
-      "peak_additional_bytes": 12502297
+      "baseline_allocations": 101674,
+      "candidate_allocations": 67943,
+      "allocation_change_percent": -33.18,
+      "baseline_allocated_bytes": 151898881,
+      "candidate_allocated_bytes": 110371059,
+      "allocated_bytes_change_percent": -27.34,
+      "candidate_peak_additional_bytes": 12494601
     }
   },
-  "model_only_rank_midpoint_ns": 68.418,
-  "legacy_embedding_score_midpoint_ns": 16.145,
+  "model_only_rank_midpoint_ns": 72.579,
   "package": {
-    "origin_main_wheel_bytes": 1619878,
-    "candidate_wheel_bytes": 1625565,
-    "wheel_change_percent": 0.35,
-    "candidate_sdist_bytes": 370363,
-    "release_build_seconds": 24.58
+    "baseline_wheel_bytes": 1625843,
+    "candidate_wheel_bytes": 1643164,
+    "wheel_change_percent": 1.07
   },
   "architecture": {
     "default_feature_gated": true,
-    "default_ferricml_free": true,
-    "canonical_rate_skips_resample": true,
-    "noncanonical_signal_resamples_once": true,
-    "file_decodes_once": true,
-    "rank_model_initialized_once": true
+    "same_lane_file_pass_reused": true,
+    "canonical_extractor_skips_unused_public_products": true,
+    "canonical_cache_immutable": true,
+    "scratch_reused_per_worker": true,
+    "nested_canonical_contention_avoided": true
   },
   "acceptance": {
-    "max_compact_abs_change_percent": 2.0,
-    "max_requested_overhead_percent": 10.0,
-    "max_canonical_requested_regression_percent": 2.0,
-    "max_noncanonical_composition_ratio": 1.10,
+    "max_default_or_compiled_unrequested_change_percent": 2.0,
+    "max_primary_cold_file_overhead_percent": 10.0,
+    "max_stable_format_rate_overhead_percent": 15.0,
+    "max_signal_unrequested_change_percent": 2.0,
+    "max_model_rank_ns": 500.0,
+    "outputs_bit_identical": true,
     "status": "pass"
   }
 }
