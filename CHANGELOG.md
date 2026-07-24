@@ -2,6 +2,32 @@
 
 All notable changes to sonara are documented in this file.
 
+## [0.3.2] - 2026-07-24
+
+### Validated on real music
+
+A proposed aggression-model replacement was frozen and evaluated on a fresh,
+directory-group-disjoint 117-track audit. Its rank point estimates improved
+(Spearman 0.7522 to 0.8022; Kendall 0.5626 to 0.6039), but paired 95%
+intervals included no improvement and MAE changed from 0.2681 to 0.2775,
+crossing the preregistered non-inferiority margin. The candidate was therefore
+rejected: the shipped v2 model, score semantics, and outputs remain
+bit-identical. Focused 1/5/30-second aggression-path benchmarks changed by
+-0.66%, +0.55%, and -1.38%; the default Rust dependency graph remains free of
+the optional ML dependency.
+
+### Changed
+
+- The optional aggression feature now uses FerricML 0.1.1 with default
+  features disabled, backed by explicit hosted feature tests and fixed-input
+  model goldens.
+
+### Fixed
+
+- Removed duplicate Python stub declarations that hid the fused analyzer's
+  `mode`, `features`, BPM-range, and model arguments from type checkers; the
+  contract gate now rejects duplicate or narrowed analyzer signatures.
+
 ## [0.3.1] - 2026-07-23
 
 ### Validated on real music

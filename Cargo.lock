@@ -1016,7 +1016,7 @@ dependencies = [
 
 [[package]]
 name = "sonara"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "approx",
  "blas-src",
@@ -1037,7 +1037,7 @@ dependencies = [
 
 [[package]]
 name = "sonara-python"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "ndarray",
  "num-complex",
