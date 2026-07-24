@@ -507,7 +507,6 @@ const N_HPCP_HARMONICS: usize = 4;
 const MAX_PEAKS: usize = 50;
 
 /// Cached mel filterbank, sparse chroma, DCT matrix, and analysis constants.
-#[cfg_attr(feature = "aggression", derive(Clone))]
 struct AnalysisCache {
     key: (u32, usize, usize), // (sr, n_fft, n_mels)
     sparse_mel: Vec<(usize, Vec<Float>)>,
@@ -522,17 +521,16 @@ struct AnalysisCache {
     harmonic_weights: [Float; N_HPCP_HARMONICS],
 }
 
+thread_local! {
+    static ANALYSIS_CACHE: RefCell<Option<AnalysisCache>> = const { RefCell::new(None) };
+}
+
 #[cfg(feature = "aggression")]
 thread_local! {
     // A canonical aggression pass commonly alternates between the caller's
-    // rate and 22.05 kHz. Retain both immutable DSP tables so this does not
-    // rebuild filterbanks on every track.
-    static ANALYSIS_CACHE: RefCell<Vec<AnalysisCache>> = const { RefCell::new(Vec::new()) };
-}
-
-#[cfg(not(feature = "aggression"))]
-thread_local! {
-    static ANALYSIS_CACHE: RefCell<Option<AnalysisCache>> = const { RefCell::new(None) };
+    // rate and 22.05 kHz. Keep the established primary-cache hot path and one
+    // feature-gated secondary entry so neither table is rebuilt per track.
+    static SECONDARY_ANALYSIS_CACHE: RefCell<Option<AnalysisCache>> = const { RefCell::new(None) };
 }
 
 /// Provenance metadata: how an analysis result was produced.
@@ -931,7 +929,7 @@ pub fn analyze_signal(
     }
 
     #[cfg(feature = "aggression")]
-    if config.needs_aggression() && sr != crate::aggression::AGGRESSION_SAMPLE_RATE {
+    if sr != crate::aggression::AGGRESSION_SAMPLE_RATE && config.needs_aggression() {
         return analyze_signal_with_canonical_aggression(y, sr, config);
     }
 
@@ -941,15 +939,18 @@ pub fn analyze_signal(
 }
 
 #[cfg(feature = "aggression")]
+#[inline(never)]
 fn analyze_signal_with_canonical_aggression(
     y: ndarray::ArrayView1<Float>,
     sr: u32,
     config: &AnalysisConfig,
 ) -> Result<TrackAnalysis> {
-    // Own a contiguous buffer before resampling because the optimized 2:1
-    // resampler requires a contiguous slice.
-    let source = y.to_owned();
-    let canonical = audio::resample(source.view(), sr, crate::aggression::AGGRESSION_SAMPLE_RATE)?;
+    // Normal API inputs are contiguous, so resample directly and allocate only
+    // the canonical lane. Materialize unusual strided views only when needed by
+    // the optimized 2:1 resampler.
+    let source = (!y.is_standard_layout()).then(|| y.to_owned());
+    let source_view = source.as_ref().map(|audio| audio.view()).unwrap_or(y);
+    let canonical = audio::resample(source_view, sr, crate::aggression::AGGRESSION_SAMPLE_RATE)?;
     analyze_signal_with_precomputed_aggression(
         y,
         sr,
@@ -960,6 +961,7 @@ fn analyze_signal_with_canonical_aggression(
 }
 
 #[cfg(feature = "aggression")]
+#[inline(never)]
 fn analyze_signal_with_precomputed_aggression(
     y: ndarray::ArrayView1<Float>,
     sr: u32,
@@ -1110,22 +1112,6 @@ fn analyze_signal_inner(
 
     let cache_data = ANALYSIS_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
-        #[cfg(feature = "aggression")]
-        if let Some(index) = cache.iter().position(|entry| entry.key == cache_key) {
-            let c = cache.remove(index);
-            let data = (
-                c.sparse_mel.clone(),
-                c.sparse_chroma.clone(),
-                c.freqs.clone(),
-                c.win_padded.clone(),
-                c.dct_matrix.clone(),
-                c.contrast_bands.clone(),
-                c.harmonic_weights,
-            );
-            cache.push(c);
-            return data;
-        }
-        #[cfg(not(feature = "aggression"))]
         if let Some(ref c) = *cache {
             if c.key == cache_key {
                 return (
@@ -1139,7 +1125,23 @@ fn analyze_signal_inner(
                 );
             }
         }
-
+        #[cfg(feature = "aggression")]
+        if let Some(data) = SECONDARY_ANALYSIS_CACHE.with(|secondary| {
+            let secondary = secondary.borrow();
+            secondary.as_ref().filter(|c| c.key == cache_key).map(|c| {
+                (
+                    c.sparse_mel.clone(),
+                    c.sparse_chroma.clone(),
+                    c.freqs.clone(),
+                    c.win_padded.clone(),
+                    c.dct_matrix.clone(),
+                    c.contrast_bands.clone(),
+                    c.harmonic_weights,
+                )
+            })
+        }) {
+            return data;
+        }
         let mel_fb = filters::mel(sr_f, n_fft, n_mels, 0.0, sr_f / 2.0, false, "slaney");
         let sparse_mel: Vec<(usize, Vec<Float>)> = (0..n_mels)
             .map(|m| {
@@ -1209,34 +1211,27 @@ fn analyze_signal_inner(
         let harmonic_weights: [Float; N_HPCP_HARMONICS] =
             std::array::from_fn(|h| 1.0 / (h as Float + 1.0));
 
+        let entry = AnalysisCache {
+            key: cache_key,
+            sparse_mel: sparse_mel.clone(),
+            sparse_chroma: sparse_chroma.clone(),
+            freqs: f.clone(),
+            win_padded: wp.clone(),
+            dct_matrix: dct_matrix.clone(),
+            contrast_bands: contrast_bands.clone(),
+            harmonic_weights,
+        };
         #[cfg(feature = "aggression")]
-        {
-            if cache.len() == 2 {
-                cache.remove(0);
-            }
-            cache.push(AnalysisCache {
-                key: cache_key,
-                sparse_mel: sparse_mel.clone(),
-                sparse_chroma: sparse_chroma.clone(),
-                freqs: f.clone(),
-                win_padded: wp.clone(),
-                dct_matrix: dct_matrix.clone(),
-                contrast_bands: contrast_bands.clone(),
-                harmonic_weights,
+        if cache.is_some() {
+            SECONDARY_ANALYSIS_CACHE.with(|secondary| {
+                *secondary.borrow_mut() = Some(entry);
             });
+        } else {
+            *cache = Some(entry);
         }
         #[cfg(not(feature = "aggression"))]
         {
-            *cache = Some(AnalysisCache {
-                key: cache_key,
-                sparse_mel: sparse_mel.clone(),
-                sparse_chroma: sparse_chroma.clone(),
-                freqs: f.clone(),
-                win_padded: wp.clone(),
-                dct_matrix: dct_matrix.clone(),
-                contrast_bands: contrast_bands.clone(),
-                harmonic_weights,
-            });
+            *cache = Some(entry);
         }
 
         (

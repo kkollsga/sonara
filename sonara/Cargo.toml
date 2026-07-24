@@ -28,6 +28,7 @@ blas-src = { version = "0.14", optional = true }
 default = []
 accelerate = ["ndarray/blas", "blas-src/accelerate"]
 aggression = ["dep:ferricml", "dep:sha2"]
+bench-internals = ["aggression"]
 
 [dev-dependencies]
 approx = { workspace = true }
@@ -57,3 +58,18 @@ harness = false
 name = "bench_aggression"
 harness = false
 required-features = ["aggression"]
+
+[[bench]]
+name = "bench_aggression_rates"
+harness = false
+required-features = ["aggression"]
+
+[[bench]]
+name = "bench_aggression_allocations"
+harness = false
+required-features = ["aggression"]
+
+[[bench]]
+name = "bench_aggression_model"
+harness = false
+required-features = ["bench-internals"]

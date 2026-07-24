@@ -492,6 +492,13 @@ fn rank_model() -> Result<&'static RankModel> {
         .map_err(|error| SonaraError::ModelError(format!("invalid aggression rank model: {error}")))
 }
 
+/// On-demand benchmark hook for model inference without audio feature extraction.
+#[doc(hidden)]
+#[cfg(feature = "bench-internals")]
+pub fn benchmark_rank_score(features: &[Float; AGGRESSION_FEATURE_COUNT]) -> Result<Float> {
+    Ok(rank_model()?.predict(features))
+}
+
 pub(crate) fn score_evidence(evidence: &AggressionEvidence) -> Result<AggressionAnalysis> {
     let features = evidence.features();
     if features.iter().any(|value| !value.is_finite()) {
@@ -519,7 +526,11 @@ pub(crate) fn score_evidence(evidence: &AggressionEvidence) -> Result<Aggression
 /// Analyze an audio file with the current fused rank model.
 pub fn analyze_file(path: &Path, sample_rate: u32) -> Result<AggressionAnalysis> {
     let config = aggression_config();
-    let result = analyze::analyze_file(path, sample_rate, &config)?;
+    // This standalone result contains no caller-rate fields, so decode only
+    // the model lane. Keep accepting the historical argument for API
+    // compatibility; the bundled model's rate is the effective contract.
+    let _ = sample_rate;
+    let result = analyze::analyze_file(path, AGGRESSION_SAMPLE_RATE, &config)?;
     analysis_result(&result)
 }
 
@@ -528,8 +539,21 @@ pub fn analyze_signal(
     signal: ArrayView1<'_, Float>,
     sample_rate: u32,
 ) -> Result<AggressionAnalysis> {
+    if sample_rate == 0 {
+        return Err(SonaraError::InvalidParameter {
+            param: "sr",
+            reason: "sample rate must be greater than zero".to_owned(),
+        });
+    }
     let config = aggression_config();
-    let result = analyze::analyze_signal(signal, sample_rate, &config)?;
+    let canonical = (sample_rate != AGGRESSION_SAMPLE_RATE)
+        .then(|| crate::core::audio::resample(signal, sample_rate, AGGRESSION_SAMPLE_RATE))
+        .transpose()?;
+    let signal = canonical
+        .as_ref()
+        .map(|audio| audio.view())
+        .unwrap_or(signal);
+    let result = analyze::analyze_signal(signal, AGGRESSION_SAMPLE_RATE, &config)?;
     analysis_result(&result)
 }
 
@@ -539,7 +563,8 @@ pub fn analyze_signal(
 /// path, matching [`crate::analyze::analyze_batch`].
 pub fn analyze_batch(paths: &[&Path], sample_rate: u32) -> Vec<Result<AggressionAnalysis>> {
     let config = aggression_config();
-    analyze::analyze_batch(paths, sample_rate, &config)
+    let _ = sample_rate;
+    analyze::analyze_batch(paths, AGGRESSION_SAMPLE_RATE, &config)
         .into_iter()
         .map(|result| result.and_then(|analysis| analysis_result(&analysis)))
         .collect()

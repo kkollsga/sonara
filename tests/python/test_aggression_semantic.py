@@ -138,6 +138,23 @@ def check_performance_evidence() -> None:
         performance["requested_aggression_overhead"]["max_overhead_percent"]
         <= acceptance["max_requested_overhead_percent"]
     )
+    assert (
+        performance["canonical_requested_vs_v2"]["max_regression_percent"]
+        <= acceptance["max_canonical_requested_regression_percent"]
+    )
+    paths = performance["sample_rate_paths"]
+    assert set(paths["rates_hz"]) == {"22050", "32000", "44100", "48000"}
+    assert (
+        paths["max_standalone_over_canonical_plus_resample_ratio"]
+        <= acceptance["max_noncanonical_composition_ratio"]
+    )
+    assert (
+        paths["max_fused_over_native_plus_standalone_ratio"]
+        <= acceptance["max_noncanonical_composition_ratio"]
+    )
+    assert performance["model_only_rank_midpoint_ns"] < 500.0
+    assert performance["package"]["wheel_change_percent"] < 1.0
+    assert all(performance["architecture"].values())
 
 
 check_evidence()
