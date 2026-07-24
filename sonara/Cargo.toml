@@ -65,6 +65,11 @@ harness = false
 required-features = ["aggression"]
 
 [[bench]]
+name = "bench_aggression_files"
+harness = false
+required-features = ["aggression"]
+
+[[bench]]
 name = "bench_aggression_allocations"
 harness = false
 required-features = ["aggression"]
