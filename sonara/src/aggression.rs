@@ -4,15 +4,17 @@
 //! plus a small random-forest ensemble. The older similarity-embedding
 //! scorer remains available explicitly as the legacy v1 API.
 
-use std::collections::HashSet;
 use std::path::Path;
 use std::sync::OnceLock;
 
 use ferricml::linear_model::LogisticRegression;
 use ndarray::ArrayView1;
+use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 
-use crate::analyze::{self, AnalysisConfig};
+use crate::analyze;
+#[cfg(test)]
+use crate::analyze::AnalysisConfig;
 use crate::error::{Result, SonaraError};
 use crate::similarity::{EMBEDDING_DIM, SIMILARITY_VERSION};
 use crate::types::Float;
@@ -525,13 +527,14 @@ pub(crate) fn score_evidence(evidence: &AggressionEvidence) -> Result<Aggression
 
 /// Analyze an audio file with the current fused rank model.
 pub fn analyze_file(path: &Path, sample_rate: u32) -> Result<AggressionAnalysis> {
-    let config = aggression_config();
     // This standalone result contains no caller-rate fields, so decode only
     // the model lane. Keep accepting the historical argument for API
     // compatibility; the bundled model's rate is the effective contract.
     let _ = sample_rate;
-    let result = analyze::analyze_file(path, AGGRESSION_SAMPLE_RATE, &config)?;
-    analysis_result(&result)
+    let (signal, actual_rate) =
+        crate::core::audio::load(path, AGGRESSION_SAMPLE_RATE, true, 0.0, 0.0)?;
+    debug_assert_eq!(actual_rate, AGGRESSION_SAMPLE_RATE);
+    analyze::analyze_canonical_aggression(signal.view())
 }
 
 /// Analyze a mono signal with the current fused rank model.
@@ -545,7 +548,6 @@ pub fn analyze_signal(
             reason: "sample rate must be greater than zero".to_owned(),
         });
     }
-    let config = aggression_config();
     let canonical = (sample_rate != AGGRESSION_SAMPLE_RATE)
         .then(|| crate::core::audio::resample(signal, sample_rate, AGGRESSION_SAMPLE_RATE))
         .transpose()?;
@@ -553,8 +555,7 @@ pub fn analyze_signal(
         .as_ref()
         .map(|audio| audio.view())
         .unwrap_or(signal);
-    let result = analyze::analyze_signal(signal, AGGRESSION_SAMPLE_RATE, &config)?;
-    analysis_result(&result)
+    analyze::analyze_canonical_aggression(signal)
 }
 
 /// Analyze audio files in parallel while isolating failures per path.
@@ -562,46 +563,17 @@ pub fn analyze_signal(
 /// The returned vector preserves input order and has exactly one entry per
 /// path, matching [`crate::analyze::analyze_batch`].
 pub fn analyze_batch(paths: &[&Path], sample_rate: u32) -> Vec<Result<AggressionAnalysis>> {
-    let config = aggression_config();
-    let _ = sample_rate;
-    analyze::analyze_batch(paths, AGGRESSION_SAMPLE_RATE, &config)
-        .into_iter()
-        .map(|result| result.and_then(|analysis| analysis_result(&analysis)))
+    paths
+        .par_iter()
+        .map(|path| analyze_file(path, sample_rate))
         .collect()
-}
-
-fn aggression_config() -> AnalysisConfig {
-    AnalysisConfig {
-        features: Some(HashSet::from(["aggression".to_owned()])),
-        ..AnalysisConfig::default()
-    }
-}
-
-fn analysis_result(analysis: &analyze::TrackAnalysis) -> Result<AggressionAnalysis> {
-    Ok(AggressionAnalysis {
-        score: analysis.aggression_score,
-        confidence: analysis
-            .aggression_confidence
-            .ok_or_else(|| SonaraError::ModelError("aggression confidence missing".to_owned()))?,
-        forcefulness: analysis
-            .aggression_forcefulness
-            .ok_or_else(|| SonaraError::ModelError("aggression forcefulness missing".to_owned()))?,
-        harshness: analysis
-            .aggression_harshness
-            .ok_or_else(|| SonaraError::ModelError("aggression harshness missing".to_owned()))?,
-        tension: analysis
-            .aggression_tension
-            .ok_or_else(|| SonaraError::ModelError("aggression tension missing".to_owned()))?,
-        rhythm: analysis
-            .aggression_rhythm
-            .ok_or_else(|| SonaraError::ModelError("aggression rhythm missing".to_owned()))?,
-    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use ndarray::Array1;
+    use std::collections::HashSet;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn aggression_fixture(sample_rate: u32) -> Array1<Float> {
@@ -728,6 +700,64 @@ mod tests {
             analysis.provenance.aggression_model_id.as_deref(),
             Some(AGGRESSION_MODEL_ID)
         );
+    }
+
+    #[test]
+    fn narrow_canonical_extractor_is_bit_identical_across_signal_shapes_and_rates() {
+        let config = AnalysisConfig {
+            features: Some(HashSet::from(["aggression".to_owned()])),
+            ..AnalysisConfig::default()
+        };
+        for sample_rate in [22_050, 32_000, 44_100, 48_000] {
+            let length = sample_rate as usize * 2;
+            let dense = Array1::from_shape_fn(length, |index| {
+                let time = index as Float / sample_rate as Float;
+                0.28 * (2.0 * std::f32::consts::PI * 83.0 * time).sin()
+                    + 0.19 * (2.0 * std::f32::consts::PI * 761.0 * time).sin()
+                    + 0.11 * (2.0 * std::f32::consts::PI * 3_887.0 * time).sin()
+            });
+            let sparse = Array1::from_shape_fn(length, |index| {
+                let time = index as Float / sample_rate as Float;
+                if (time * 2.0).fract() < 0.03 {
+                    0.7 * (2.0 * std::f32::consts::PI * 220.0 * time).sin()
+                } else {
+                    0.0
+                }
+            });
+            let short = dense
+                .slice(ndarray::s![..sample_rate as usize / 5])
+                .to_owned();
+            let silence = Array1::zeros(length);
+
+            for signal in [&dense, &sparse, &short, &silence] {
+                let canonical = (sample_rate != AGGRESSION_SAMPLE_RATE)
+                    .then(|| {
+                        crate::core::audio::resample(
+                            signal.view(),
+                            sample_rate,
+                            AGGRESSION_SAMPLE_RATE,
+                        )
+                    })
+                    .transpose()
+                    .unwrap();
+                let canonical = canonical
+                    .as_ref()
+                    .map(|audio| audio.view())
+                    .unwrap_or_else(|| signal.view());
+                let narrow = analyze::analyze_canonical_aggression(canonical).unwrap();
+                let generic =
+                    analyze::analyze_signal(canonical, AGGRESSION_SAMPLE_RATE, &config).unwrap();
+                assert_eq!(narrow.score, generic.aggression_score);
+                assert_eq!(narrow.confidence, generic.aggression_confidence.unwrap());
+                assert_eq!(
+                    narrow.forcefulness,
+                    generic.aggression_forcefulness.unwrap()
+                );
+                assert_eq!(narrow.harshness, generic.aggression_harshness.unwrap());
+                assert_eq!(narrow.tension, generic.aggression_tension.unwrap());
+                assert_eq!(narrow.rhythm, generic.aggression_rhythm.unwrap());
+            }
+        }
     }
 
     #[test]

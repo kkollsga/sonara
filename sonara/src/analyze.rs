@@ -37,6 +37,10 @@ use crate::perceptual;
 use crate::types::*;
 use crate::util::utils;
 
+#[cfg(feature = "aggression")]
+#[path = "aggression_dsp.rs"]
+mod aggression_dsp;
+
 /// Minimum number of frames to justify rayon thread overhead.
 const PARALLEL_THRESHOLD: usize = 32;
 
@@ -1006,28 +1010,29 @@ fn analyze_signal_with_precomputed_aggression(
         &native_config,
     )?;
 
-    let aggression_config = AnalysisConfig {
-        features: Some(HashSet::from(["aggression".to_owned()])),
-        ..AnalysisConfig::default()
-    };
-    let canonical_zcr = validated_zero_crossing_rate(canonical)?;
-    let aggression = analyze_signal_inner(
-        canonical,
-        canonical_sr,
-        true,
-        canonical_zcr,
-        &aggression_config,
-    )?;
-
-    result.aggression_score = aggression.aggression_score;
-    result.aggression_confidence = aggression.aggression_confidence;
-    result.aggression_forcefulness = aggression.aggression_forcefulness;
-    result.aggression_harshness = aggression.aggression_harshness;
-    result.aggression_tension = aggression.aggression_tension;
-    result.aggression_rhythm = aggression.aggression_rhythm;
+    let aggression = analyze_canonical_aggression(canonical)?;
+    result.aggression_score = aggression.score;
+    result.aggression_confidence = Some(aggression.confidence);
+    result.aggression_forcefulness = Some(aggression.forcefulness);
+    result.aggression_harshness = Some(aggression.harshness);
+    result.aggression_tension = Some(aggression.tension);
+    result.aggression_rhythm = Some(aggression.rhythm);
     result.provenance.requested_features = config.requested_feature_names();
     result.provenance.aggression_model_id = Some(crate::aggression::AGGRESSION_MODEL_ID.to_owned());
     Ok(result)
+}
+
+#[cfg(feature = "aggression")]
+pub(crate) fn analyze_canonical_aggression(
+    canonical: ndarray::ArrayView1<Float>,
+) -> Result<crate::aggression::AggressionAnalysis> {
+    if canonical.is_empty() {
+        return Err(SonaraError::InvalidAudio(
+            "signal must contain at least one sample".into(),
+        ));
+    }
+    validated_zero_crossing_rate(canonical)?;
+    aggression_dsp::analyze_signal(canonical)
 }
 
 /// Analyze multiple files in parallel.

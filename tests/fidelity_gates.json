@@ -111,6 +111,7 @@
     {
       "paths": [
         "sonara/src/aggression.rs",
+        "sonara/src/aggression_dsp.rs",
         "sonara-python/src/aggression.rs",
         "tests/python/test_aggression.py",
         "python/sonara/__init__.py",
