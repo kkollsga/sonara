@@ -2,6 +2,35 @@
 
 All notable changes to sonara are documented in this file.
 
+## [0.3.4] - 2026-07-25
+
+### Validated on real music
+
+On the frozen 117-track audit, the optimized aggression path produced
+bit-identical scores, components, diagnostics, and generic analysis fields at
+native, 22.05, 32, 44.1, and 48 kHz. Wall time improved at every requested
+rate by 3.78% to 28.65%. On the bounded 21-track cold-file cohort, adding
+aggression now costs 8.41%, down from 14.49%. A clean-worktree release gate
+kept default compact analysis within 1.37% at 30 seconds.
+
+### Added
+
+- A representative opt-in cold-file Criterion benchmark covering dense audio,
+  canonical and noncanonical rates, and short and 30-second inputs.
+
+### Changed
+
+- Canonical aggression analysis now extracts only model-required evidence and
+  reuses per-worker DSP scratch and immutable cached tables.
+- Concurrent file analysis avoids nested canonical parallelism while retaining
+  deterministic results and outer-worker throughput.
+
+### Fixed
+
+- Fused 22.05 kHz file analysis no longer performs a duplicate canonical pass.
+- Standalone canonical allocations fell by 99.68%, and fused 48 kHz
+  allocations fell by 33.18%, without changing the public API or model output.
+
 ## [0.3.3] - 2026-07-24
 
 ### Validated on real music
