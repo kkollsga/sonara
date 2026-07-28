@@ -71,11 +71,13 @@ the record, alongside git history — not skipped).
      numbers to `dev-docs/bench/results/results.csv`.
 
    Fix any failure before bumping — never bump over a red gate.
-3. **Bump version — patch by default** (`x.y.Z` → `x.y.Z+1`), editing **all
+3. **Bump version — always a patch bump** (`x.y.Z` → `x.y.Z+1`), editing **all
    three** fields to the *same* value: `sonara/Cargo.toml` line 3,
-   `sonara-python/Cargo.toml` line 3, `pyproject.toml` line 7. If the changes
-   warrant a **minor/major** bump (new feature, breaking change), STOP and ask
-   one quick clarification question first; otherwise proceed with the patch bump.
+   `sonara-python/Cargo.toml` line 3, `pyproject.toml` line 7. Do **not** scan
+   the diff to infer whether a minor/major bump is warranted, and do not ask —
+   that call belongs to the user/owner, not this skill. Cut a minor or major
+   release *only* when the user explicitly asked for one in this run; with no
+   such instruction, patch is always the right answer.
    Run `cargo build` (or `cargo update -p sonara -p sonara-python --precise
    <ver>`) so `Cargo.lock` picks up the new versions.
 4. **Update `CHANGELOG.md`.** Add a new `## [x.y.z] - <YYYY-MM-DD>` section at
