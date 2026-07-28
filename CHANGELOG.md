@@ -2,6 +2,27 @@
 
 All notable changes to sonara are documented in this file.
 
+## [0.3.5] - 2026-07-28
+
+Release and CI infrastructure only. The analysis library is unchanged from
+0.3.4; these wheels are functionally identical to that release.
+
+### Fixed
+
+- The release workflow no longer fails on pushes to `main` that are not
+  releases. Its PyPI version check requested a redirecting URL and read the
+  redirect as "this version is unpublished", so an already-published version
+  was sent to PyPI again and rejected as a duplicate upload. The check now
+  distinguishes published from unpublished explicitly, and stops the job on any
+  answer it cannot interpret rather than attempting an upload.
+- A failing test job no longer cancels the other platforms, which previously
+  reported as failures without having run and hid whether a failure reproduced
+  elsewhere.
+
+### Changed
+
+- The wheel and sdist build action now targets a supported Node runtime.
+
 ## [0.3.4] - 2026-07-25
 
 ### Validated on real music
