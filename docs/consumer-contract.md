@@ -105,18 +105,18 @@ sonara notifies (via `notify`) **before** any change that:
 
 sonara replies if a requested boundary conflicts with its intended API shape.
 
-> **OPEN — needs a maintainer decision (raised 2026-07-29).** *Who* gets that
-> notification is not settled anywhere. The obligation was written in
-> 2026-07-15 naming **kglite**, and both durable copies still name kglite. But
-> kglite has not been the consumer since 2026-07-18 — **sonagram** is, and no
-> document records an obligation running from sonara to sonagram:
-> `sonagram:dev-docs/designs/upstream-contracts.md` § "Notification
-> obligations" lists only what *sonagram owes upstream*, not what it is owed.
-> As written, a sonara change that coupled the core to PyO3 would be announced
-> to a repo that no longer cares and not to the one that does.
-> Decide: **sonagram only**, or **sonagram + kglite** (kglite retains a latent
-> interest via the shared `EmbeddingStore` vector layout). Do not resolve this
-> by editing one side.
+**Recipient: sonagram. kglite is deliberately NOT on this list** (decided
+2026-07-29). sonagram consumes the API and can act on the notice; kglite
+cannot. The obligation was written on 2026-07-15 naming kglite, and stayed
+that way through the 2026-07-18 handover to sonagram.
+
+kglite was considered and ruled out on evidence, recorded here so it is not
+re-added out of habit: it has **no cargo dependency on sonara**, no 48-dim
+assumption anywhere in the engine, and `EmbeddingStore` is dimension-agnostic
+(it carries `dimension` as data — `EmbeddingStore::new(src_store.dimension)`).
+kglite stores vectors it is handed and never interprets them, so a change to
+what they *mean* cannot break it. Notifying a repo that cannot act is the
+noise that trains people to ignore the inbox.
 
 ## History
 
