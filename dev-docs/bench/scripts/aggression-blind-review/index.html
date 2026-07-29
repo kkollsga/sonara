@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Blind aggression review</title>
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+    body { max-width: 760px; margin: 2rem auto; padding: 0 1rem 3rem; }
+    fieldset { border: 1px solid #8888; border-radius: .6rem; margin: 1rem 0; padding: 1rem; }
+    label { display: block; margin: .8rem 0; }
+    input[type="range"] { width: 100%; }
+    button { padding: .65rem 1rem; margin: .3rem .3rem .3rem 0; }
+    audio { width: 100%; margin: .8rem 0; }
+    .row { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
+    .muted { opacity: .72; }
+    .score { font: 700 1.4rem ui-monospace, monospace; }
+    .hidden { display: none; }
+    #notice { min-height: 1.5rem; }
+  </style>
+</head>
+<body>
+  <h1>Blind aggression review</h1>
+  <p>Judge perceived musical aggression: force, hostility, abrasiveness, or
+    confrontational intensity. Do not equate aggression with loudness, tempo,
+    energy, distortion, or darkness alone. Use <em>abstain</em> when the clip
+    is not meaningfully judgeable.</p>
+
+  <fieldset id="setup">
+    <legend>Load the blind packet</legend>
+    <label>Anonymous JSONL manifest
+      <input id="manifest" type="file" accept=".jsonl,application/json,text/plain">
+    </label>
+    <label>Audio directory
+      <input id="directory" type="file" webkitdirectory multiple accept="audio/*">
+    </label>
+    <label>Reviewer ID (no personal information required)
+      <input id="reviewer" type="text" value="reviewer-1">
+    </label>
+    <button id="load">Start or resume</button>
+  </fieldset>
+
+  <main id="review" class="hidden">
+    <p id="progress"></p>
+    <p class="muted">Anonymous sample: <code id="sample"></code></p>
+    <audio id="audio" controls preload="metadata"></audio>
+
+    <fieldset>
+      <legend>Your independent judgment</legend>
+      <label>Aggression <span id="scoreText" class="score">not set</span>
+        <input id="score" type="range" min="0" max="100" value="50">
+      </label>
+      <div class="row muted"><span>0 — not aggressive</span><span>100 — extremely aggressive</span></div>
+      <label>Confidence
+        <select id="confidence">
+          <option value="">not set</option>
+          <option value="1">1 — very low</option>
+          <option value="2">2 — low</option>
+          <option value="3">3 — medium</option>
+          <option value="4">4 — high</option>
+          <option value="5">5 — very high</option>
+        </select>
+      </label>
+      <label><input id="abstain" type="checkbox"> Abstain</label>
+      <label>Optional note
+        <input id="note" type="text" maxlength="160" placeholder="e.g. high energy but not aggressive">
+      </label>
+    </fieldset>
+
+    <div class="row">
+      <button id="previous">Previous</button>
+      <button id="saveNext">Save and next</button>
+      <button id="export">Export judgments</button>
+    </div>
+    <p id="notice"></p>
+  </main>
+
+  <script>
+    const state = { rows: [], files: new Map(), judgments: {}, index: 0, key: "" };
+    const byId = id => document.getElementById(id);
+
+    function parseJsonl(text) {
+      return text.split(/\r?\n/).filter(line => line.trim()).map((line, index) => {
+        const row = JSON.parse(line);
+        if (typeof row.sample_id !== "string" || typeof row.audio_path !== "string") {
+          throw new Error(`Invalid manifest row ${index + 1}`);
+        }
+        return row;
+      });
+    }
+
+    async function digest(text) {
+      const bytes = new TextEncoder().encode(text);
+      const hash = await crypto.subtle.digest("SHA-256", bytes);
+      return [...new Uint8Array(hash)].map(byte => byte.toString(16).padStart(2, "0")).join("");
+    }
+
+    function persist() {
+      localStorage.setItem(state.key, JSON.stringify({ judgments: state.judgments, index: state.index }));
+    }
+
+    function capture() {
+      const row = state.rows[state.index];
+      const abstain = byId("abstain").checked;
+      const scoreSet = byId("score").dataset.set === "yes";
+      const confidence = byId("confidence").value;
+      if (!abstain && (!scoreSet || !confidence)) {
+        throw new Error("Set both aggression and confidence, or abstain.");
+      }
+      state.judgments[row.sample_id] = {
+        sample_id: row.sample_id,
+        aggression: abstain ? null : Number(byId("score").value),
+        confidence: abstain ? null : Number(confidence),
+        abstain,
+        note: byId("note").value.trim(),
+        reviewed_at: new Date().toISOString()
+      };
+      persist();
+    }
+
+    function show() {
+      const row = state.rows[state.index];
+      const prior = state.judgments[row.sample_id];
+      const file = state.files.get(row.audio_path) || state.files.get(row.audio_path.split("/").pop());
+      byId("progress").textContent = `Clip ${state.index + 1} of ${state.rows.length} · ${Object.keys(state.judgments).length} saved`;
+      byId("sample").textContent = row.sample_id.slice(0, 12);
+      if (byId("audio").src) URL.revokeObjectURL(byId("audio").src);
+      byId("audio").src = file ? URL.createObjectURL(file) : "";
+      byId("notice").textContent = file ? "" : `Audio file not found: ${row.audio_path}`;
+      byId("score").value = prior?.aggression ?? 50;
+      byId("score").dataset.set = prior && prior.aggression !== null ? "yes" : "no";
+      byId("scoreText").textContent = prior && prior.aggression !== null ? prior.aggression : "not set";
+      byId("confidence").value = prior?.confidence ?? "";
+      byId("abstain").checked = prior?.abstain ?? false;
+      byId("note").value = prior?.note ?? "";
+      byId("previous").disabled = state.index === 0;
+      byId("saveNext").textContent = state.index + 1 === state.rows.length ? "Save" : "Save and next";
+      byId("audio").load();
+    }
+
+    byId("score").addEventListener("input", event => {
+      event.target.dataset.set = "yes";
+      byId("scoreText").textContent = event.target.value;
+    });
+
+    byId("load").addEventListener("click", async () => {
+      try {
+        const manifest = byId("manifest").files[0];
+        if (!manifest || byId("directory").files.length === 0) throw new Error("Choose both inputs.");
+        const text = await manifest.text();
+        state.rows = parseJsonl(text);
+        state.files = new Map();
+        for (const file of byId("directory").files) {
+          state.files.set(file.webkitRelativePath, file);
+          state.files.set(file.name, file);
+        }
+        state.key = `aggression-blind-review:${await digest(text)}:${byId("reviewer").value.trim()}`;
+        const saved = JSON.parse(localStorage.getItem(state.key) || "null");
+        state.judgments = saved?.judgments || {};
+        state.index = Math.min(saved?.index || 0, state.rows.length - 1);
+        byId("setup").classList.add("hidden");
+        byId("review").classList.remove("hidden");
+        show();
+      } catch (error) { alert(error.message); }
+    });
+
+    byId("previous").addEventListener("click", () => {
+      state.index = Math.max(0, state.index - 1);
+      persist();
+      show();
+    });
+
+    byId("saveNext").addEventListener("click", () => {
+      try {
+        capture();
+        if (state.index + 1 < state.rows.length) state.index += 1;
+        show();
+      } catch (error) { byId("notice").textContent = error.message; }
+    });
+
+    byId("export").addEventListener("click", () => {
+      const payload = {
+        schema_version: 1,
+        task: "perceived_musical_aggression_0_100",
+        reviewer_id: byId("reviewer").value.trim(),
+        manifest_sha256: state.key.split(":")[1],
+        exported_at: new Date().toISOString(),
+        judgments: state.rows.map(row => state.judgments[row.sample_id]).filter(Boolean)
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = "aggression-blind-judgments.json";
+      link.click();
+      URL.revokeObjectURL(link.href);
+    });
+  </script>
+</body>
+</html>

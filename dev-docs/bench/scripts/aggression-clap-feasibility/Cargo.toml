@@ -1,0 +1,10 @@
+[package]
+name = "aggression-clap-feasibility"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+ferricml = { path = "/Volumes/EksternalHome/Koding/Rust/ferricml" }
+
+[workspace]

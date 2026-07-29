@@ -1,0 +1,13 @@
+[package]
+name = "sonara-aggression-file-perf"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+libc = "0.2"
+serde_json = "1"
+sha2 = "0.10"
+sonara = { path = "../../../../sonara", features = ["aggression"] }

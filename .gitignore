@@ -53,7 +53,31 @@ AGENTS.md
 # Local dev working folder + cross-project coordination channel — never committed.
 # See dev-docs/README.md and inbox/README.md for the canonical layouts, and the
 # dev-docs-cleanup / read-inbox skills for the auto-purged time-boxed tiers within.
-/dev-docs/
+#
+# ONE exception: `bench/scripts/` IS tracked. Those harnesses are hand-authored
+# source that exists in exactly one copy, in a tier the README says is never
+# purged — so a stray `rm -rf` there loses work no backup, review or CI ever
+# saw. `bench/out/` and `bench/results/` stay local. Everything a harness
+# *produces* is re-excluded below, because on 2026-07-29 that tier held 857 MB
+# of cargo `target/` output and 177 MB of audio next to ~200 KB of actual code.
+# (`/dir/*` + `!/dir/sub/` so a subdir can be re-included.)
+/dev-docs/*
+!/dev-docs/bench/
+/dev-docs/bench/*
+!/dev-docs/bench/scripts/
+/dev-docs/bench/scripts/**/target/
+/dev-docs/bench/scripts/**/__pycache__/
+/dev-docs/bench/scripts/**/node_modules/
+# Audio: 20 s excerpts of commercial recordings (blind-review packets) and
+# synthesized perception-gate controls. Local-only by policy — see
+# bench/scripts/aggression-blind-review/INDEX.md.
+/dev-docs/bench/scripts/**/*.wav
+/dev-docs/bench/scripts/**/*.flac
+/dev-docs/bench/scripts/**/*.mp3
+# The SEALED held-out evaluation labels. Publishing them would defeat the seal
+# (INDEX.md: "contents withheld, hash only"); they need an offsite *private*
+# home, not this public repo.
+/dev-docs/bench/scripts/aggression-blind-review/locked_labels.json
 /inbox/
 
 # Coverage / profiling

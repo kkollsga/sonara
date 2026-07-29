@@ -1,0 +1,17 @@
+[package]
+name = "sonara-aggression-file-perf-baseline"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[[bin]]
+name = "sonara-aggression-file-perf-baseline"
+path = "../aggression-file-perf/src/main.rs"
+
+[dependencies]
+libc = "0.2"
+serde_json = "1"
+sha2 = "0.10"
+sonara = { path = "/tmp/sonara-perf-baseline.ZKpvnV/sonara", features = ["aggression"] }

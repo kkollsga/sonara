@@ -1,0 +1,73 @@
+{
+  "rater": "clap-htsat-unfused",
+  "audio_perception_confirmed": true,
+  "checks": {
+    "harsh_gt_calm": true,
+    "harsh_gt_loud_clean (loudness-confound)": true,
+    "harsh_reads_aggressive (>=55)": true,
+    "calm_not_aggressive (<=55)": true,
+    "silence_flagged_insufficient": true
+  },
+  "verdicts": {
+    "harsh": {
+      "aggression": 99.11722174690134,
+      "confidence": 0.9033898866579897,
+      "reason_tags": [
+        "vocal_intensity",
+        "sustained_impact"
+      ],
+      "insufficient": false,
+      "raw": {
+        "p_aggressive": 0.9911722174690134,
+        "mean_sim_aggr": 0.08640815317630768,
+        "mean_sim_calm": -0.16657613217830658,
+        "rms_dbfs": -26.183323665134374,
+        "device": "mps"
+      }
+    },
+    "calm": {
+      "aggression": 0.39634772161891046,
+      "confidence": 0.8704758107145378,
+      "reason_tags": [
+        "tonal_tension",
+        "regular_dance_energy"
+      ],
+      "insufficient": false,
+      "raw": {
+        "p_aggressive": 0.003963477216189105,
+        "mean_sim_aggr": -0.2582132816314697,
+        "mean_sim_calm": 0.037945009768009186,
+        "rms_dbfs": -22.488670837256244,
+        "device": "mps"
+      }
+    },
+    "silence": {
+      "aggression": 0.0,
+      "confidence": 0.9,
+      "reason_tags": [
+        "insufficient_music_content"
+      ],
+      "insufficient": true,
+      "raw": {
+        "rms_dbfs": -Infinity,
+        "reason": "near-silent / too short"
+      }
+    },
+    "loud_clean": {
+      "aggression": 22.752426123552492,
+      "confidence": 0.7112114883369905,
+      "reason_tags": [
+        "sustained_impact",
+        "regular_dance_energy"
+      ],
+      "insufficient": false,
+      "raw": {
+        "p_aggressive": 0.22752426123552494,
+        "mean_sim_aggr": 0.00287931552156806,
+        "mean_sim_calm": 0.06838127970695496,
+        "rms_dbfs": -20.67051273743953,
+        "device": "mps"
+      }
+    }
+  }
+}
