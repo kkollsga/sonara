@@ -34,15 +34,26 @@ the record, alongside git history — not skipped).
 - Run `python scripts/sync_workflow_skills.py --check-installed`. Missing or
   drifted installed workflow mirrors block release until they are synchronized
   from the committed canonical sources.
-- Check no release is already staged: `git log origin/main..HEAD --oneline | grep -iE "release"`.
-  If it returns a release commit not yet pushed, **keep that version** — fold
-  work into the same `[x.y.z]` bump (one version bump per push).
+- Check no release is already staged: capture
+  `git log origin/main..HEAD --oneline` and test **the captured text** for a
+  release commit. If one is not yet pushed, **keep that version** — fold work
+  into the same `[x.y.z]` bump (one version bump per push).
+  **Do not gate on `grep`'s exit code here.** `… | grep -iE "release"` exits 1
+  on the legitimate "no staged release" case, so anything reading that status as
+  failure — or an `||` fallback behind it — reports the opposite of the truth.
+  Same family: `grep -c` exits 1 on a count of zero, and a backgrounded
+  command's result lives in its **output artifact**, never in the launcher's
+  echo.
 - On `main` (or a fold-into-main branch). Working tree ideally clean — but
   if there's **unrelated uncommitted work**, don't block on it and don't sweep
   it in: **stage the release files explicitly by path**
   (`git add sonara/Cargo.toml sonara-python/Cargo.toml pyproject.toml CHANGELOG.md Cargo.lock`,
   never `git add -A`/`.`) and leave the unrelated changes untouched. Verify with
   `git status --porcelain` that only those files are staged.
+  **That verification is not optional bookkeeping: `git add a b c` with one bad
+  pathspec stages *nothing*.** It exits non-zero and complains only on stderr,
+  and the commit that follows quietly takes the *previous* index — producing a
+  release commit that looks completely normal and carries no bump.
 
 ## Steps
 1. **Goal check — did we achieve what we set out to do?** If this release ships
@@ -91,7 +102,12 @@ the record, alongside git history — not skipped).
 5. **Commit** as the final step: `release(x.y.z): ...` — one commit carrying the
    three version files, `CHANGELOG.md`, and `Cargo.lock`. Stage by path
    (`git add sonara/Cargo.toml sonara-python/Cargo.toml pyproject.toml
-   CHANGELOG.md Cargo.lock`), never `-A`.
+   CHANGELOG.md Cargo.lock`), never `-A`. **Then re-read `git status
+   --porcelain` before committing** (the Preconditions check, repeated here
+   because this is the step where it bites): one mistyped path makes `git add`
+   stage *nothing*, and the commit silently takes the old index — a
+   green-looking, empty release commit. Confirm all five files are staged and
+   that every unrelated working-tree change stayed unstaged.
 6. **Push — invoking `/release` is the authorization.** Running this skill
    authorizes the `main` push it produces (the publish-triggering one) — no
    separate in-the-moment "push" prompt (this is the one carve-out to the
@@ -116,6 +132,20 @@ the record, alongside git history — not skipped).
    - CI fix-and-push loop: if a push fails on a shipped-code/infra bug (not a
      scope change), push `fix(...)`/`ci(...)` without re-asking until green.
      Stop after ~3 iterations or any release-shape change.
+
+   **Verify the artifact SET, not just the version.** A version check answers
+   "did something publish", never "did everything publish". Cross-compiled legs
+   are often `continue-on-error`, and an `upload-artifact` step without
+   `if-no-files-found: error` uploads an *empty* artifact from a green build — so
+   with `skip-existing: true` a partial set ships and nothing says so. Compare the
+   artifact count and platform tags against the previous release. Conversely, an
+   empty version read out of `Cargo.toml` (`grep … | cut` reports cut's status,
+   always 0) yields a green run that publishes *nothing* — a silent non-release.
+   Assert the extracted version is well-formed before it drives any publish
+   decision. Verify the **tag and GitHub release** at the same commit on both
+   sides too (step 8): a wheels failure beside a successful publish leaves a
+   version every registry query calls green.
+
 8. **Verify published**: PyPI shows `sonara` at `x.y.z` and exactly the promised
    four wheels plus sdist:
    `curl -s https://pypi.org/pypi/sonara/json | jq -r .info.version`. Confirm the

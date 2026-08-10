@@ -1,6 +1,6 @@
 ---
 name: dev-docs-cleanup
-description: Tidy the gitignored dev-docs/ working folder — auto-purge time-boxed dirs, then run a todos.md-driven tidy (read only todos.md; reconcile misplaced plans/ files and stale/completed actions, reading a specific backlinked doc only when a check points at it), soft-deleting finished docs to dev-docs/bin/ and pruning their todos entries. Run before a new phased-plan to start fresh, or at the end of a release. Never reads design docs.
+description: Tidy the gitignored dev-docs/ working folder — auto-purge time-boxed dirs, then run a todos.md-driven tidy (read only todos.md; reconcile misplaced plans/ files and stale/completed actions, reading a specific backlinked doc only when a check points at it), soft-deleting finished docs to dev-docs/bin/ and pruning their todos entries, and resync the harness adapters against their declared authority. Run before a new phased-plan to start fresh, or at the end of a release. Never reads design docs.
 ---
 
 # dev-docs cleanup
@@ -40,7 +40,7 @@ specific doc *only* when a check below points you at it (a misplaced file, or
 the backlink behind a stale action) — never the whole folder. This keeps the
 cleanup cheap: one file read, plus at most the few docs the checks flag.
 
-## 3. Two checks, both driven by `todos.md`
+## 3. Three checks — two driven by `todos.md`, one on the adapters
 
 **a) Misplaced files in `plans/`.** `ls plans/`. Every file there should be
 backlinked from `todos.md`. For any `plans/` file with **no backlink**, read
@@ -61,10 +61,30 @@ entry that reads as done/outdated, **read its backlinked doc to confirm**, then:
 Don't read a backlinked doc unless its entry looks stale — a healthy entry
 needs no read.
 
+**c) Adapter resync — diff each adapter against its declared authority,
+rename-aware.** Identical: done. Divergent: classify each hunk before touching
+either side — an *improvement* is merged into the **authority** first and the
+adapter regenerated from it; *staleness* is simply regenerated away. Never run
+a blind sync on a divergent pair: blind sync deletes improvements (sonara,
+2026-08-10, ~20 lines), and no sync preserves stale doctrine the other harness
+will follow. The mirror check must pass afterwards.
+
+sonara's authorities are declared in `CLAUDE.md`'s header: `CLAUDE.md` itself
+for the conventions (`AGENTS.md` is generated from it, title line aside), and
+tracked `workflow/skills/` for the skills. So:
+- `diff CLAUDE.md AGENTS.md` — the title line is the only legitimate hunk.
+- `python scripts/sync_workflow_skills.py --check-installed` (read **its own**
+  exit code, not a pipe's). On a divergence, adjudicate each hunk first, merge
+  improvements into `workflow/skills/`, then `--write` to regenerate. Never
+  `--write` over an unadjudicated divergence — that is exactly the blind sync
+  above. Where `workflow/skills/` is tracked and this session may not commit,
+  edit **neither** side and file a note for the owner.
+
 ## 4. Surface the plan
 Report a short summary: what purged, misplaced `plans/` files found (+ the
-decision per each), stale `todos.md` entries to prune, and docs to soft-delete
-to `bin/`.
+decision per each), stale `todos.md` entries to prune, docs to soft-delete to
+`bin/`, and the adapter-resync verdict (identical / merged-and-regenerated /
+filed as a note).
 - **Run standalone** (e.g. before a phased-plan): wait for the user's go-ahead
   before moving files or editing `todos.md`. A simple proceed is enough.
 - **Run inside an authorized flow** (e.g. `/release`'s tidy step): perform the

@@ -88,6 +88,14 @@ go-ahead.** If they decline, proceed without it.
   config — shipping is the `release` skill's job.
 - Present the plan, then **invite revision: ask the user to revise or approve,
   and loop on their feedback until they approve.**
+- **This is the stage that invites design critique — raise it now or hold it.**
+  "I would have designed this differently" belongs here, before the code exists,
+  where an alternative can be argued and settled cheaply. Say so explicitly when
+  presenting the plan, and put your own reservations about the chosen shape in
+  the plan doc. After approval, review measures the implementation against *this*
+  plan and against correctness — a design opinion formed mid-diff is input to the
+  **next** plan, not a review finding (the review half of this rule is in the
+  repository working rules, "Code review — report what is broken").
 - **Hard stop — wait for an explicit go-ahead.** Do not create the branch, open
   the PR, or write any code until the user says proceed (e.g. "proceed", "go
   ahead", "approved", "ship it"). A simple proceed is enough — no formal
@@ -105,6 +113,15 @@ go-ahead.** If they decline, proceed without it.
   'refs/heads/main'` and version-gated, so it never fires for a branch PR).
 - Put the phased plan into the **PR description as a checklist** (one box per
   phase). The PR tab then shows plan + progress + CI status in one place.
+- **Run the CI-only sweep once, before the first push** — not per phase.
+  Everything the fast local loop skips comes back as a red first CI run, one
+  full cycle per blocker. sonara's sweep is three commands:
+  - `python scripts/run_fidelity_gate.py --base <merge-base> --dry-run
+    --check-contract` — routing runs on the **ubuntu CI job only**, so it is
+    invisible locally until it blocks you.
+  - `cargo test -p sonara --features accelerate` — the macOS CI leg.
+  - `python scripts/sync_workflow_skills.py --check-installed` — read **its own**
+    exit code, never a pipe's.
 
 ## Phase 3 — Execute each phase (the autonomous loop)
 For every phase, in order:
@@ -124,6 +141,33 @@ For every phase, in order:
      only at the Phase 4 fidelity gate, not every phase.)
    Run **both** the Rust and Python suites after any Rust behaviour change — a
    Python-only subset skips the pure-Rust-core assertions and vice-versa.
+   **Gate on what *this* change could break; run the full battery once, at the
+   end.** A phase's gate is chosen for its blast radius — the touched surface
+   plus its direct consumers (a `#[pymethods]`/`#[pyfunction]` edit → the Python
+   API scripts **and** the Rust-side unit). The both-suites rule above is that
+   "direct consumers" case, not a contradiction. The whole suite runs **once**,
+   at the project's completion, over the union of what every phase touched; a
+   repo-wide re-run after each phase buys wall clock, not information.
+   **A NEW GATE IS NOT TRUSTED UNTIL YOU HAVE SEEN IT FAIL.** If the phase adds
+   or changes a check — a test, a CI step, an assertion in a script — break the
+   thing it guards, confirm it goes red, then restore. Reading a gate cannot tell
+   you whether it works: every vacuous gate found on 2026-07-28 looked correct,
+   and the only thing that separated the live ones from the dead ones was
+   mutation. Three ways a gate is born dead:
+   - **Substring subsumption.** `assert "cmd" in block` also matches
+     `cmd --self-test`, so deleting the real invocation stays green. Compare
+     whole stripped lines, not `in`.
+   - **Comment subsumption.** The words you assert on usually also appear in the
+     comment explaining them. Strip comment lines before matching.
+   - **`exit` inside `$( )`.** A shell guard that exits inside command
+     substitution kills only the subshell; the caller reads the empty output as 0
+     and passes. Return a sentinel the caller checks.
+   **Verify the probe, not just the result.** A mutation that silently edited the
+   wrong text makes a working gate look broken, and an unchanged file makes a dead
+   gate look alive. Confirm the subject actually changed before believing either
+   verdict.
+   **A pipeline reports its LAST stage's status**, so `cmd … | tail` says 0 for a
+   `cmd` that exited non-zero. Never declare a phase green off piped output.
 3. **Commit** the phase (`feat(...)` / `refactor(...)` / `fix(...)`), one
    commit per phase. Do **not** edit `CHANGELOG.md` here — the changelog entry
    is written once, at `release` time.
@@ -143,6 +187,15 @@ For every phase, in order:
    not part of the git change. Note each retirement in the report-out.
 6. Continue into the next phase. If a phase's CI comes back red, fold the fix
    into the loop before the project merges — don't leave the PR red.
+
+**Final branch gate — the one full-battery run.** When the last phase is
+committed, run the whole suite once over the union of everything the phases
+touched: `cargo test -p sonara` (plus `--features accelerate`),
+`cargo clippy -p sonara`, a fresh `maturin develop --release -m
+sonara-python/Cargo.toml`, `python scripts/run_python_tests.py`, and the routed
+`python scripts/run_fidelity_gate.py --base <merge-base> --check-contract`.
+This is what the per-phase targeting defers to; without it, "full battery at the
+end" has no owner and never runs.
 
 Stop mid-plan only for a genuine blocker (unfixable test, architectural
 surprise invalidating a later phase). Surface it; don't push through.
@@ -173,6 +226,24 @@ Before declaring done on detection-accuracy or throughput work:
   A default-path regression is a blocker, not a follow-up. Confirm new capability
   stayed behind its cargo feature.
 Fix regressions now, not in a follow-up.
+
+**Three ways a number reads clean and wrong.** Every one of these produces a
+plausible, low-concern reading, so a clean result deserves the same suspicion as
+a bad one.
+1. **`min` is only for a steady-state repeated op.** A *once-per-event* cost —
+   cold decode, model load, first-call init — has no steady state, and its min is
+   a warm-cache run no user ever sees; report the **mean of first events** across
+   fresh instances. Judge a heavy-tailed bench whose min sits far below its own
+   median by median/mean instead: the min is reporting the lucky round. Always
+   state which statistic a number is.
+2. **Carry an unchanged-path control bench in every comparison.** If the control
+   moved too, you measured the machine (thermals, background load, cold caches
+   right after a build), not the code. **No control cell, no verdict.** This is
+   what replaces waiting for an idle machine — run the capture under whatever
+   load exists and let the instrument carry the validity.
+3. **Measure the headline quantity two independent ways** — criterion's own
+   timer versus wall clock around the call. The two routes diverge exactly when
+   the instrument is broken, which a single route reports as a clean result.
 
 ## Report out (when the plan completes, before Ship)
 Surface a concise summary so nothing actioned silently — keep it under the
