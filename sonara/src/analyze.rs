@@ -822,6 +822,10 @@ pub struct ChordEvent {
 ///
 /// Core fields are always populated. Extended/perceptual fields are `Some`
 /// only when the selected mode or feature list includes them.
+///
+/// `Clone` is part of the public API: [`augment_analysis`] returns a patched
+/// clone of a cached record, and consumers caching analyses may clone freely.
+#[derive(Clone)]
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub struct TrackAnalysis {
     // -- Basic (always computed) --
@@ -2583,32 +2587,11 @@ fn analyze_signal_inner(
     // (extended pass) — hence both are extended in FEATURE_REGISTRY. See `crate::vocal`
     // for the superseded v1 mel-based heuristic.
     let vocalness_val = if config.wants("vocalness") || config.wants("instrumentalness") {
-        // Peak-to-valley contrast at C_HI reads as fully instrumental, at C_LO as
-        // fully vocal. Bands 2..=4 cover ~0.8-5.6 kHz (geometric edges over
-        // [200, sr/2], see the contrast-band setup above).
-        const C_HI: Float = 2.05;
-        const C_LO: Float = 1.35;
-        // Defensive: without contrast (theoretical — the extended pass always
-        // computes it when these are wanted) emit no vocalness rather than a
-        // wrong one.
-        spectral_contrast_mean.as_ref().and_then(|c| {
-            if c.len() < 5 {
-                return None;
-            }
-            // Degenerate guard: on (near-)silence every band floors to the same
-            // noise value, so mid-band contrast collapses to ~0 and the formula
-            // below would read it as maximally vocal. Silence carries no vocal
-            // energy → report 0.0 (instrumentalness then 1.0), not a wrong high.
-            if rms_mean < 1e-5 {
-                return Some(0.0);
-            }
-            let c_mid = (c[2] + c[3] + c[4]) / 3.0;
-            let v_contrast = ((C_HI - c_mid) / (C_HI - C_LO)).clamp(0.0, 1.0);
-            // Lift-only harsh/broadband boost from spectral flatness.
-            let flat = spectral_flatness_mean.unwrap_or(0.0);
-            let lift = 0.15 * ((flat - 0.02) / 0.05).clamp(0.0, 1.0);
-            Some((v_contrast + lift).min(1.0))
-        })
+        vocalness_heuristic_v2(
+            spectral_contrast_mean.as_deref(),
+            spectral_flatness_mean,
+            rms_mean,
+        )
     } else {
         None
     };
@@ -3121,6 +3104,726 @@ fn chord_events_from_labels(
         last.end_sec = duration_sec;
     }
     events
+}
+
+/// Vocal-presence heuristic v2 (0.2.4) — the single implementation shared by
+/// the fused pipeline and [`augment_analysis`], so a decode-free recompute is
+/// bit-identical to a pipeline run by construction.
+///
+/// Peak-to-valley contrast at `C_HI` reads as fully instrumental, at `C_LO` as
+/// fully vocal. Bands 2..=4 cover ~0.8-5.6 kHz (geometric edges over
+/// [200, sr/2], see the contrast-band setup in `analyze_signal_inner`).
+/// Returns `None` without usable contrast (defensive; the extended pass always
+/// computes it when vocalness is wanted) — no vocalness rather than a wrong one.
+fn vocalness_heuristic_v2(
+    spectral_contrast_mean: Option<&[Float]>,
+    spectral_flatness_mean: Option<Float>,
+    rms_mean: Float,
+) -> Option<Float> {
+    const C_HI: Float = 2.05;
+    const C_LO: Float = 1.35;
+    spectral_contrast_mean.and_then(|c| {
+        if c.len() < 5 {
+            return None;
+        }
+        // Degenerate guard: on (near-)silence every band floors to the same
+        // noise value, so mid-band contrast collapses to ~0 and the formula
+        // below would read it as maximally vocal. Silence carries no vocal
+        // energy → report 0.0 (instrumentalness then 1.0), not a wrong high.
+        if rms_mean < 1e-5 {
+            return Some(0.0);
+        }
+        let c_mid = (c[2] + c[3] + c[4]) / 3.0;
+        let v_contrast = ((C_HI - c_mid) / (C_HI - C_LO)).clamp(0.0, 1.0);
+        // Lift-only harsh/broadband boost from spectral flatness.
+        let flat = spectral_flatness_mean.unwrap_or(0.0);
+        let lift = 0.15 * ((flat - 0.02) / 0.05).clamp(0.0, 1.0);
+        Some((v_contrast + lift).min(1.0))
+    })
+}
+
+// ============================================================
+// Augment: recompute named features onto a cached record
+// ============================================================
+
+/// Why a feature cannot be recomputed decode-free from a given cached
+/// [`TrackAnalysis`] — the machine-readable reason behind a `false` from
+/// [`can_augment`]. See [`augment_blocker`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AugmentBlocker {
+    /// The name is not in the public feature registry (see
+    /// [`analysis_feature_names`]).
+    UnknownFeature,
+    /// The feature's [`DependencyClass`] is `Audio` or `FrameCurves`: its
+    /// inputs are not persisted on any record, so recomputation needs the
+    /// decoded audio again (the [`augment_analysis`] audio fallback).
+    NeedsAudio(DependencyClass),
+    /// The record was produced under a different result schema; its stored
+    /// fields may not mean what a recompute expects. Re-analyze instead of
+    /// augmenting.
+    SchemaVersionMismatch { record: u32, current: u32 },
+    /// The record carries an embedding of a different layout version than
+    /// this build's [`crate::similarity::SIMILARITY_VERSION`];
+    /// embedding-consuming recomputation refuses to silently mix eras.
+    EmbeddingVersionMismatch { record: u32, current: u32 },
+    /// Decode-free evidence fields absent/empty on this record. Evidence is
+    /// per-record, not per-feature: emission suppression means two records of
+    /// the same schema version can differ in what they carry.
+    MissingEvidence(Vec<&'static str>),
+}
+
+impl AugmentBlocker {
+    /// Human-readable reason, prefixed with the feature name (used by
+    /// [`augment_analysis`]'s no-audio error).
+    fn describe(&self, feature: &str) -> String {
+        match self {
+            Self::UnknownFeature => format!("{feature}: unknown feature"),
+            Self::NeedsAudio(class) => {
+                format!("{feature}: {class:?}-class feature needs the decoded audio")
+            }
+            Self::SchemaVersionMismatch { record, current } => {
+                format!("{feature}: record schema_version {record} != current {current}")
+            }
+            Self::EmbeddingVersionMismatch { record, current } => {
+                format!("{feature}: record embedding_version {record} != current {current}")
+            }
+            Self::MissingEvidence(fields) => {
+                format!("{feature}: missing evidence field(s) {}", fields.join(", "))
+            }
+        }
+    }
+}
+
+/// Is a declared evidence field actually present on this record?
+///
+/// `Option` fields must be `Some`; `Option<Vec<_>>` fields must additionally
+/// be non-empty (a `Some(vec![])` carries no evidence). Always-computed core
+/// fields (`bpm`, `beats`, `onset_frames`, the scalar means) count as present
+/// — an empty `beats`/`onset_frames` is legitimate data (e.g. a drone), not
+/// absence. Unknown names fail closed (`false`); the registry tripwire test
+/// pins every declared evidence name to a real field.
+fn evidence_present(record: &TrackAnalysis, field: &str) -> bool {
+    match field {
+        // Always-computed core fields.
+        "duration_sec"
+        | "bpm"
+        | "beats"
+        | "onset_frames"
+        | "onset_density"
+        | "rms_mean"
+        | "dynamic_range_db"
+        | "loudness_lufs"
+        | "spectral_centroid_mean" => true,
+        "spectral_bandwidth_mean" => record.spectral_bandwidth_mean.is_some(),
+        "spectral_rolloff_mean" => record.spectral_rolloff_mean.is_some(),
+        "spectral_flatness_mean" => record.spectral_flatness_mean.is_some(),
+        "spectral_contrast_mean" => record
+            .spectral_contrast_mean
+            .as_ref()
+            .is_some_and(|v| !v.is_empty()),
+        "mfcc_mean" => record.mfcc_mean.as_ref().is_some_and(|v| !v.is_empty()),
+        "chroma_mean" => record.chroma_mean.as_ref().is_some_and(|v| !v.is_empty()),
+        "dissonance" => record.dissonance.is_some(),
+        "chord_change_rate" => record.chord_change_rate.is_some(),
+        "key" => record.key.is_some(),
+        "energy" => record.energy.is_some(),
+        "danceability" => record.danceability.is_some(),
+        "valence" => record.valence.is_some(),
+        _ => false,
+    }
+}
+
+/// Blocker for assembling the similarity embedding from this record — the
+/// evidence + version check shared by the `embedding` feature and the
+/// embedding-consuming model paths (genre / vocalness models).
+fn embedding_evidence_blocker(record: &TrackAnalysis) -> Option<AugmentBlocker> {
+    if let Some(version) = record.embedding_version {
+        if version != crate::similarity::SIMILARITY_VERSION {
+            return Some(AugmentBlocker::EmbeddingVersionMismatch {
+                record: version,
+                current: crate::similarity::SIMILARITY_VERSION,
+            });
+        }
+    }
+    let missing: Vec<&'static str> = EMBEDDING_EVIDENCE
+        .iter()
+        .copied()
+        .filter(|field| !evidence_present(record, field))
+        .collect();
+    if missing.is_empty() {
+        None
+    } else {
+        Some(AugmentBlocker::MissingEvidence(missing))
+    }
+}
+
+/// Why `feature` cannot be recomputed decode-free from `cached`, or `None`
+/// when [`augment_analysis`] can do it without audio.
+///
+/// The check mirrors the double-check pattern of
+/// [`crate::aggression::score_versioned`]: class and evidence are validated
+/// against this record AND the record's versions are validated against this
+/// build (`schema_version` vs [`ANALYSIS_SCHEMA_VERSION`]; a recorded
+/// `embedding_version` vs [`crate::similarity::SIMILARITY_VERSION`] for the
+/// embedding class).
+///
+/// This answers for the *built-in* computation of the feature. A configured
+/// `vocalness_model` changes `vocalness`/`instrumentalness` evidence to the
+/// `embedding` feature's (the model classifies the embedding) — that
+/// config-dependent variant is evaluated inside [`augment_analysis`].
+pub fn augment_blocker(cached: &TrackAnalysis, feature: &str) -> Option<AugmentBlocker> {
+    let Some(spec) = feature_spec(feature) else {
+        return Some(AugmentBlocker::UnknownFeature);
+    };
+    if cached.provenance.schema_version != ANALYSIS_SCHEMA_VERSION {
+        return Some(AugmentBlocker::SchemaVersionMismatch {
+            record: cached.provenance.schema_version,
+            current: ANALYSIS_SCHEMA_VERSION,
+        });
+    }
+    match spec.class {
+        DependencyClass::Audio | DependencyClass::FrameCurves => {
+            Some(AugmentBlocker::NeedsAudio(spec.class))
+        }
+        DependencyClass::Embedding => embedding_evidence_blocker(cached),
+        DependencyClass::Scalars => {
+            let missing: Vec<&'static str> = spec
+                .required_evidence
+                .iter()
+                .copied()
+                .filter(|field| !evidence_present(cached, field))
+                .collect();
+            if missing.is_empty() {
+                None
+            } else {
+                Some(AugmentBlocker::MissingEvidence(missing))
+            }
+        }
+    }
+}
+
+/// Can `feature` be recomputed decode-free from this cached record?
+///
+/// `true` iff the feature's [`DependencyClass`] is `Scalars`/`Embedding`,
+/// every [`FeatureDependency::required_evidence`] field is actually present
+/// on **this** record (evidence is per-record: emission suppression means two
+/// same-version records can differ), and the record's versions match this
+/// build. `false` for unknown names. [`augment_blocker`] returns the reason.
+pub fn can_augment(cached: &TrackAnalysis, feature: &str) -> bool {
+    augment_blocker(cached, feature).is_none()
+}
+
+/// Decode-free recompute of one feature onto `out` (evidence pre-checked by
+/// the caller). Calls the same pure functions the fused pipeline calls, on
+/// the cached fields, at the record's own rate — so results are bit-identical
+/// to a direct pipeline run over the same audio.
+fn recompute_decode_free(
+    out: &mut TrackAnalysis,
+    name: &str,
+    config: &AnalysisConfig,
+) -> Result<()> {
+    match name {
+        "onset_density" => {
+            out.onset_density = out.onset_frames.len() as Float / out.duration_sec;
+        }
+        "energy" => {
+            out.energy = Some(perceptual::energy(
+                out.rms_mean,
+                out.spectral_centroid_mean,
+                out.onset_density,
+                out.spectral_bandwidth_mean.expect("evidence checked"),
+            ));
+        }
+        "danceability" => {
+            // Uses the record's range-folded `bpm` directly, so the recorded
+            // bpm_min/bpm_max fold is inherited by construction.
+            out.danceability = Some(perceptual::danceability_heuristic(
+                out.bpm,
+                &out.beats,
+                out.onset_density,
+            ));
+        }
+        "key" => {
+            let chroma = out.chroma_mean.as_ref().expect("evidence checked");
+            let kr = perceptual::detect_key(chroma);
+            out.key = Some(perceptual::format_key(&kr));
+            out.key_confidence = Some(kr.confidence);
+            out.key_camelot = perceptual::camelot(kr.key, kr.mode).map(|c| c.to_string());
+        }
+        "valence" => {
+            let chroma = out.chroma_mean.as_ref().expect("evidence checked");
+            let kr = perceptual::detect_key(chroma);
+            out.valence = Some(perceptual::valence(
+                &kr,
+                out.bpm,
+                out.spectral_centroid_mean,
+            ));
+        }
+        "acousticness" => {
+            out.acousticness = Some(perceptual::acousticness(
+                out.spectral_flatness_mean.expect("evidence checked"),
+                out.spectral_rolloff_mean.expect("evidence checked"),
+                out.spectral_centroid_mean,
+                out.onset_density,
+            ));
+        }
+        "tempo_curve" => {
+            let tc = crate::beat::tempo_curve(
+                &out.beats,
+                out.provenance.sample_rate,
+                out.provenance.hop_length,
+                Some(5),
+            )
+            .unwrap_or_default();
+            out.tempo_variability = Some(crate::beat::tempo_variability(&tc));
+            out.tempo_curve = Some(tc);
+        }
+        "key_candidates" => {
+            let chroma = out.chroma_mean.as_ref().expect("evidence checked");
+            out.key_candidates = Some(
+                perceptual::detect_key_candidates(chroma)
+                    .into_iter()
+                    .map(|kc| (kc.key, kc.camelot.to_string(), kc.score))
+                    .collect(),
+            );
+        }
+        "vocalness" | "instrumentalness" => {
+            // One shared value + one provenance field → both fields update
+            // together, and the config decides model vs heuristic exactly
+            // like `analyze_*` does.
+            if let Some(ref model) = config.vocalness_model {
+                let emb = crate::similarity::embed(out);
+                let v = model.try_predict_vocalness(&emb)?;
+                out.vocalness = Some(v);
+                out.instrumentalness = Some((1.0 - v).clamp(0.0, 1.0));
+                out.provenance.vocalness_model_id = Some(model.id().to_string());
+            } else {
+                let v = vocalness_heuristic_v2(
+                    out.spectral_contrast_mean.as_deref(),
+                    out.spectral_flatness_mean,
+                    out.rms_mean,
+                );
+                out.vocalness = v;
+                out.instrumentalness = v.map(|value| (1.0 - value).clamp(0.0, 1.0));
+                out.provenance.vocalness_model_id = None;
+            }
+        }
+        "mood" => {
+            let chroma = out.chroma_mean.as_ref().expect("evidence checked");
+            let kr = perceptual::detect_key(chroma);
+            // Raw scalar inputs, never the cached energy/danceability fields —
+            // mood_scores recomputes those internally, and bit-equality with
+            // the pipeline depends on that. The record's `dissonance` is fed
+            // as-is (that is why it is in mood's evidence list): the result
+            // equals a pipeline run that co-requests `dissonance`.
+            let m = perceptual::mood_scores(
+                Some(&kr),
+                out.bpm,
+                out.rms_mean,
+                out.spectral_centroid_mean,
+                out.onset_density,
+                out.spectral_bandwidth_mean.expect("evidence checked"),
+                &out.beats,
+                out.dissonance,
+                out.dynamic_range_db,
+            );
+            out.mood_happy = Some(m.happy);
+            out.mood_aggressive = Some(m.aggressive);
+            out.mood_relaxed = Some(m.relaxed);
+            out.mood_sad = Some(m.sad);
+        }
+        "embedding" => {
+            let emb = crate::similarity::embed(out);
+            out.embedding = Some(emb);
+            out.embedding_version = Some(crate::similarity::SIMILARITY_VERSION);
+        }
+        other => unreachable!("decode-free recompute for non-Scalars/Embedding feature {other}"),
+    }
+    Ok(())
+}
+
+/// Copy the fields a feature emits from a fresh fallback analysis into the
+/// augmented clone. Only the named feature's fields move — everything else on
+/// `out` is preserved.
+fn merge_feature_fields(out: &mut TrackAnalysis, fresh: &TrackAnalysis, name: &str) {
+    match name {
+        "bpm" => {
+            out.bpm = fresh.bpm;
+            out.bpm_raw = fresh.bpm_raw;
+            out.bpm_confidence = fresh.bpm_confidence;
+            out.bpm_candidates = fresh.bpm_candidates.clone();
+            // The recomputed bpm was folded with the fallback's effective
+            // range; keep the provenance describing the value it carries.
+            out.provenance.bpm_min = fresh.provenance.bpm_min;
+            out.provenance.bpm_max = fresh.provenance.bpm_max;
+        }
+        "beats" => out.beats = fresh.beats.clone(),
+        "onsets" => out.onset_frames = fresh.onset_frames.clone(),
+        "rms" => {
+            out.rms_mean = fresh.rms_mean;
+            out.rms_max = fresh.rms_max;
+        }
+        "dynamic_range" => out.dynamic_range_db = fresh.dynamic_range_db,
+        "centroid" => out.spectral_centroid_mean = fresh.spectral_centroid_mean,
+        "zcr" => out.zero_crossing_rate = fresh.zero_crossing_rate,
+        "onset_density" => out.onset_density = fresh.onset_density,
+        "bandwidth" => out.spectral_bandwidth_mean = fresh.spectral_bandwidth_mean,
+        "rolloff" => out.spectral_rolloff_mean = fresh.spectral_rolloff_mean,
+        "flatness" => out.spectral_flatness_mean = fresh.spectral_flatness_mean,
+        "contrast" => out.spectral_contrast_mean = fresh.spectral_contrast_mean.clone(),
+        "mfcc" => out.mfcc_mean = fresh.mfcc_mean.clone(),
+        "chroma" => out.chroma_mean = fresh.chroma_mean.clone(),
+        "chords" => {
+            out.chord_sequence = fresh.chord_sequence.clone();
+            out.chord_events = fresh.chord_events.clone();
+            out.chord_change_rate = fresh.chord_change_rate;
+            out.predominant_chord = fresh.predominant_chord.clone();
+        }
+        "dissonance" => out.dissonance = fresh.dissonance,
+        "energy" => out.energy = fresh.energy,
+        "danceability" => out.danceability = fresh.danceability,
+        "key" => {
+            out.key = fresh.key.clone();
+            out.key_confidence = fresh.key_confidence;
+            out.key_camelot = fresh.key_camelot.clone();
+        }
+        "valence" => out.valence = fresh.valence,
+        "acousticness" => out.acousticness = fresh.acousticness,
+        "tempo_curve" => {
+            out.tempo_curve = fresh.tempo_curve.clone();
+            out.tempo_variability = fresh.tempo_variability;
+        }
+        "time_signature" => {
+            out.time_signature = fresh.time_signature.clone();
+            out.time_signature_confidence = fresh.time_signature_confidence;
+        }
+        "beatgrid" => {
+            out.grid_offset_sec = fresh.grid_offset_sec;
+            out.downbeats = fresh.downbeats.clone();
+            out.grid_stability = fresh.grid_stability;
+        }
+        "structure" => {
+            out.energy_curve = fresh.energy_curve.clone();
+            out.energy_curve_hop_sec = fresh.energy_curve_hop_sec;
+            out.segments = fresh.segments.clone();
+            out.intro_end_sec = fresh.intro_end_sec;
+            out.outro_start_sec = fresh.outro_start_sec;
+            out.energy_level = fresh.energy_level;
+        }
+        "embedding" => {
+            out.embedding = fresh.embedding.clone();
+            out.embedding_version = fresh.embedding_version;
+        }
+        #[cfg(feature = "aggression")]
+        "aggression" => {
+            out.aggression_score = fresh.aggression_score;
+            out.aggression_confidence = fresh.aggression_confidence;
+            out.aggression_forcefulness = fresh.aggression_forcefulness;
+            out.aggression_harshness = fresh.aggression_harshness;
+            out.aggression_tension = fresh.aggression_tension;
+            out.aggression_rhythm = fresh.aggression_rhythm;
+            out.provenance.aggression_model_id = fresh.provenance.aggression_model_id.clone();
+        }
+        "fingerprint" => out.fingerprint = fresh.fingerprint.clone(),
+        "loudness" => {
+            out.true_peak_db = fresh.true_peak_db;
+            out.replaygain_db = fresh.replaygain_db;
+            out.loudness_curve = fresh.loudness_curve.clone();
+            out.loudness_momentary_max_db = fresh.loudness_momentary_max_db;
+            out.loudness_range_lu = fresh.loudness_range_lu;
+        }
+        "silence" => {
+            out.leading_silence_sec = fresh.leading_silence_sec;
+            out.trailing_silence_sec = fresh.trailing_silence_sec;
+        }
+        "key_candidates" => out.key_candidates = fresh.key_candidates.clone(),
+        "vocalness" | "instrumentalness" => {
+            // The pair is one shared value; the fallback set always contains
+            // both names when either was requested (see augment_analysis).
+            out.vocalness = fresh.vocalness;
+            out.instrumentalness = fresh.instrumentalness;
+        }
+        "mood" => {
+            out.mood_happy = fresh.mood_happy;
+            out.mood_aggressive = fresh.mood_aggressive;
+            out.mood_relaxed = fresh.mood_relaxed;
+            out.mood_sad = fresh.mood_sad;
+        }
+        "tags" => out.tags = fresh.tags.clone(),
+        other => unreachable!("merge for unregistered feature {other}"),
+    }
+}
+
+/// Recompute the named features onto a clone of `cached` — decode-free where
+/// the record's evidence allows, and via one full audio re-analysis fallback
+/// otherwise.
+///
+/// Semantics (the contract the Python lane binds against):
+/// - **Names** resolve case-insensitively through the registry; any unknown
+///   name is a hard error (no silent fallback). The list may be empty, which
+///   is useful with a genre model (below).
+/// - **Decode-free recompute** (`Scalars`/`Embedding` class with all
+///   [`FeatureDependency::required_evidence`] present — see [`can_augment`])
+///   calls the same pure functions the fused pipeline calls, on the cached
+///   fields, at the record's own `sample_rate`/`hop_length`, reproducing the
+///   *standalone* meaning of the feature. Features are processed in canonical
+///   registry order against the progressively augmented clone, so one call
+///   can both recompute `energy` and build the `embedding` that reads it.
+/// - **`mood`** is fed the record's `dissonance` value (that is why it is in
+///   mood's evidence list); the result equals a pipeline run co-requesting
+///   `dissonance`. Its energy/danceability inputs are recomputed internally
+///   from raw scalars, never read from the cached `energy`/`danceability`.
+/// - **`vocalness`/`instrumentalness`** are one shared value with one
+///   provenance field, so requesting either writes *both* fields plus
+///   [`AnalysisProvenance::vocalness_model_id`] (the config's model id, or
+///   `None` for the built-in heuristic — the config decides, exactly like
+///   `analyze_*`). With a `vocalness_model` set, the evidence requirement
+///   becomes the `embedding` feature's (the model classifies the embedding).
+/// - **Genre** has no registry feature name: carrying
+///   [`AnalysisConfig::genre_model`] *is* the request, as in the pipeline.
+///   The model predicts over the (freshly assembled) embedding and populates
+///   `genre`/`genre_confidence` + `provenance.genre_model_id`. Both models'
+///   `embedding_version`s are checked fail-fast up front.
+/// - **Audio fallback**: requested features of `Audio`/`FrameCurves` class,
+///   or whose evidence is missing on this record, need the audio again. With
+///   `audio: Some(path)`, one `analyze_file` run at the **record's**
+///   `provenance.sample_rate` (never a caller default — frame-domain fields
+///   must stay in the record's rate) computes exactly those features (an
+///   `aggression` request thereby routes through its dedicated 22.05 kHz
+///   lane automatically), and only the requested fields are merged into the
+///   clone. The fallback inherits the record's `bpm_min`/`bpm_max`, falling
+///   back to `config`'s range only when the record's provenance carries
+///   `None` (records predating range recording). With `audio: None` the call
+///   fails, naming each blocked feature and why.
+/// - **Version gates**: a `schema_version` mismatch is a hard error for the
+///   whole call — patching a stale-schema record would mix field eras;
+///   re-analyze instead. A recorded `embedding_version` differing from this
+///   build's [`crate::similarity::SIMILARITY_VERSION`] is a hard error for
+///   embedding-consuming requests.
+/// - **Result**: a clone of `cached` with the recomputed/new fields set;
+///   fields the caller did not ask about are never cleared. When any feature
+///   was requested, `provenance.requested_features` becomes the sorted union
+///   of the record's recorded request and the augmented names (a mode-driven
+///   `None` is first expanded to the mode's default feature set, which
+///   describes the same emitted fields — an explicit list overrides the mode,
+///   so the expansion preserves meaning).
+pub fn augment_analysis(
+    cached: &TrackAnalysis,
+    features: &[&str],
+    audio: Option<&Path>,
+    config: &AnalysisConfig,
+) -> Result<TrackAnalysis> {
+    // Unknown names are hard errors, mirroring AnalysisConfig::validate_features.
+    let mut invalid: Vec<&str> = features
+        .iter()
+        .copied()
+        .filter(|name| canonical_feature_name(name).is_none())
+        .collect();
+    if !invalid.is_empty() {
+        invalid.sort_unstable();
+        invalid.dedup();
+        return Err(SonaraError::InvalidParameter {
+            param: "features",
+            reason: format!(
+                "unknown feature(s): {}; valid features: {}",
+                invalid.join(", "),
+                analysis_feature_names().collect::<Vec<_>>().join(", ")
+            ),
+        });
+    }
+    // Canonical request set, in registry order (deduplicated by construction).
+    let requested: Vec<&'static str> = analysis_feature_names()
+        .filter(|canonical| {
+            features
+                .iter()
+                .any(|name| name.eq_ignore_ascii_case(canonical))
+        })
+        .collect();
+
+    // Fail fast on model layout mismatches, exactly like the pipeline.
+    if let Some(ref model) = config.genre_model {
+        if model.embedding_version != crate::similarity::SIMILARITY_VERSION {
+            return Err(SonaraError::ModelError(format!(
+                "genre model embedding_version {} does not match this build's embedding version {}; \
+                 re-export the model against the current embedding",
+                model.embedding_version,
+                crate::similarity::SIMILARITY_VERSION
+            )));
+        }
+    }
+    if let Some(ref model) = config.vocalness_model {
+        if model.embedding_version() != crate::similarity::SIMILARITY_VERSION {
+            return Err(SonaraError::ModelError(format!(
+                "vocalness model embedding_version {} does not match this build's embedding version {}; \
+                 re-export the model against the current embedding",
+                model.embedding_version(),
+                crate::similarity::SIMILARITY_VERSION
+            )));
+        }
+    }
+    if cached.provenance.schema_version != ANALYSIS_SCHEMA_VERSION {
+        return Err(SonaraError::InvalidParameter {
+            param: "cached",
+            reason: format!(
+                "record schema_version {} does not match this build's ANALYSIS_SCHEMA_VERSION {}; \
+                 augmenting would mix field eras — re-analyze the audio instead",
+                cached.provenance.schema_version, ANALYSIS_SCHEMA_VERSION
+            ),
+        });
+    }
+
+    let mut out = cached.clone();
+    let mut fallback: Vec<(&'static str, AugmentBlocker)> = Vec::new();
+
+    for name in &requested {
+        // A configured vocalness model swaps the vocalness/instrumentalness
+        // evidence to the embedding's (the model classifies the embedding).
+        let blocker = if config.vocalness_model.is_some()
+            && matches!(*name, "vocalness" | "instrumentalness")
+        {
+            embedding_evidence_blocker(&out)
+        } else {
+            augment_blocker(&out, name)
+        };
+        match blocker {
+            None => recompute_decode_free(&mut out, name, config)?,
+            Some(AugmentBlocker::EmbeddingVersionMismatch { record, current }) => {
+                return Err(SonaraError::InvalidParameter {
+                    param: "cached",
+                    reason: format!(
+                        "{name}: record embedding_version {record} does not match this build's \
+                         SIMILARITY_VERSION {current}; re-analyze the audio instead"
+                    ),
+                });
+            }
+            Some(blocker) => fallback.push((name, blocker)),
+        }
+    }
+
+    // Genre: carrying the model is the request (no registry name exists).
+    let mut genre_via_fallback = false;
+    if let Some(ref model) = config.genre_model {
+        match embedding_evidence_blocker(&out) {
+            None => {
+                let emb = crate::similarity::embed(&out);
+                let (label, confidence) = model.try_predict(&emb)?;
+                out.genre = Some(label);
+                out.genre_confidence = Some(confidence);
+                out.provenance.genre_model_id = model.id.clone();
+            }
+            Some(AugmentBlocker::EmbeddingVersionMismatch { record, current }) => {
+                return Err(SonaraError::InvalidParameter {
+                    param: "cached",
+                    reason: format!(
+                        "genre model: record embedding_version {record} does not match this \
+                         build's SIMILARITY_VERSION {current}; re-analyze the audio instead"
+                    ),
+                });
+            }
+            Some(_) => genre_via_fallback = true,
+        }
+    }
+
+    if !fallback.is_empty() || genre_via_fallback {
+        let Some(path) = audio else {
+            let mut reasons: Vec<String> = fallback
+                .iter()
+                .map(|(name, blocker)| blocker.describe(name))
+                .collect();
+            if genre_via_fallback {
+                reasons.push("genre model: missing embedding evidence".to_string());
+            }
+            return Err(SonaraError::InvalidParameter {
+                param: "audio",
+                reason: format!(
+                    "cannot recompute decode-free ({}); pass the audio path to enable the \
+                     re-analysis fallback",
+                    reasons.join("; ")
+                ),
+            });
+        };
+        let mut fallback_names: HashSet<String> = fallback
+            .iter()
+            .map(|(name, _)| (*name).to_string())
+            .collect();
+        // The vocalness/instrumentalness pair is one shared value with one
+        // provenance field: compute + merge both together.
+        let wants_vocalness_fallback =
+            fallback_names.contains("vocalness") || fallback_names.contains("instrumentalness");
+        if wants_vocalness_fallback {
+            fallback_names.insert("vocalness".to_string());
+            fallback_names.insert("instrumentalness".to_string());
+        }
+        let merge_names: Vec<String> = {
+            let mut names: Vec<String> = fallback_names.iter().cloned().collect();
+            names.sort_unstable();
+            names
+        };
+        let fallback_config = AnalysisConfig {
+            mode: config.mode,
+            features: Some(fallback_names),
+            // Inherit the record's folding range so the recomputed bpm keeps
+            // the record's meaning; the caller's range applies only when the
+            // record predates range recording (provenance None).
+            bpm_min: cached.provenance.bpm_min.or(config.bpm_min),
+            bpm_max: cached.provenance.bpm_max.or(config.bpm_max),
+            // Models ride along only when their output is still needed from
+            // this run — otherwise they would force an extended pass for
+            // nothing (and re-do work already done decode-free above).
+            genre_model: if genre_via_fallback {
+                config.genre_model.clone()
+            } else {
+                None
+            },
+            vocalness_model: if wants_vocalness_fallback {
+                config.vocalness_model.clone()
+            } else {
+                None
+            },
+        };
+        // The record's sample rate, NOT a caller default: frame-index fields
+        // and frame-derived values must stay in the record's rate domain.
+        let fresh = analyze_file(path, cached.provenance.sample_rate, &fallback_config)?;
+        for name in &merge_names {
+            merge_feature_fields(&mut out, &fresh, name);
+        }
+        if genre_via_fallback {
+            out.genre = fresh.genre.clone();
+            out.genre_confidence = fresh.genre_confidence;
+            out.provenance.genre_model_id = fresh.provenance.genre_model_id.clone();
+        }
+        if wants_vocalness_fallback {
+            out.provenance.vocalness_model_id = fresh.provenance.vocalness_model_id.clone();
+        }
+    }
+
+    // Provenance: record the union of what this record now carries. A pure
+    // genre-model call (empty `features`) changes no feature set, so the
+    // recorded request stays untouched (`genre_model_id` records the model).
+    if !requested.is_empty() {
+        let mut names: Vec<String> = match &cached.provenance.requested_features {
+            Some(list) => list.clone(),
+            None => {
+                // Mode-driven record: expand to the mode's default feature
+                // set, which describes the same emitted fields (an explicit
+                // list overrides the mode, so the expansion preserves
+                // meaning).
+                let probe = AnalysisConfig {
+                    mode: cached.provenance.mode,
+                    ..Default::default()
+                };
+                analysis_feature_names()
+                    .filter(|name| probe.emits(name))
+                    .map(str::to_owned)
+                    .collect()
+            }
+        };
+        names.extend(requested.iter().map(|name| (*name).to_string()));
+        names.sort_unstable();
+        names.dedup();
+        out.provenance.requested_features = Some(names);
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -4651,5 +5354,485 @@ mod tests {
             assert!(r.genre.is_none(), "genre None without a model");
             assert!(r.genre_confidence.is_none());
         }
+    }
+
+    // ---- augment (decode-free recompute onto cached records) ----
+
+    /// Tonal + rhythmic deterministic signal: the C-major progression under a
+    /// 120-BPM exponential amplitude pulse, so chroma/key/chords AND
+    /// beats/onsets all carry real structure.
+    fn augment_rich_signal() -> Array1<Float> {
+        let base = c_major_progression(SR, 2);
+        Array1::from_shape_fn(base.len(), |i| {
+            let t = i as Float / SR as Float;
+            let beat_phase = (t * 2.0).fract();
+            base[i] * (0.35 + 0.65 * (-8.0 * beat_phase).exp())
+        })
+    }
+
+    /// A feature request whose record carries every evidence field any
+    /// decode-free feature (incl. the embedding) reads.
+    fn evidence_complete_config() -> AnalysisConfig {
+        feature_config(&[
+            "bpm",
+            "beats",
+            "onsets",
+            "rms",
+            "dynamic_range",
+            "centroid",
+            "onset_density",
+            "bandwidth",
+            "rolloff",
+            "flatness",
+            "contrast",
+            "mfcc",
+            "chroma",
+            "chords",
+            "dissonance",
+            "energy",
+            "danceability",
+            "key",
+            "valence",
+            "acousticness",
+        ])
+    }
+
+    /// THE headline P2 test: for every decode-free feature, augmenting a rich
+    /// cached record must reproduce, bit-for-bit, the field a direct pipeline
+    /// run over the same audio produces. Failures are collected per feature so
+    /// one red run exposes every broken recompute path at once.
+    #[test]
+    fn test_augment_decode_free_features_match_direct_runs() {
+        let y = augment_rich_signal();
+        let rich = analyze_signal(y.view(), SR, &evidence_complete_config()).unwrap();
+        let cfg = AnalysisConfig::default();
+
+        // (feature, direct-run request reproducing its standalone meaning)
+        let cases: &[(&str, &[&str])] = &[
+            ("onset_density", &["onset_density"]),
+            ("energy", &["energy"]),
+            ("danceability", &["danceability"]),
+            ("key", &["key"]),
+            ("valence", &["valence"]),
+            ("acousticness", &["acousticness"]),
+            ("tempo_curve", &["tempo_curve"]),
+            ("key_candidates", &["key_candidates"]),
+            ("vocalness", &["vocalness"]),
+            ("instrumentalness", &["instrumentalness"]),
+            // mood's declared evidence includes dissonance: augment feeds the
+            // record's value, equal to a run co-requesting dissonance.
+            ("mood", &["mood", "dissonance"]),
+            ("embedding", &["embedding"]),
+        ];
+        let mut mismatches: Vec<String> = Vec::new();
+        for (feature, direct_features) in cases {
+            assert!(can_augment(&rich, feature), "{feature} must be augmentable");
+            let aug = augment_analysis(&rich, &[feature], None, &cfg).unwrap();
+            let direct = analyze_signal(y.view(), SR, &feature_config(direct_features)).unwrap();
+            let mut check = |field: &str, equal: bool| {
+                if !equal {
+                    mismatches.push(format!("{feature}.{field}"));
+                }
+            };
+            match *feature {
+                "onset_density" => {
+                    check("onset_density", aug.onset_density == direct.onset_density)
+                }
+                "energy" => check("energy", aug.energy == direct.energy),
+                "danceability" => check("danceability", aug.danceability == direct.danceability),
+                "key" => {
+                    check("key", aug.key == direct.key);
+                    check(
+                        "key_confidence",
+                        aug.key_confidence == direct.key_confidence,
+                    );
+                    check("key_camelot", aug.key_camelot == direct.key_camelot);
+                }
+                "valence" => check("valence", aug.valence == direct.valence),
+                "acousticness" => check("acousticness", aug.acousticness == direct.acousticness),
+                "tempo_curve" => {
+                    check("tempo_curve", aug.tempo_curve == direct.tempo_curve);
+                    check(
+                        "tempo_variability",
+                        aug.tempo_variability == direct.tempo_variability,
+                    );
+                }
+                "key_candidates" => check(
+                    "key_candidates",
+                    aug.key_candidates == direct.key_candidates,
+                ),
+                "vocalness" => check("vocalness", aug.vocalness == direct.vocalness),
+                "instrumentalness" => check(
+                    "instrumentalness",
+                    aug.instrumentalness == direct.instrumentalness,
+                ),
+                "mood" => {
+                    check("mood_happy", aug.mood_happy == direct.mood_happy);
+                    check(
+                        "mood_aggressive",
+                        aug.mood_aggressive == direct.mood_aggressive,
+                    );
+                    check("mood_relaxed", aug.mood_relaxed == direct.mood_relaxed);
+                    check("mood_sad", aug.mood_sad == direct.mood_sad);
+                }
+                "embedding" => {
+                    check("embedding", aug.embedding == direct.embedding);
+                    check(
+                        "embedding_version",
+                        aug.embedding_version == direct.embedding_version,
+                    );
+                }
+                other => panic!("unhandled case {other}"),
+            }
+            // Untouched fields must be preserved from the cached record.
+            check("bpm-preserved", aug.bpm == rich.bpm);
+            check("chroma-preserved", aug.chroma_mean == rich.chroma_mean);
+        }
+        assert!(
+            mismatches.is_empty(),
+            "augment != direct run for: {mismatches:?}"
+        );
+    }
+
+    #[test]
+    fn test_augment_evidence_missing_blocks_and_errors_without_audio() {
+        let y = sine(440.0, SR, 2.0);
+        let compact_record = analyze_signal(y.view(), SR, &compact()).unwrap();
+        // Compact records carry no chroma → key is not decode-free on THIS record.
+        assert!(!can_augment(&compact_record, "key"));
+        assert!(matches!(
+            augment_blocker(&compact_record, "key"),
+            Some(AugmentBlocker::MissingEvidence(fields)) if fields == vec!["chroma_mean"]
+        ));
+        // Audio/FrameCurves classes are never decode-free, on any record.
+        assert!(!can_augment(&compact_record, "chroma"));
+        assert!(!can_augment(&compact_record, "zcr"));
+        assert!(can_augment(&compact_record, "onset_density"));
+        // The same feature on an evidence-complete record IS augmentable —
+        // augmentability is per-record, not per-feature.
+        let rich = analyze_signal(y.view(), SR, &evidence_complete_config()).unwrap();
+        assert!(can_augment(&rich, "key"));
+
+        // Without audio, augment must fail naming the feature and the reason.
+        let err = augment_analysis(&compact_record, &["key"], None, &AnalysisConfig::default())
+            .unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("key"), "{msg}");
+        assert!(msg.contains("chroma_mean"), "{msg}");
+        let err = augment_analysis(
+            &compact_record,
+            &["chroma"],
+            None,
+            &AnalysisConfig::default(),
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("chroma"), "{err}");
+    }
+
+    #[test]
+    fn test_augment_schema_version_mismatch_fails_fast() {
+        let y = sine(440.0, SR, 2.0);
+        let mut stale = analyze_signal(y.view(), SR, &evidence_complete_config()).unwrap();
+        assert!(can_augment(&stale, "energy"));
+        stale.provenance.schema_version = ANALYSIS_SCHEMA_VERSION - 1;
+        assert!(!can_augment(&stale, "energy"));
+        let err =
+            augment_analysis(&stale, &["energy"], None, &AnalysisConfig::default()).unwrap_err();
+        assert!(err.to_string().contains("schema_version"), "{err}");
+    }
+
+    #[test]
+    fn test_augment_embedding_version_mismatch_fails_fast() {
+        let y = sine(440.0, SR, 2.0);
+        let mut record = analyze_signal(y.view(), SR, &evidence_complete_config()).unwrap();
+        record.embedding_version = Some(crate::similarity::SIMILARITY_VERSION + 1);
+        assert!(!can_augment(&record, "embedding"));
+        // Non-embedding features are unaffected by the stale embedding marker.
+        assert!(can_augment(&record, "energy"));
+        let err = augment_analysis(&record, &["embedding"], None, &AnalysisConfig::default())
+            .unwrap_err();
+        assert!(err.to_string().contains("embedding_version"), "{err}");
+    }
+
+    #[test]
+    fn test_augment_unknown_feature_is_hard_error() {
+        let y = sine(440.0, SR, 2.0);
+        let record = analyze_signal(y.view(), SR, &compact()).unwrap();
+        match augment_analysis(&record, &["keyy"], None, &AnalysisConfig::default()) {
+            Err(SonaraError::InvalidParameter { param, reason }) => {
+                assert_eq!(param, "features");
+                assert!(reason.contains("unknown feature(s): keyy"), "{reason}");
+            }
+            other => panic!("expected InvalidParameter, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_augment_danceability_reflects_recorded_bpm_range() {
+        // 120-BPM click train; a (130, 260) fold range doubles the reported
+        // bpm to ~240, which danceability's tempo term is sensitive to — so
+        // this test bites if augment fed anything but the record's folded bpm.
+        let n = (4.0 * SR as Float) as usize;
+        let interval = (60.0 / 120.0 * SR as Float) as usize;
+        let mut y = Array1::<Float>::zeros(n);
+        let mut pos = 0;
+        while pos < n {
+            for i in 0..100.min(n - pos) {
+                y[pos + i] = (2.0 * PI * 1000.0 * i as Float / SR as Float).sin();
+            }
+            pos += interval;
+        }
+        let ranged = AnalysisConfig {
+            bpm_min: Some(130.0),
+            bpm_max: Some(260.0),
+            ..Default::default()
+        };
+        let record = analyze_signal(y.view(), SR, &ranged).unwrap();
+        assert!(
+            record.bpm >= 130.0 && record.bpm <= 260.0,
+            "fold range not applied: {}",
+            record.bpm
+        );
+        assert!(
+            (record.bpm - record.bpm_raw).abs() > 1.0,
+            "fold must actually trigger for this test to bite: bpm {} raw {}",
+            record.bpm,
+            record.bpm_raw
+        );
+
+        // The augment config carries NO range — the record's is inherited.
+        let aug =
+            augment_analysis(&record, &["danceability"], None, &AnalysisConfig::default()).unwrap();
+        let direct = analyze_signal(
+            y.view(),
+            SR,
+            &AnalysisConfig {
+                features: Some(HashSet::from(["danceability".to_string()])),
+                bpm_min: Some(130.0),
+                bpm_max: Some(260.0),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(aug.danceability, direct.danceability);
+        // The recorded fold range survives augmentation.
+        assert_eq!(aug.provenance.bpm_min, Some(130.0));
+        assert_eq!(aug.provenance.bpm_max, Some(260.0));
+    }
+
+    /// Deterministic 2 s pulsed-tone WAV at native 44.1 kHz for fallback tests.
+    fn write_augment_wav(path: &Path) {
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 44_100,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut writer = hound::WavWriter::create(path, spec).unwrap();
+        for index in 0..44_100 * 2 {
+            let t = index as Float / 44_100.0;
+            let beat_phase = (t * 2.0).fract();
+            let env = 0.3 + 0.7 * (-9.0 * beat_phase).exp();
+            let sample = env
+                * (0.4 * (2.0 * PI * 220.0 * t).sin()
+                    + 0.25 * (2.0 * PI * 523.25 * t).sin()
+                    + 0.15 * (2.0 * PI * 2_093.0 * t).sin());
+            writer
+                .write_sample((sample * i16::MAX as Float) as i16)
+                .unwrap();
+        }
+        writer.finalize().unwrap();
+    }
+
+    #[test]
+    fn test_augment_audio_fallback_runs_at_recorded_rate_and_range() {
+        let path = std::env::temp_dir().join(format!(
+            "sonara-augment-fallback-{}.wav",
+            std::process::id()
+        ));
+        write_augment_wav(&path);
+        // Record analyzed at 22050 (not the file's native 44100), with a fold
+        // range the augment config below does NOT carry.
+        let ranged = AnalysisConfig {
+            bpm_min: Some(130.0),
+            bpm_max: Some(260.0),
+            ..Default::default()
+        };
+        let record = analyze_file(&path, 22050, &ranged).unwrap();
+        assert_eq!(record.provenance.sample_rate, 22050);
+
+        // chroma is FrameCurves: decode-free impossible, audio fallback required.
+        assert!(!can_augment(&record, "chroma"));
+        let aug = augment_analysis(
+            &record,
+            &["chroma", "bpm"],
+            Some(&path),
+            &AnalysisConfig::default(),
+        )
+        .unwrap();
+        // The fallback must have run at the RECORD's sample rate with the
+        // RECORD's fold range — i.e. match a direct file run configured so.
+        let direct = analyze_file(
+            &path,
+            22050,
+            &AnalysisConfig {
+                features: Some(HashSet::from(["chroma".to_string(), "bpm".to_string()])),
+                bpm_min: Some(130.0),
+                bpm_max: Some(260.0),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(aug.chroma_mean, direct.chroma_mean);
+        assert_eq!(aug.bpm, direct.bpm);
+        assert_eq!(aug.bpm_raw, direct.bpm_raw);
+        assert_eq!(aug.bpm_candidates, direct.bpm_candidates);
+        // Frame-domain provenance unchanged; untouched cached fields preserved.
+        assert_eq!(aug.provenance.sample_rate, 22050);
+        assert_eq!(aug.rms_mean, record.rms_mean);
+        assert_eq!(aug.duration_sec, record.duration_sec);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn test_augment_vocalness_model_and_genre_model_decode_free() {
+        let y = augment_rich_signal();
+        let rich = analyze_signal(y.view(), SR, &evidence_complete_config()).unwrap();
+
+        // Vocalness model over the recomputed embedding: id stamped, pair
+        // coupled (both fields update together).
+        let model_cfg = AnalysisConfig {
+            vocalness_model: Some(std::sync::Arc::new(tiny_vocalness_model(
+                "vocal-aug-v1",
+                crate::similarity::SIMILARITY_VERSION,
+            ))),
+            ..Default::default()
+        };
+        let aug = augment_analysis(&rich, &["vocalness"], None, &model_cfg).unwrap();
+        assert_eq!(aug.vocalness, Some(0.5));
+        assert_eq!(aug.instrumentalness, Some(0.5));
+        assert_eq!(
+            aug.provenance.vocalness_model_id.as_deref(),
+            Some("vocal-aug-v1")
+        );
+
+        // Genre: carrying the model IS the request; predicts decode-free.
+        let genre_cfg = AnalysisConfig {
+            genre_model: Some(std::sync::Arc::new(
+                crate::genre::from_json_str(&genre_model_json(
+                    crate::similarity::SIMILARITY_VERSION,
+                ))
+                .unwrap(),
+            )),
+            ..Default::default()
+        };
+        let aug = augment_analysis(&rich, &[], None, &genre_cfg).unwrap();
+        assert_eq!(aug.genre.as_deref(), Some("b"));
+        assert!(aug.genre_confidence.is_some_and(|c| c > 0.5));
+        // An empty feature list changes no recorded request.
+        assert_eq!(
+            aug.provenance.requested_features,
+            rich.provenance.requested_features
+        );
+
+        // Stale model versions fail fast, mirroring the pipeline.
+        let stale_cfg = AnalysisConfig {
+            genre_model: Some(std::sync::Arc::new(
+                crate::genre::from_json_str(&genre_model_json(999)).unwrap(),
+            )),
+            ..Default::default()
+        };
+        assert!(matches!(
+            augment_analysis(&rich, &[], None, &stale_cfg),
+            Err(SonaraError::ModelError(_))
+        ));
+        // Model-driven vocalness on an embedding-evidence-poor record needs audio.
+        let compact_record = analyze_signal(y.view(), SR, &compact()).unwrap();
+        assert!(augment_analysis(&compact_record, &["vocalness"], None, &model_cfg).is_err());
+    }
+
+    #[test]
+    fn test_augment_updates_requested_features_provenance() {
+        let y = sine(440.0, SR, 2.0);
+        // Explicit-list record: union with the augmented names.
+        let record = analyze_signal(y.view(), SR, &feature_config(&["chroma", "key"])).unwrap();
+        let aug = augment_analysis(
+            &record,
+            &["valence", "key"],
+            None,
+            &AnalysisConfig::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            aug.provenance.requested_features.as_deref(),
+            Some(
+                &[
+                    "chroma".to_string(),
+                    "key".to_string(),
+                    "valence".to_string()
+                ][..]
+            )
+        );
+        // Mode-driven record (None): expanded to the mode's default feature
+        // set (empty for Compact) plus the augmented names.
+        let compact_record = analyze_signal(y.view(), SR, &compact()).unwrap();
+        let aug = augment_analysis(
+            &compact_record,
+            &["onset_density"],
+            None,
+            &AnalysisConfig::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            aug.provenance.requested_features.as_deref(),
+            Some(&["onset_density".to_string()][..])
+        );
+    }
+
+    #[cfg(feature = "aggression")]
+    #[test]
+    fn test_augment_aggression_routes_through_audio_fallback_lane() {
+        let path = std::env::temp_dir().join(format!(
+            "sonara-augment-aggression-{}.wav",
+            std::process::id()
+        ));
+        write_augment_wav(&path);
+        let record = analyze_file(&path, 22050, &compact()).unwrap();
+        assert!(
+            !can_augment(&record, "aggression"),
+            "aggression is Audio-class"
+        );
+        // No audio → error naming the feature.
+        let err = augment_analysis(&record, &["aggression"], None, &AnalysisConfig::default())
+            .unwrap_err();
+        assert!(err.to_string().contains("aggression"), "{err}");
+        // With audio, the fallback routes through the dedicated 22.05 kHz lane.
+        let aug = augment_analysis(
+            &record,
+            &["aggression"],
+            Some(&path),
+            &AnalysisConfig::default(),
+        )
+        .unwrap();
+        let direct = analyze_file(
+            &path,
+            22050,
+            &AnalysisConfig {
+                features: Some(HashSet::from(["aggression".to_string()])),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(aug.aggression_score, direct.aggression_score);
+        assert_eq!(aug.aggression_confidence, direct.aggression_confidence);
+        assert_eq!(aug.aggression_harshness, direct.aggression_harshness);
+        assert_eq!(
+            aug.provenance.aggression_model_id.as_deref(),
+            Some(crate::aggression::AGGRESSION_MODEL_ID)
+        );
+        // Cached generic fields stay in the caller-rate domain, untouched.
+        assert_eq!(aug.bpm, record.bpm);
+        assert_eq!(aug.rms_mean, record.rms_mean);
+        std::fs::remove_file(path).unwrap();
     }
 }
