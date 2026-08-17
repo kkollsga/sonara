@@ -2,6 +2,57 @@
 
 All notable changes to sonara are documented in this file.
 
+## [0.3.6] - 2026-08-17
+
+### Validated on real music
+
+The new timbre similarity profile was validated on a 210-track labeled set
+(30 tracks per coarse style across 7 styles, at most 2 per artist, fresh
+default-path embeddings): macro neighbor-precision@10 improves from 0.2124
+(default profile) to 0.2310 (+0.019; paired stratified bootstrap 95% CI
+[+0.005, +0.033]), with the largest gain in folk/country — the style-bleed
+case the profile targets. The default profile is bit-identical to 0.3.5 and
+its precision is pinned as a regression baseline. The default analysis path
+is unchanged (criterion + wall-clock with an unchanged-path control bench:
+held).
+
+### Added
+
+- **Per-feature analysis lane.** `augment_analysis(cached, features, ...)`
+  computes named features onto an existing cached analysis instead of
+  re-running the full pipeline: decode-free where the cached evidence allows
+  (energy, danceability, key, key candidates, valence, acousticness, mood,
+  vocalness, instrumentalness, tempo curve, embedding, and model-driven
+  genre/vocalness), and a single targeted decode at the record's original
+  sample rate for audio-bound features (aggression routes through its
+  dedicated lane without the full extended pass). `can_augment` /
+  `augment_blocker` report per-record augmentability, and
+  `feature_dependencies()` publishes the declared per-feature dependency map
+  (evidence class + required fields) that cache-freshness planners can rely
+  on. Available from Rust and Python; analysis dicts round-trip back into the
+  engine.
+- **Selectable similarity weight profile.** `similarity(..., profile=)` and
+  `embedding_distance(..., profile=)` accept `"default"` or `"timbre"`; the
+  timbre profile re-weights the same stored 48-dim vector at distance time to
+  emphasize spectral character over tempo/energy. Profiles are independently
+  versioned (`SIMILARITY_PROFILES`); stored vectors and `SIMILARITY_VERSION`
+  are unchanged, so no re-scan is needed.
+- Analysis provenance now records the configured BPM detection range
+  (`bpm_min`/`bpm_max`), additively — no schema version bump; existing cached
+  records remain valid.
+- An audio-free frozen similarity gate (91 pinned pairwise distances and 14
+  neighbor orderings per profile) now runs as a mandatory routed CI check;
+  the similarity fidelity domain is no longer blocked.
+
+### Changed
+
+- The consumer contract now documents per-feature freshness: additive fields
+  and APIs ship without an `ANALYSIS_SCHEMA_VERSION` bump, and consumers
+  should key freshness on field presence, per-feature model ids, and the
+  dependency map rather than the whole-record version. The description of the
+  stored similarity vector was corrected: it is unweighted; per-dimension
+  weights apply at distance time.
+
 ## [0.3.5] - 2026-07-28
 
 Release and CI infrastructure only. The analysis library is unchanged from
