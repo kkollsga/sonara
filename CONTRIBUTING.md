@@ -29,7 +29,8 @@ cargo test -p sonara
 # On macOS you can add the Accelerate BLAS backend, matching CI:
 cargo test -p sonara --features accelerate
 
-# Canonical 11-script Python API suite (bindings must already be built)
+# Canonical Python API suite (bindings must already be built;
+# `--list` prints the current script set)
 python scripts/run_python_tests.py
 ```
 

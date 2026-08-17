@@ -32,11 +32,14 @@ for itself.
 | Music-graph schema, source hashing, mapping, library scan | **sonagram** |
 | Graph storage, Cypher, MCP graph exposure, embedding *engine* | **kglite** |
 
-sonagram may persist sonara's pre-weighted 48-dimensional similarity vector in
-kglite's `EmbeddingStore` (as `model_id = "sonara-similarity-v1"`, re-keyed on
-sonara version bumps). Ownership of that music-domain vector and its
-provenance stays with sonagram; kglite owns the generic storage and query
-machinery, not music-specific mapping or lifecycle.
+sonagram may persist sonara's 48-dimensional similarity vector in kglite's
+`EmbeddingStore` (as `model_id = "sonara-similarity-v1"`, re-keyed on sonara
+version bumps). The stored vector is **unweighted** — the per-dimension weights
+live inside `distance()` and are applied at query time, so a weighting change
+(e.g. a new similarity profile) never alters a persisted vector. Ownership of
+that music-domain vector and its provenance stays with sonagram; kglite owns
+the generic storage and query machinery, not music-specific mapping or
+lifecycle.
 
 ## The consumed surface
 
@@ -96,6 +99,27 @@ Downstreams pin a compatible pre-1.0 sonara release and key stored records on
 fingerprint version where those are consumed). sonagram's current floor is
 `sonara >= 0.2.2`. Heuristic-semantics changes bump `ANALYSIS_SCHEMA_VERSION`.
 
+### Per-feature freshness
+
+Additive fields and APIs ship **without** an `ANALYSIS_SCHEMA_VERSION` bump —
+the whole-record version moves only when existing field meaning or units
+change. A consumer deciding whether a stored record needs refreshing should
+therefore key **per feature**, not on the whole-record version: field presence
+on the record, the per-feature model ids in provenance (`vocalness_model_id`,
+`genre_model_id`), and the declared dependency map `feature_dependencies()` —
+which names each feature's dependency class and the record fields a decode-free
+recompute reads (`augment_analysis` / `can_augment` consume the same map, so a
+missing feature can often be filled in without re-decoding the audio).
+
+Similarity weighting profiles version independently of the vector layout:
+`SIMILARITY_VERSION` (unchanged at 2) still identifies the stored vector and
+the default metric, while each named profile (e.g. `timbre`) carries its own
+weight-table version, surfaced through `SIMILARITY_PROFILES`. Profiles apply at
+query time and never change stored vectors, so a profile bump forces no
+re-keying. This shape was communicated to sonagram on 2026-08-17 (sonagram
+inbox, `2026-08-17-from-sonara-augment-api-shape-genre-nogo-and-a-question.md`);
+this section records the standing policy.
+
 ## Notification obligations
 
 sonara notifies (via `notify`) **before** any change that:
@@ -129,3 +153,8 @@ noise that trains people to ignore the inbox.
 - 2026-07-18 — kglite confirms the narrower split.
 - 2026-07-29 — the two gitignored copies are collapsed into this tracked file;
   the notification-routing gap above is opened.
+- 2026-08-17 — augment lane and similarity profiles ship additively (no schema
+  bump); the "pre-weighted vector" mis-description is corrected (the stored
+  vector is unweighted — weights apply inside `distance()` at query time) and
+  the per-feature freshness policy above is recorded. sonagram notified the
+  same day (API shape, profile versioning, genre NO-GO).

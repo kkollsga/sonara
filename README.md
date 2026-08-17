@@ -455,6 +455,39 @@ input path, in input order. A file that fails to decode yields a failure entry
 container/codec and underlying cause) and `error_kind` — a short stable category:
 `"io"`, `"decode"`, `"unsupported_format"`, `"invalid_audio"`, `"insufficient_data"`,
 or `"compute"`. (`analyze_file` on a single path still raises as before.)
+
+### Augmenting a cached analysis
+
+`sonara.augment_analysis` recomputes named features onto a **copy** of a cached
+result — a `TrackAnalysis`, or the same dict shape loaded back from JSON —
+without re-running the whole pipeline. Features whose inputs are already on the
+record (most scalar features, and the similarity embedding) are recomputed
+**decode-free** from the cached fields alone; anything that genuinely needs the
+waveform again is computed from `audio_path` in one targeted re-analysis at the
+record's own `provenance["sample_rate"]`. The input is never mutated, fields you
+did not ask about are never cleared, and unknown feature names raise
+`ValueError` (no silent fallback).
+
+```python
+import json, sonara
+
+cached = json.load(open("track.json"))            # a stored analyze_* result
+r = sonara.augment_analysis(cached, ["mood"])     # decode-free from cached fields
+r = sonara.augment_analysis(cached, ["aggression"], audio_path="track.mp3")
+
+sonara.can_augment(cached, "mood")            # True → decode-free on this record
+sonara.augment_blocker(cached, "aggression")  # e.g. "needs audio (...)" — or None
+```
+
+Whether a feature is decode-free is **per record** (it depends on which fields
+that record actually carries), which is what `can_augment` / `augment_blocker`
+answer. The static side is `sonara.feature_dependencies()` — the declared
+per-feature dependency map, one dict per feature with its dependency `class`
+(`"audio"`, `"frame_curves"`, `"scalars"`, `"embedding"`), the
+`required_evidence` fields a decode-free recompute reads, and mode flags — so a
+cache layer can plan what is refreshable without audio before touching any
+record.
+
 ### Duplicate detection (opt-in)
 
 sonara can compute a compact acoustic **fingerprint** that identifies the *same
@@ -466,11 +499,6 @@ tempo- or pitch-shifted versions.
 The fingerprint is **opt-in** (performance-first: no analysis mode computes it by
 default). Request it with `features=["fingerprint"]`; the result then carries a
 base64 `fingerprint` string and an integer `fingerprint_version`:
-## Similarity & embeddings
-
-sonara can produce a fixed-length **similarity vector** (a hand-crafted, 48-dimension embedding) for nearest-neighbor search over a music library — no ML dependency. It is assembled from features the pipeline already computes (MFCC timbre, chroma harmony, spectral shape, rhythm, dynamics, and tonal descriptors), each with **fixed, documented normalization** so vectors are comparable across tracks, machines, and library runs.
-
-The vector is **opt-in** — it is never produced by a bare mode. Request it explicitly with `features=["embedding"]` (this also pulls in the playlist-level features it is built from):
 
 ```python
 import sonara
@@ -492,22 +520,6 @@ sonara.fingerprint_match(a, b)   # e.g. 0.98 → same recording
 ```
 
 Find duplicates across a whole folder:
-r = sonara.analyze_file("track.mp3", features=["embedding"])
-r["embedding"]          # list of 48 floats, each in [0, 1]
-r["embedding_version"]  # layout version (int); compare only same-version vectors
-```
-
-Compare two tracks with `sonara.similarity(a, b)` — it returns a score in `0..1` (higher = more similar) and accepts either `TrackAnalysis` results or raw vectors:
-
-```python
-a = sonara.analyze_file("a.mp3", features=["embedding"])
-b = sonara.analyze_file("b.mp3", features=["embedding"])
-sonara.similarity(a, b)          # e.g. 0.65 for close neighbors; ~0.5 for unrelated tracks
-sonara.similarity(a, a)          # 1.0 (identical)
-sonara.similarity(a["embedding"], b["embedding"])  # raw vectors also work
-```
-
-### Nearest-neighbor search over a library
 
 ```python
 import sonara
@@ -535,6 +547,53 @@ for dup, original in duplicates:
 
 The pairwise scan above is `O(n²)`; for very large libraries, bucket candidates
 first (e.g. by rounded `duration_sec`) and only fingerprint-match within a bucket.
+
+## Similarity & embeddings
+
+sonara can produce a fixed-length **similarity vector** (a hand-crafted, 48-dimension embedding) for nearest-neighbor search over a music library — no ML dependency. It is assembled from features the pipeline already computes (MFCC timbre, chroma harmony, spectral shape, rhythm, dynamics, and tonal descriptors), each with **fixed, documented normalization** so vectors are comparable across tracks, machines, and library runs.
+
+The vector is **opt-in** — it is never produced by a bare mode. Request it explicitly with `features=["embedding"]` (this also pulls in the playlist-level features it is built from):
+
+```python
+import sonara
+
+r = sonara.analyze_file("track.mp3", features=["embedding"])
+r["embedding"]          # list of 48 floats, each in [0, 1]
+r["embedding_version"]  # layout version (int); compare only same-version vectors
+```
+
+Compare two tracks with `sonara.similarity(a, b)` — it returns a score in `0..1` (higher = more similar) and accepts either `TrackAnalysis` results or raw vectors:
+
+```python
+a = sonara.analyze_file("a.mp3", features=["embedding"])
+b = sonara.analyze_file("b.mp3", features=["embedding"])
+sonara.similarity(a, b)          # e.g. 0.65 for close neighbors; ~0.5 for unrelated tracks
+sonara.similarity(a, a)          # 1.0 (identical)
+sonara.similarity(a["embedding"], b["embedding"])  # raw vectors also work
+```
+
+`similarity` (and the lower-level `embedding_distance`) take a `profile=`
+keyword selecting the comparison-time weight table: `"default"` is the
+historical balanced metric, `"timbre"` makes spectral texture dominate and
+demotes tempo/energy, so neighbors share *sonic style* rather than pace.
+Profiles are applied at distance time and never change the stored vector — the
+same persisted embeddings work with every profile. Unknown profile names raise
+`ValueError`. `sonara.SIMILARITY_PROFILES` maps each profile name to its
+weight-table version (the `"default"` profile's version aliases
+`SIMILARITY_VERSION`; other profiles version independently):
+
+```python
+sonara.similarity(a, b, profile="timbre")  # sonic-texture neighbors
+sonara.SIMILARITY_PROFILES                 # e.g. {"default": 2, "timbre": 1}
+```
+
+### Nearest-neighbor search over a library
+
+```python
+import sonara
+from pathlib import Path
+
+files = [str(p) for p in Path("~/Music").expanduser().rglob("*.mp3")]
 library = sonara.analyze_batch(files, features=["embedding"])
 
 def most_similar(query, library, k=5):
@@ -777,7 +836,7 @@ sonara provides 100+ audio analysis functions:
 
 **Filters & DSP:** `mel` filterbank, `chroma` filterbank, `lfilter`, `filtfilt`, `sosfiltfilt`, window functions (Hann, Hamming, Blackman, Kaiser, Tukey, Gaussian)
 
-**Pipeline:** `analyze_file`, `analyze_signal`, `analyze_batch`, `analyze_aggression_file`, `analyze_aggression_signal`, `analyze_aggression_batch`
+**Pipeline:** `analyze_file`, `analyze_signal`, `analyze_batch`, `analyze_aggression_file`, `analyze_aggression_signal`, `analyze_aggression_batch`, `augment_analysis`, `can_augment`, `augment_blocker`, `feature_dependencies`
 
 ## Architecture
 
