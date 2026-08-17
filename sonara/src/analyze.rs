@@ -127,12 +127,74 @@ impl Default for AnalysisMode {
     }
 }
 
+/// How a feature's value could be reproduced without re-running a full
+/// analysis — the coarse dependency classification behind
+/// [`feature_dependencies`].
+///
+/// This classifies *evidence requirements*, not pass routing: the registry's
+/// routing flags (extended pass, opt-in, full-only) are an orthogonal concern
+/// and unaffected by this enum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DependencyClass {
+    /// Requires the decoded audio signal itself (sample-domain computation:
+    /// zero crossings, true-peak oversampling, fingerprinting, container
+    /// metadata). Never recomputable from a cached [`TrackAnalysis`].
+    Audio,
+    /// Derived from per-frame intermediate curves (STFT frames, per-frame
+    /// RMS/chroma/onset envelope, …) that analysis aggregates and then
+    /// **drops** — the persisted record keeps only summaries. NOT decode-free:
+    /// reproducing the value means re-decoding and re-running the frame pass.
+    FrameCurves,
+    /// Decode-free: recomputable purely from the cached [`TrackAnalysis`]
+    /// fields listed in [`FeatureDependency::required_evidence`].
+    Scalars,
+    /// The similarity embedding: assembled purely from other [`TrackAnalysis`]
+    /// fields (see `required_evidence`), decode-free when those are present.
+    Embedding,
+}
+
+// Shorthand aliases keeping the registry table readable.
+use DependencyClass::Audio as A;
+use DependencyClass::Embedding as E;
+use DependencyClass::FrameCurves as C;
+use DependencyClass::Scalars as S;
+
+/// [`TrackAnalysis`] fields read by [`crate::similarity::embed`] when
+/// assembling the similarity vector (absent optional fields fall back to
+/// documented neutral values, but meaningful similarity needs all of them).
+const EMBEDDING_EVIDENCE: &[&str] = &[
+    "mfcc_mean",
+    "chroma_mean",
+    "spectral_contrast_mean",
+    "spectral_centroid_mean",
+    "spectral_bandwidth_mean",
+    "spectral_rolloff_mean",
+    "spectral_flatness_mean",
+    "bpm",
+    "onset_density",
+    "danceability",
+    "beats",
+    "loudness_lufs",
+    "dynamic_range_db",
+    "dissonance",
+    "chord_change_rate",
+    "key",
+    "energy",
+    "valence",
+];
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct FeatureSpec {
     name: &'static str,
     needs_extended: bool,
     opt_in_only: bool,
     full_only: bool,
+    /// Evidence classification for decode-free recomputation — see
+    /// [`DependencyClass`]. Orthogonal to the routing booleans above.
+    class: DependencyClass,
+    /// [`TrackAnalysis`] field names a decode-free recompute reads. Non-empty
+    /// exactly for the `Scalars`/`Embedding` classes.
+    required_evidence: &'static [&'static str],
 }
 
 const fn feature(
@@ -140,54 +202,142 @@ const fn feature(
     needs_extended: bool,
     opt_in_only: bool,
     full_only: bool,
+    class: DependencyClass,
+    required_evidence: &'static [&'static str],
 ) -> FeatureSpec {
     FeatureSpec {
         name,
         needs_extended,
         opt_in_only,
         full_only,
+        class,
+        required_evidence,
     }
 }
 
 /// Canonical public feature registry. Validation, mode routing, provenance,
 /// and Python configuration all resolve names through this table.
 const FEATURE_REGISTRY: &[FeatureSpec] = &[
-    feature("bpm", false, false, false),
-    feature("beats", false, false, false),
-    feature("onsets", false, false, false),
-    feature("rms", false, false, false),
-    feature("dynamic_range", false, false, false),
-    feature("centroid", false, false, false),
-    feature("zcr", false, false, false),
-    feature("onset_density", false, false, false),
-    feature("bandwidth", true, false, false),
-    feature("rolloff", true, false, false),
-    feature("flatness", true, false, false),
-    feature("contrast", true, false, false),
-    feature("mfcc", true, false, false),
-    feature("chroma", true, false, false),
-    feature("chords", true, false, false),
-    feature("dissonance", true, false, false),
-    feature("energy", true, false, false),
-    feature("danceability", true, false, false),
-    feature("key", true, false, false),
-    feature("valence", true, false, false),
-    feature("acousticness", true, false, false),
-    feature("tempo_curve", true, false, true),
-    feature("time_signature", true, false, true),
-    feature("beatgrid", false, true, false),
-    feature("structure", true, true, false),
-    feature("embedding", true, true, false),
+    feature("bpm", false, false, false, C, &[]),
+    feature("beats", false, false, false, C, &[]),
+    feature("onsets", false, false, false, C, &[]),
+    feature("rms", false, false, false, C, &[]),
+    feature("dynamic_range", false, false, false, C, &[]),
+    feature("centroid", false, false, false, C, &[]),
+    feature("zcr", false, false, false, A, &[]),
+    feature(
+        "onset_density",
+        false,
+        false,
+        false,
+        S,
+        &["onset_frames", "duration_sec"],
+    ),
+    feature("bandwidth", true, false, false, C, &[]),
+    feature("rolloff", true, false, false, C, &[]),
+    feature("flatness", true, false, false, C, &[]),
+    feature("contrast", true, false, false, C, &[]),
+    feature("mfcc", true, false, false, C, &[]),
+    feature("chroma", true, false, false, C, &[]),
+    feature("chords", true, false, false, C, &[]),
+    feature("dissonance", true, false, false, C, &[]),
+    feature(
+        "energy",
+        true,
+        false,
+        false,
+        S,
+        &[
+            "rms_mean",
+            "spectral_centroid_mean",
+            "onset_density",
+            "spectral_bandwidth_mean",
+        ],
+    ),
+    feature(
+        "danceability",
+        true,
+        false,
+        false,
+        S,
+        &["bpm", "beats", "onset_density"],
+    ),
+    feature("key", true, false, false, S, &["chroma_mean"]),
+    feature(
+        "valence",
+        true,
+        false,
+        false,
+        S,
+        &["chroma_mean", "bpm", "spectral_centroid_mean"],
+    ),
+    feature(
+        "acousticness",
+        true,
+        false,
+        false,
+        S,
+        &[
+            "spectral_flatness_mean",
+            "spectral_rolloff_mean",
+            "spectral_centroid_mean",
+            "onset_density",
+        ],
+    ),
+    feature("tempo_curve", true, false, true, S, &["beats"]),
+    feature("time_signature", true, false, true, C, &[]),
+    feature("beatgrid", false, true, false, C, &[]),
+    feature("structure", true, true, false, C, &[]),
+    feature("embedding", true, true, false, E, EMBEDDING_EVIDENCE),
     #[cfg(feature = "aggression")]
-    feature("aggression", true, true, false),
-    feature("fingerprint", false, true, false),
-    feature("loudness", false, true, false),
-    feature("silence", false, true, false),
-    feature("key_candidates", true, true, false),
-    feature("vocalness", true, true, false),
-    feature("mood", true, true, false),
-    feature("instrumentalness", true, true, false),
-    feature("tags", false, true, false),
+    feature("aggression", true, true, false, A, &[]),
+    feature("fingerprint", false, true, false, A, &[]),
+    feature("loudness", false, true, false, A, &[]),
+    feature("silence", false, true, false, C, &[]),
+    feature("key_candidates", true, true, false, S, &["chroma_mean"]),
+    feature(
+        "vocalness",
+        true,
+        true,
+        false,
+        S,
+        &[
+            "spectral_contrast_mean",
+            "spectral_flatness_mean",
+            "rms_mean",
+        ],
+    ),
+    feature(
+        "mood",
+        true,
+        true,
+        false,
+        S,
+        &[
+            "chroma_mean",
+            "bpm",
+            "rms_mean",
+            "spectral_centroid_mean",
+            "onset_density",
+            "spectral_bandwidth_mean",
+            "beats",
+            "dissonance",
+            "dynamic_range_db",
+        ],
+    ),
+    feature(
+        "instrumentalness",
+        true,
+        true,
+        false,
+        S,
+        &[
+            "spectral_contrast_mean",
+            "spectral_flatness_mean",
+            "rms_mean",
+        ],
+    ),
+    feature("tags", false, true, false, A, &[]),
 ];
 
 fn feature_spec(name: &str) -> Option<&'static FeatureSpec> {
@@ -204,6 +354,64 @@ pub fn canonical_feature_name(name: &str) -> Option<&'static str> {
 /// Iterate over every supported public feature name in canonical order.
 pub fn analysis_feature_names() -> impl Iterator<Item = &'static str> {
     FEATURE_REGISTRY.iter().map(|feature| feature.name)
+}
+
+/// One row of the declared feature-dependency map — see
+/// [`feature_dependencies`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FeatureDependency {
+    /// Canonical feature name (as accepted by `AnalysisConfig::features`).
+    pub name: &'static str,
+    /// Evidence classification — see [`DependencyClass`].
+    pub class: DependencyClass,
+    /// [`TrackAnalysis`] field names a decode-free recomputation of this
+    /// feature reads. Non-empty exactly when `class` is
+    /// [`DependencyClass::Scalars`] or [`DependencyClass::Embedding`]; empty
+    /// for `Audio`/`FrameCurves`, whose recomputation needs the audio itself.
+    pub required_evidence: &'static [&'static str],
+}
+
+/// The declared feature-dependency map: for every public feature, its
+/// [`DependencyClass`] and the [`TrackAnalysis`] evidence fields a
+/// decode-free recompute would read. Iterates in canonical registry order
+/// (the same order as [`analysis_feature_names`]).
+///
+/// Consumers persisting analysis results can plan cache freshness on this
+/// map: a `Scalars`/`Embedding` feature is recomputable from a stored record
+/// that carries every field in
+/// [`required_evidence`](FeatureDependency::required_evidence) (at a matching
+/// [`AnalysisProvenance::schema_version`]), while `Audio`/`FrameCurves`
+/// features always need the audio again.
+///
+/// Caveats consumers should know:
+/// - [`AnalysisProvenance`] is implicitly required evidence for every class:
+///   `sample_rate`/`hop_length` define the frame→seconds mapping for
+///   frame-index evidence such as `beats`, and `schema_version` gates whether
+///   stored fields still mean what the recompute expects.
+/// - `vocalness`/`instrumentalness` list the built-in heuristic's inputs.
+///   When an `AnalysisConfig::vocalness_model` is set, the value instead
+///   comes from the model over the similarity embedding — freshness then
+///   additionally keys on [`AnalysisProvenance::vocalness_model_id`] and the
+///   `embedding` feature's evidence.
+/// - The routing flags in the registry (extended pass, opt-in-only,
+///   full-only) are pass-routing concerns and deliberately not exposed here;
+///   they say nothing about evidence requirements.
+pub fn feature_dependencies() -> impl Iterator<Item = FeatureDependency> {
+    FEATURE_REGISTRY.iter().map(|feature| FeatureDependency {
+        name: feature.name,
+        class: feature.class,
+        required_evidence: feature.required_evidence,
+    })
+}
+
+/// Look up a single feature's dependency-map row by (case-insensitive) name.
+/// `None` for unknown names. See [`feature_dependencies`].
+pub fn feature_dependency(name: &str) -> Option<FeatureDependency> {
+    feature_spec(name).map(|feature| FeatureDependency {
+        name: feature.name,
+        class: feature.class,
+        required_evidence: feature.required_evidence,
+    })
 }
 
 /// Configuration for a single analysis run.
@@ -548,7 +756,9 @@ thread_local! {
 /// `fingerprint` field lives in its own fixed internal sample-rate space and
 /// carries its own version (see [`crate::fingerprint`]), as does `embedding`
 /// (`embedding_version`).
-#[derive(Debug, Clone, PartialEq, Eq)]
+// `Eq` was dropped (0.3.x) when the float-typed `bpm_min`/`bpm_max` fields
+// were added — floats are only `PartialEq`. No consumer relied on `Eq`.
+#[derive(Debug, Clone, PartialEq)]
 pub struct AnalysisProvenance {
     /// Value of [`ANALYSIS_SCHEMA_VERSION`] at analysis time.
     pub schema_version: u32,
@@ -563,6 +773,17 @@ pub struct AnalysisProvenance {
     pub mode: AnalysisMode,
     /// The explicit `features=[...]` request (sorted), if one was given.
     pub requested_features: Option<Vec<String>>,
+    /// The octave-folding lower tempo bound (`AnalysisConfig::bpm_min`) in
+    /// effect at analysis time; `None` when the config left it unset. Recorded
+    /// because the configured range changes the reported `bpm` (out-of-range
+    /// raw tempos are folded by octaves into it) — without it, two results for
+    /// the same audio can silently diverge with no visible cause. Cache
+    /// consumers should treat a change in the configured range as invalidating
+    /// stored `bpm` (though `bpm_raw` stays comparable).
+    pub bpm_min: Option<Float>,
+    /// The octave-folding upper tempo bound (`AnalysisConfig::bpm_max`) in
+    /// effect at analysis time; see [`bpm_min`](Self::bpm_min).
+    pub bpm_max: Option<Float>,
     /// Identity of the genre model that produced `genre`/`genre_confidence`,
     /// when a model carrying an `id` was supplied. `None` when no genre model
     /// ran (or the model has no `id`). Cache consumers should treat a change
@@ -2409,6 +2630,8 @@ fn analyze_signal_inner(
             hop_length,
             mode: config.mode,
             requested_features: config.requested_feature_names(),
+            bpm_min: config.bpm_min,
+            bpm_max: config.bpm_max,
             genre_model_id: config.genre_model.as_ref().and_then(|m| m.id.clone()),
             vocalness_model_id: config.vocalness_model.as_ref().map(|m| m.id().to_string()),
             #[cfg(feature = "aggression")]
@@ -3051,6 +3274,100 @@ mod tests {
             mixed.requested_feature_names().as_deref(),
             Some(&["energy".to_string(), "key".to_string()][..])
         );
+
+        // The dependency map is the same registry viewed through another lens:
+        // it must cover exactly the feature names, in canonical order, and its
+        // lookup must canonicalize case like the rest of the registry.
+        assert_eq!(
+            feature_dependencies().map(|d| d.name).collect::<Vec<_>>(),
+            expected
+        );
+        let key_dep = feature_dependency("KeY").expect("case-insensitive lookup");
+        assert_eq!(key_dep.name, "key");
+        assert!(feature_dependency("keyy").is_none());
+    }
+
+    #[test]
+    fn test_feature_dependency_map_classes_and_evidence() {
+        // Representative features of each class (the full table is encoded in
+        // the registry; these pin one of each so a class flip cannot pass).
+        let class_of = |name: &str| feature_dependency(name).unwrap().class;
+        assert_eq!(class_of("zcr"), DependencyClass::Audio);
+        assert_eq!(class_of("fingerprint"), DependencyClass::Audio);
+        assert_eq!(class_of("loudness"), DependencyClass::Audio);
+        assert_eq!(class_of("tags"), DependencyClass::Audio);
+        assert_eq!(class_of("bpm"), DependencyClass::FrameCurves);
+        assert_eq!(class_of("chroma"), DependencyClass::FrameCurves);
+        assert_eq!(class_of("silence"), DependencyClass::FrameCurves);
+        assert_eq!(class_of("structure"), DependencyClass::FrameCurves);
+        assert_eq!(class_of("key"), DependencyClass::Scalars);
+        assert_eq!(class_of("energy"), DependencyClass::Scalars);
+        assert_eq!(class_of("vocalness"), DependencyClass::Scalars);
+        assert_eq!(class_of("mood"), DependencyClass::Scalars);
+        assert_eq!(class_of("embedding"), DependencyClass::Embedding);
+        #[cfg(feature = "aggression")]
+        assert_eq!(class_of("aggression"), DependencyClass::Audio);
+
+        // Spot-pin two evidence lists the plan's consumers key on.
+        assert_eq!(
+            feature_dependency("key").unwrap().required_evidence,
+            &["chroma_mean"]
+        );
+        assert_eq!(
+            feature_dependency("vocalness").unwrap().required_evidence,
+            &[
+                "spectral_contrast_mean",
+                "spectral_flatness_mean",
+                "rms_mean"
+            ]
+        );
+
+        // Evidence lists are non-empty exactly for the decode-free classes,
+        // and every listed name is a real TrackAnalysis field (typo tripwire).
+        let known_fields: HashSet<&str> = [
+            "duration_sec",
+            "bpm",
+            "beats",
+            "onset_frames",
+            "onset_density",
+            "rms_mean",
+            "dynamic_range_db",
+            "loudness_lufs",
+            "spectral_centroid_mean",
+            "spectral_bandwidth_mean",
+            "spectral_rolloff_mean",
+            "spectral_flatness_mean",
+            "spectral_contrast_mean",
+            "mfcc_mean",
+            "chroma_mean",
+            "dissonance",
+            "chord_change_rate",
+            "key",
+            "energy",
+            "danceability",
+            "valence",
+        ]
+        .into_iter()
+        .collect();
+        for dep in feature_dependencies() {
+            let decode_free = matches!(
+                dep.class,
+                DependencyClass::Scalars | DependencyClass::Embedding
+            );
+            assert_eq!(
+                !dep.required_evidence.is_empty(),
+                decode_free,
+                "evidence must be non-empty exactly for Scalars/Embedding: {}",
+                dep.name
+            );
+            for field in dep.required_evidence {
+                assert!(
+                    known_fields.contains(field),
+                    "unknown evidence field {field} on {}",
+                    dep.name
+                );
+            }
+        }
     }
 
     #[test]
@@ -3657,6 +3974,33 @@ mod tests {
         };
         assert_eq!(config.bpm_min, Some(79.0));
         assert_eq!(config.bpm_max, Some(192.0));
+    }
+
+    #[test]
+    fn test_provenance_records_configured_bpm_range() {
+        let y = sine(440.0, 22050, 2.0);
+
+        // Default config: no range configured, provenance says so.
+        let unbounded = analyze_signal(y.view(), 22050, &compact()).unwrap();
+        assert_eq!(unbounded.provenance.bpm_min, None);
+        assert_eq!(unbounded.provenance.bpm_max, None);
+
+        // Configured range round-trips through a real analysis run, so a
+        // persisted record can no longer silently diverge on folding bounds.
+        let config = AnalysisConfig {
+            bpm_min: Some(79.0),
+            bpm_max: Some(192.0),
+            ..Default::default()
+        };
+        let bounded = analyze_signal(y.view(), 22050, &config).unwrap();
+        assert_eq!(bounded.provenance.bpm_min, Some(79.0));
+        assert_eq!(bounded.provenance.bpm_max, Some(192.0));
+        // And the recorded range is honored by the folded tempo itself.
+        assert!(
+            bounded.bpm >= 79.0 && bounded.bpm <= 192.0,
+            "bpm {} outside recorded fold range",
+            bounded.bpm
+        );
     }
 
     #[test]
