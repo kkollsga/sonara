@@ -28,6 +28,8 @@ STANDARD_TESTS = (
     "test_augment",
 )
 FIDELITY_TESTS = {
+    "test_similarity_frozen",
+    "test_similarity_real",
     "test_tonal_batch",
     "test_vocalness_frozen",
     "test_vocalness_real",

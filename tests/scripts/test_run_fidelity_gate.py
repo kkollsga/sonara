@@ -74,6 +74,8 @@ class FidelityMapContractTests(unittest.TestCase):
         expected = {
             "sonara/src/fingerprint.rs": {"fingerprint"},
             "sonara/src/genre.rs": {"genre"},
+            "sonara/src/similarity.rs": {"similarity"},
+            "tests/python/test_similarity_real.py": {"local_similarity"},
             "sonara/src/analyze.rs": {"aggression_api", "aggression_semantic"},
             "sonara/src/perceptual.rs": {"cross_cutting", "mood_aggression"},
         }

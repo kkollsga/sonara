@@ -1,0 +1,217 @@
+# Same-style ground truth for the similarity neighbor-quality gate.
+# label,pattern - pattern is a case-insensitive filename substring,
+# resolved by tests/python/test_similarity_real.py against the local
+# dataset roots (max 3 matches per pattern, sorted). Only artist/title
+# facts live here; no audio is committed. Curated 2026-08-17 from the
+# local library's coarse style labels (ID3 and Last.fm artist-tag
+# agreement), max 2 tracks per artist, 30 tracks per style.
+electronic-dance,02. We Gonna Rock It (2001 Remix).mp3
+electronic-dance,15. Don't You Ever Leave Me.mp3
+electronic-dance,10 - Fantasy.mp3
+electronic-dance,12 Amor Porteno.mp3
+electronic-dance,13. Gorillaz – Slow Country.mp3
+electronic-dance,13. Armin Van Buuren Feat. Ana Criado - I'll Listen (Radio Edit).mp3
+electronic-dance,11. Datura - Eternity.mp3
+electronic-dance,08. Body Rockin (Crashi Cut).mp3
+electronic-dance,09.Going Out Of My Head.mp3
+electronic-dance,04. Triple A - Winter Stayed (Armin Van Buuren's On The Beach Intro Mix).mp3
+electronic-dance,04. Bounce (To The Rhythm Divine).mp3
+electronic-dance,06. Say You'll Be Mine.mp3
+electronic-dance,07. Hey Senorita (Spanish Version).mp3
+electronic-dance,04. Stand Up (7Inch Version).mp3
+electronic-dance,04. How Old Are You (Original Edit Mix).mp3
+electronic-dance,12 Wind Of Change (Remix '88).mp3
+electronic-dance,02-Oakenfold Feat. Brittany Murphy-Faster Kill Pussycat.mp3
+electronic-dance,07 Heartbeat(edit).mp3
+electronic-dance,110 - Plastic Mode - Flemming Dalum Short Megamix.mp3
+electronic-dance,01. Gorillaz – Kids With Guns.mp3
+electronic-dance,02. Datura - North Line.mp3
+electronic-dance,03 - Planet Perfecto - Bullet In The Gun 2000 (Perfecto Re-Edits).mp3
+electronic-dance,15. The Martian Way.mp3
+electronic-dance,12. Dirty Grooves.mp3
+electronic-dance,09. Strip Tease (7'' Vocal Version).mp3
+electronic-dance,12. Dentaku ('The Mix' Version).mp3
+electronic-dance,15. Respect Yourself.mp3
+electronic-dance,11-Oakenfold Feat. Pharrell Williams-Sex `N` Money.mp3
+electronic-dance,07 Sing Another Song (Extended Mix).mp3
+electronic-dance,13 El Norte.mp3
+folk-country,05 - Like A Rolling Stone.mp3
+folk-country,1. Diamonds And Rust.mp3
+folk-country,09 - I Keep Looking.mp3
+folk-country,08 - I Want You.mp3
+folk-country,12. You'll Think Of Me [Radio Edit].mp3
+folk-country,13 - Today I Started Loving You Again.mp3
+folk-country,12. Carnival Of Venice (Bricciardi).mp3
+folk-country,11. One's On The Way.mp3
+folk-country,4. Imagine.mp3
+folk-country,04 - Brokenheartsville.mp3
+folk-country,09 A Little Gasoline.mp3
+folk-country,11 - You're Stronger Than Me.mp3
+folk-country,06. Hora Staccato (Dinicu).mp3
+folk-country,17 - What Have You Got Planned Tonight, Diana.mp3
+folk-country,The Best Of Don Mclean - 01 - Don Mclean - American Pie.mp3
+folk-country,12. The Future.mp3
+folk-country,07. Who By Fire.mp3
+folk-country,07. I Hope You Dance.mp3
+folk-country,14. Raining On Sunday [Radio Edit].mp3
+folk-country,07 - Saints & Angels.mp3
+folk-country,The Best Of Don Mclean - 06 - Don Mclean - Sister Fatima.mp3
+folk-country,10 - Why Can't He Be You.mp3
+folk-country,05. (Now You See Me) Now You Don't.mp3
+folk-country,01 - Gimmie That Girl.mp3
+folk-country,17. When The Tingle Becomes A Chill.mp3
+folk-country,06 - My List.mp3
+folk-country,04 Poor, Poor Pitiful Me.mp3
+folk-country,05. Life Holds On.mp3
+folk-country,12 - Go With Her.mp3
+folk-country,08. When I Feel This Way.mp3
+hip-hop-rap,24 - Box-Chevy.mp3
+hip-hop-rap,16 DJ Jazzy Jeff & the Fresh Prince - You Saw My Blinker.mp3
+hip-hop-rap,08 Coolio - 1,2,3,4, Sumpin' New.mp3
+hip-hop-rap,01 - Jazzy Jeff And Fresh Prince - Boom Shake The Room (Album Version).mp3
+hip-hop-rap,03 - Uptown Anthem.mp3
+hip-hop-rap,19-nate_dogg-why_(from_the_gridlock_sountrack).mp3
+hip-hop-rap,2Pac - 01 - Keep Ya Head Up.mp3
+hip-hop-rap,05. Bun B - You're Everything (Ft. Rick Ross, David Banner, 8Ball & Mjg).mp3
+hip-hop-rap,02 - Big Daddy Kane - Set It Off.mp3
+hip-hop-rap,01.Come Thru (Move).mp3
+hip-hop-rap,09 - Nas - Blaze A 50.mp3
+hip-hop-rap,08 Who Shot Ya.mp3
+hip-hop-rap,Drake - Still Fly - Best of Drizzy.mp3
+hip-hop-rap,02-Parents Just Don't Understand [Single Edit]-Will Smith-320kbps.mp3
+hip-hop-rap,2Pac - 13 - Heartz Of Men.mp3
+hip-hop-rap,04. Hey You Girl.mp3
+hip-hop-rap,06 Public Enemy - Prophets of Rage.mp3
+hip-hop-rap,07 - Weed Song.mp3
+hip-hop-rap,106-nicki_minaj_feat_will.i.am-check_it_out.mp3
+hip-hop-rap,16 - Ole School Shit.mp3
+hip-hop-rap,33 - Maybe Freestyle.mp3
+hip-hop-rap,11. Kill You.mp3
+hip-hop-rap,05-KiD CuDi-Get It In (Prod. By Omen).mp3
+hip-hop-rap,13-Black Eyed Peas Ft. KiD CuDi-Boom Boom Pow (Remix).mp3
+hip-hop-rap,28 - Hollywood Divorce (Ft. Lil Wayne Snoop Dogg).mp3
+hip-hop-rap,02 LL Cool J - Dear Yvette.mp3
+hip-hop-rap,02 DJ Jazzy Jeff & the Fresh Prince - Men in Black.mp3
+hip-hop-rap,04 - Paid Dues (Feat. Cee-Lo).mp3
+hip-hop-rap,27 - Morris Brown (Ft. Scar Sleepy Brown).mp3
+hip-hop-rap,Drake - Faded - Best of Drizzy.mp3
+jazz-blues,12 - In The Mood.mp3
+jazz-blues,05 Moonlight In Vermont.mp3
+jazz-blues,15 - I Can't Get Started.mp3
+jazz-blues,06 - Mae Mae.mp3
+jazz-blues,02. Tampico.mp3
+jazz-blues,04 - Something You Got.mp3
+jazz-blues,09 - Ca, C'est L'amour.mp3
+jazz-blues,15 Paul Anka Dance On Little Girl.mp3
+jazz-blues,07. Lady In Red.mp3
+jazz-blues,07. The Things (That) I Used To Do.mp3
+jazz-blues,13. Romantic Saxophone.mp3
+jazz-blues,13. What Kind Of Fool Am I.mp3
+jazz-blues,06. Shabes Lich.mp3
+jazz-blues,01 Paul Anka Time After Time.mp3
+jazz-blues,06 - Hang On Sloopy.mp3
+jazz-blues,23. Chicago.mp3
+jazz-blues,03 - A Matter Of Time.mp3
+jazz-blues,08 - Summertime.mp3
+jazz-blues,12. Life Without You.mp3
+jazz-blues,07. I'm Always Chassing Rainbows.mp3
+jazz-blues,01 - I Got Rhythm.mp3
+jazz-blues,02 Allure.mp3
+jazz-blues,09 - Speak Low.mp3
+jazz-blues,09. Rumeine.mp3
+jazz-blues,09 Set Me Free.mp3
+jazz-blues,01 - All In Good Time.mp3
+jazz-blues,07 - Oladipo.mp3
+jazz-blues,11 - Let Me Love You.mp3
+jazz-blues,06 - Kid Gloves.mp3
+jazz-blues,12 - Something's Gotta Give.mp3
+pop,09.Tearin' Up My Heart (Original Radio Edit).mp3
+pop,20 The Way Old Friends Do.mp3
+pop,15. I Still Believe In You.mp3
+pop,36 Limpido (Solo Version).mp3
+pop,12. Let Us Move On (feat. Kendrick Lamar).mp3
+pop,25 The Shirelles - Maybe Tonight.mp3
+pop,18. I'm So Lonesome I Could Cry.mp3
+pop,11. World Of Our Own [Us Mix].mp3
+pop,12 - Mothers Talk (U.s. Remix).mp3
+pop,11. Innamorati.mp3
+pop,08. Never Too Late.mp3
+pop,17. I Don't Think So (Lp Version).mp3
+pop,14 - The Look Of Love [Remix] - ABC.mp3
+pop,12.Eh, Eh (Nothing Else I Can Say).mp3
+pop,13 - Break It Down Again.mp3
+pop,11. You're All I Need To Get By.mp3
+pop,08. Liberian Girl.mp3
+pop,11 - Starlight.mp3
+pop,12 - Tiffany - Could've Been.mp3
+pop,10. Summer In Her Eyes.mp3
+pop,16. Will You Whisper.mp3
+pop,05 Wanna Be Startin' Somethin'.mp3
+pop,15 - Go Away.mp3
+pop,22. Help Yourself.mp3
+pop,10. Grafton Street.mp3
+pop,11 - King Without A Crown - ABC.mp3
+pop,12. On The Tray.mp3
+pop,04 - She Bop.mp3
+pop,14. Always Breaking My Heart.mp3
+pop,11. All Or Nothing.mp3
+rock,15. Purity.mp3
+rock,08. Back In The High Life Again.mp3
+rock,03 - Falling Star.mp3
+rock,19 - The White Stripes - Blue Orchid.mp3
+rock,07. It's All Over Now.mp3
+rock,16. Blissed And Gone.mp3
+rock,11 - Who Says You Can't Go Home.mp3
+rock,13. 213.mp3
+rock,05. I Hear You Knocking.mp3
+rock,01. Walk Of Life.mp3
+rock,02. Holier Than Thou.mp3
+rock,15 - Redemption Song.mp3
+rock,07. Billy Idol - Cradle Of Love.mp3
+rock,10. Say Too Much.mp3
+rock,07 Solidarity.mp3
+rock,02 Gets Me Through.mp3
+rock,03. Good Times Bad Times.mp3
+rock,04. I Want More.mp3
+rock,06. Long Tall Sally -1964.mp3
+rock,02 - Them Bones.mp3
+rock,12 - Without You Here.mp3
+rock,08. Here's To The Atom Bomb.mp3
+rock,05. Salisbury.mp3
+rock,08. Last Ride In.mp3
+rock,12. Song For Sonny Liston.mp3
+rock,09. Living And Dying.mp3
+rock,10. Glory Days.mp3
+rock,20. Room At The Top.mp3
+rock,06. Roxy Roller.mp3
+rock,05 - Somebody To Love.mp3
+soul-funk-disco,02 I Call It Love.mp3
+soul-funk-disco,11.Mars Vs. Venus.mp3
+soul-funk-disco,16. Chi-Lites - Too Good To Be Forgotten.mp3
+soul-funk-disco,02.Love Was Here.mp3
+soul-funk-disco,07  Meeting In My Bedroom.mp3
+soul-funk-disco,11 Were Callin You.mp3
+soul-funk-disco,01 I Got You (I Feel Good) (Digital Mix).mp3
+soul-funk-disco,02 - I Will Return.mp3
+soul-funk-disco,05. Groove On.mp3
+soul-funk-disco,02 - King Of Peru.mp3
+soul-funk-disco,12-(Loneliness Made Me Realize) It's You That I Need.mp3
+soul-funk-disco,11. She Was My Love.mp3
+soul-funk-disco,04 The One I Gave My Heart To.mp3
+soul-funk-disco,07 - Somewhere There's A Love.mp3
+soul-funk-disco,04 Cinderella.mp3
+soul-funk-disco,07. Rock Your Baby.mp3
+soul-funk-disco,19. Mu Old Plame.mp3
+soul-funk-disco,14-Reach Your Peak.mp3
+soul-funk-disco,05. Chi-Lites - (For God's Sake) Give More Power To The People.mp3
+soul-funk-disco,12. Would I Lie To You.mp3
+soul-funk-disco,11 - Living for the City.mp3
+soul-funk-disco,02 Wild Thing.mp3
+soul-funk-disco,14. Dance All Night.mp3
+soul-funk-disco,08 Blackstreet - I Can't Get You Out of My Mind.mp3
+soul-funk-disco,17 Make It Last Forever [Extended Version].mp3
+soul-funk-disco,08. Dance With Me.mp3
+soul-funk-disco,15. Love Jones.mp3
+soul-funk-disco,08 - You Are the Sunshine of My Life.mp3
+soul-funk-disco,06 - Let's Stay Together - Al Green.mp3
+soul-funk-disco,09. Painter Man.mp3

@@ -62,6 +62,12 @@
       "reason": "neutralize a provenance comment without changing test behavior"
     },
     {
+      "path": "tests/python/test_similarity_real.py",
+      "base_sha256": null,
+      "head_sha256": "889f8ddb5a67e24994f96840bde9a943deace4de9276232f85f0e2f94a01e7e7",
+      "reason": "introduce the local-only neighbor-quality harness; measured 2026-08-17, GATE PASS (timbre macro P@10 0.2310 vs default 0.2124)"
+    },
+    {
       "path": "tests/reference_data/vocal_labels.csv",
       "base_sha256": "41c0ad5375f20a4699940fe18c7af75c2ff01d29e097e8d0bec996f87140ea8e",
       "head_sha256": "16c71c3433ccfa183363b7657e9db5fc01bae9726fdf9e850e5aade51b996a00",
@@ -92,7 +98,10 @@
       "blocked": "no mandatory labeled real-music beat-grid gate is available"
     },
     "similarity": {
-      "blocked": "no mandatory labeled real-music similarity gate is available"
+      "command": ["{python}", "tests/python/test_similarity_frozen.py"]
+    },
+    "local_similarity": {
+      "blocked": "the labeled real-music neighbor-quality set is local-only and must be run explicitly"
     },
     "fingerprint": {
       "blocked": "no mandatory labeled real-music fingerprint gate is available"
@@ -181,9 +190,16 @@
       "paths": [
         "sonara/src/similarity.rs",
         "sonara-python/src/similarity.rs",
-        "tests/python/test_similarity.py"
+        "tests/python/test_similarity.py",
+        "tests/python/test_similarity_frozen.py",
+        "tests/reference_data/similarity_frozen_v1.json",
+        "tests/reference_data/similarity_labels.csv"
       ],
       "domains": ["similarity"]
+    },
+    {
+      "paths": ["tests/python/test_similarity_real.py"],
+      "domains": ["local_similarity"]
     },
     {
       "paths": ["sonara/src/fingerprint.rs", "tests/python/test_fingerprint.py"],
