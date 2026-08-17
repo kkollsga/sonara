@@ -369,6 +369,18 @@ pub struct FeatureDependency {
     /// [`DependencyClass::Scalars`] or [`DependencyClass::Embedding`]; empty
     /// for `Audio`/`FrameCurves`, whose recomputation needs the audio itself.
     pub required_evidence: &'static [&'static str],
+    /// Routing: computing this feature fresh requires the extended analysis
+    /// pass (beyond compact). Orthogonal to the evidence classification —
+    /// a consumer planning a *fresh* run reads this; a consumer planning a
+    /// decode-free recompute reads `class`/`required_evidence`.
+    pub needs_extended: bool,
+    /// Routing: never enabled by any mode's defaults (not even `Full`); only
+    /// an explicit `features=[...]` request computes it (performance-first
+    /// policy).
+    pub opt_in_only: bool,
+    /// Routing: among mode-driven defaults, computed by `Full` mode only
+    /// (skipped by `Playlist`).
+    pub full_only: bool,
 }
 
 /// The declared feature-dependency map: for every public feature, its
@@ -393,25 +405,30 @@ pub struct FeatureDependency {
 ///   comes from the model over the similarity embedding — freshness then
 ///   additionally keys on [`AnalysisProvenance::vocalness_model_id`] and the
 ///   `embedding` feature's evidence.
-/// - The routing flags in the registry (extended pass, opt-in-only,
-///   full-only) are pass-routing concerns and deliberately not exposed here;
-///   they say nothing about evidence requirements.
+/// - The routing flags (`needs_extended`, `opt_in_only`, `full_only`) are
+///   pass-routing concerns for planning a *fresh* run; they say nothing about
+///   evidence requirements, which are `class`/`required_evidence`'s domain.
 pub fn feature_dependencies() -> impl Iterator<Item = FeatureDependency> {
-    FEATURE_REGISTRY.iter().map(|feature| FeatureDependency {
-        name: feature.name,
-        class: feature.class,
-        required_evidence: feature.required_evidence,
-    })
+    FEATURE_REGISTRY.iter().map(FeatureDependency::from_spec)
 }
 
 /// Look up a single feature's dependency-map row by (case-insensitive) name.
 /// `None` for unknown names. See [`feature_dependencies`].
 pub fn feature_dependency(name: &str) -> Option<FeatureDependency> {
-    feature_spec(name).map(|feature| FeatureDependency {
-        name: feature.name,
-        class: feature.class,
-        required_evidence: feature.required_evidence,
-    })
+    feature_spec(name).map(FeatureDependency::from_spec)
+}
+
+impl FeatureDependency {
+    fn from_spec(feature: &'static FeatureSpec) -> Self {
+        FeatureDependency {
+            name: feature.name,
+            class: feature.class,
+            required_evidence: feature.required_evidence,
+            needs_extended: feature.needs_extended,
+            opt_in_only: feature.opt_in_only,
+            full_only: feature.full_only,
+        }
+    }
 }
 
 /// Configuration for a single analysis run.
@@ -4010,6 +4027,17 @@ mod tests {
         assert_eq!(class_of("embedding"), DependencyClass::Embedding);
         #[cfg(feature = "aggression")]
         assert_eq!(class_of("aggression"), DependencyClass::Audio);
+
+        // The routing flags surface the registry's booleans verbatim; pin one
+        // representative of each flag so a registry flip cannot pass silently.
+        let dep_of = |name: &str| feature_dependency(name).unwrap();
+        assert!(dep_of("key").needs_extended);
+        assert!(!dep_of("bpm").needs_extended);
+        assert!(dep_of("beatgrid").opt_in_only && !dep_of("beatgrid").needs_extended);
+        assert!(!dep_of("energy").opt_in_only);
+        assert!(dep_of("tempo_curve").full_only);
+        assert!(!dep_of("key").full_only);
+        assert!(dep_of("embedding").needs_extended && dep_of("embedding").opt_in_only);
 
         // Spot-pin two evidence lists the plan's consumers key on.
         assert_eq!(

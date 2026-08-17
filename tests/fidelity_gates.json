@@ -114,6 +114,7 @@
         "sonara/src/aggression_dsp.rs",
         "sonara-python/src/aggression.rs",
         "tests/python/test_aggression.py",
+        "tests/python/test_augment.py",
         "python/sonara/__init__.py",
         "python/sonara/__init__.pyi",
         "python/sonara/_result.py",

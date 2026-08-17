@@ -194,6 +194,11 @@ AnalysisResult = Dict[str, Union[float, int, str, List[int], List[float], List[s
 #                                      # frame * hop_length / sample_rate
 #     "mode":               str        # "compact" | "playlist" | "full"
 #     "requested_features": List[str]  # sorted; only when features=[...] given
+#     "bpm_min":            float      # octave-folding tempo range in effect at
+#     "bpm_max":            float      # analysis time; keys absent when unset.
+#                                      # A changed range invalidates stored "bpm"
+#                                      # (out-of-range raw tempos fold into it);
+#                                      # "bpm_raw" stays comparable.
 #   }
 #
 # When chords are computed (playlist/full modes or features=["chords"]), the
@@ -212,6 +217,45 @@ def analyze_batch(paths: List[str], *, sr: int = 22050, mode: str = "compact", f
 # `progress`, if given, is called as progress(done, total) after each completed
 # file — `done` counts completions in COMPLETION order (not input order),
 # `total == len(paths)`. Callback exceptions are ignored (never abort the batch).
+
+# ============================================================
+# Augment lane — recompute features onto a cached analysis dict
+# ============================================================
+# augment_analysis recomputes the named features onto a COPY of a cached
+# analysis dict (as returned by analyze_* — or the same shape loaded back from
+# JSON; tuples-as-lists are accepted). Decode-free where the record's evidence
+# allows; otherwise pass audio_path to enable ONE re-analysis at the record's
+# own provenance["sample_rate"] computing exactly the blocked features (an
+# "aggression" request auto-routes through its dedicated 22.05 kHz lane).
+# Feature names are case-insensitive; unknown names raise ValueError. Genre has
+# no feature name — passing genre_model IS the request (features=[] is valid);
+# vocalness/instrumentalness always update together. A schema_version mismatch
+# raises ValueError (re-analyze instead). Fields not asked about are never
+# cleared; provenance["requested_features"] becomes the union.
+def augment_analysis(cached: Dict, features: Optional[List[str]] = None, *, audio_path: Optional[str] = None, bpm_min: Optional[float] = None, bpm_max: Optional[float] = None, genre_model: Optional[str] = None, vocalness_model: Optional[str] = None) -> AnalysisResult: ...
+# can_augment: True iff `feature` is decode-free recomputable from THIS record
+# (evidence is per-record; two same-version records can differ). False for
+# unknown names.
+def can_augment(cached: Dict, feature: str) -> bool: ...
+# augment_blocker: the reason can_augment is False, as a stable descriptive
+# string — one of: "unknown feature", "needs audio (<class>-class feature)",
+# "schema version mismatch (record N, current M)", "embedding version mismatch
+# (record N, current M)", "missing evidence: <field>, ..." — or None when the
+# feature can be recomputed decode-free.
+def augment_blocker(cached: Dict, feature: str) -> Optional[str]: ...
+# feature_dependencies: the declared per-feature dependency map, one dict per
+# public feature in canonical order:
+#   name:              str        — canonical feature name
+#   class:             str        — "audio" | "frame_curves" | "scalars" |
+#                                 #  "embedding"; scalars/embedding are
+#                                 #  decode-free recomputable from a record
+#                                 #  carrying every required_evidence field
+#   required_evidence: List[str]  — record fields a decode-free recompute reads
+#                                 #  (non-empty exactly for scalars/embedding)
+#   needs_extended:    bool       — fresh computation needs the extended pass
+#   opt_in_only:       bool       — never enabled by any mode's defaults
+#   full_only:         bool       — among mode defaults, Full mode only
+def feature_dependencies() -> List[Dict[str, Union[str, bool, List[str]]]]: ...
 
 # --- beat grid ---
 # Opt-in via features=["beatgrid"]. When requested, the analyze_* result dict

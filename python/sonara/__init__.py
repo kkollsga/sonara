@@ -6,8 +6,15 @@ from sonara._sonara import (
     analyze_file as _analyze_file,
     analyze_signal as _analyze_signal,
     analyze_batch as _analyze_batch,
+    # --- augment lane ---
+    augment_analysis as _augment_analysis,
     # --- similarity ---
     similarity as _similarity,
+)
+from sonara._sonara import (  # noqa: F401 — augment lane introspection
+    augment_blocker,
+    can_augment,
+    feature_dependencies,
 )
 from sonara._sonara import fingerprint_match  # noqa: F401 — duplicate detection
 from sonara._result import TrackAnalysis
@@ -87,6 +94,52 @@ def analyze_batch(paths, *, sr=22050, mode="compact", features=None, bpm_min=Non
             progress=progress, genre_model=genre_model, vocalness_model=vocalness_model,
         )
     ]
+
+
+# --- augment lane ---
+def augment_analysis(cached, features=None, *, audio_path=None, bpm_min=None, bpm_max=None, genre_model=None, vocalness_model=None):
+    """Recompute named features onto a copy of a cached analysis dict.
+
+    ``cached`` is a ``TrackAnalysis`` (or plain dict of the same shape, e.g.
+    loaded back from JSON). Returns a new ``TrackAnalysis``; the input is never
+    mutated, and fields you did not ask about are never cleared.
+
+    Feature names are case-insensitive; an unknown name raises ``ValueError``
+    (no silent fallback). Decode-free features (``feature_dependencies()``
+    class ``"scalars"``/``"embedding"`` with all ``required_evidence`` fields
+    present on this record — see ``can_augment``/``augment_blocker``) are
+    recomputed from the cached fields alone, reproducing the standalone meaning
+    of the feature. Anything else (class ``"audio"``/``"frame_curves"``, or
+    missing evidence) needs the audio again: pass ``audio_path`` to enable one
+    re-analysis at the record's own ``provenance.sample_rate`` computing exactly
+    the blocked features (an ``aggression`` request auto-routes through its
+    dedicated 22.05 kHz lane); without it the call raises ``ValueError`` naming
+    each blocked feature and why.
+
+    ``vocalness``/``instrumentalness`` are one shared value and always update
+    together (either name requests both), along with
+    ``provenance.vocalness_model_id`` — the model when ``vocalness_model`` is
+    given (``"bundled"`` selects the packaged model), the built-in heuristic
+    otherwise. Genre has no feature name: passing ``genre_model`` IS the
+    request (``features=[]`` plus a model is valid) and populates
+    ``genre``/``genre_confidence`` + ``provenance.genre_model_id``. There is no
+    bundled genre model.
+
+    A record whose ``provenance.schema_version`` differs from this build's
+    schema raises ``ValueError`` (augmenting would mix field eras —
+    re-analyze instead), as does a recorded ``embedding_version`` differing
+    from ``sonara.SIMILARITY_VERSION`` for embedding-consuming requests.
+    The re-analysis fallback inherits the record's recorded
+    ``provenance.bpm_min``/``bpm_max``; ``bpm_min``/``bpm_max`` here apply only
+    to records predating range recording. ``provenance.requested_features``
+    becomes the union of the record's request and the augmented names.
+    """
+    if vocalness_model == "bundled":
+        vocalness_model = vocal_model.bundled_path()
+    return TrackAnalysis(_augment_analysis(
+        cached, features, audio_path=audio_path, bpm_min=bpm_min, bpm_max=bpm_max,
+        genre_model=genre_model, vocalness_model=vocalness_model,
+    ))
 
 
 # --- similarity ---

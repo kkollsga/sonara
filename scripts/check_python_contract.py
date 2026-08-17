@@ -57,6 +57,21 @@ FUSED_ANALYZER_CONTRACT = {
         },
         "List[AnalysisResult]",
     ),
+    # --- augment lane --- (positional spec may be a tuple of names)
+    "augment_analysis": (
+        ("cached", "features"),
+        {
+            "audio_path",
+            "bpm_min",
+            "bpm_max",
+            "genre_model",
+            "vocalness_model",
+        },
+        "AnalysisResult",
+    ),
+    "can_augment": (("cached", "feature"), set(), "bool"),
+    "augment_blocker": (("cached", "feature"), set(), "Optional[str]"),
+    "feature_dependencies": ((), set(), "List[Dict[str, Union[str, bool, List[str]]]]"),
 }
 
 
@@ -103,14 +118,17 @@ def check_fused_analyzer_stub(root: Path = ROOT) -> None:
 
     for name, contract in FUSED_ANALYZER_CONTRACT.items():
         positional, required_keywords, expected_return = contract
+        # A str is a single positional; a tuple lists them in order (possibly
+        # empty, e.g. feature_dependencies()).
+        expected_positional = [positional] if isinstance(positional, str) else list(positional)
         nodes = definitions.get(name, [])
         if len(nodes) != 1:
             raise AssertionError(f"stub must declare {name} exactly once, got {len(nodes)}")
         node = nodes[0]
         positional_names = [arg.arg for arg in (*node.args.posonlyargs, *node.args.args)]
-        if positional_names != [positional]:
+        if positional_names != expected_positional:
             raise AssertionError(
-                f"{name} positional parameters changed: expected {[positional]}, got {positional_names}"
+                f"{name} positional parameters changed: expected {expected_positional}, got {positional_names}"
             )
         keyword_names = {arg.arg for arg in node.args.kwonlyargs}
         missing = required_keywords - keyword_names
@@ -230,6 +248,10 @@ def self_test() -> None:
 def analyze_file(path: str, *, sr: int = 22050, mode: str = \"compact\", features=None, bpm_min=None, bpm_max=None, genre_model=None, vocalness_model=None) -> AnalysisResult: ...
 def analyze_signal(y: AudioArray, *, sr: int = 22050, mode: str = \"compact\", features=None, bpm_min=None, bpm_max=None, genre_model=None, vocalness_model=None) -> AnalysisResult: ...
 def analyze_batch(paths: list[str], *, sr: int = 22050, mode: str = \"compact\", features=None, bpm_min=None, bpm_max=None, progress=None, genre_model=None, vocalness_model=None) -> List[AnalysisResult]: ...
+def augment_analysis(cached: Dict, features=None, *, audio_path=None, bpm_min=None, bpm_max=None, genre_model=None, vocalness_model=None) -> AnalysisResult: ...
+def can_augment(cached: Dict, feature: str) -> bool: ...
+def augment_blocker(cached: Dict, feature: str) -> Optional[str]: ...
+def feature_dependencies() -> List[Dict[str, Union[str, bool, List[str]]]]: ...
 """.lstrip(),
                 encoding="utf-8",
             )
@@ -257,6 +279,13 @@ def analyze_batch(paths: list[str], *, sr: int = 22050, mode: str = \"compact\",
         expect_failure(
             stub_text=valid_stub.replace(
                 ") -> AnalysisResult: ...", ") -> dict: ...", 1
+            )
+        )
+        # Tuple-positional contracts must also pin their positional lists.
+        expect_failure(
+            stub_text=valid_stub.replace(
+                "def can_augment(cached: Dict, feature: str)",
+                "def can_augment(cached: Dict)",
             )
         )
 

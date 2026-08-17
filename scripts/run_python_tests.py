@@ -25,6 +25,7 @@ STANDARD_TESTS = (
     "test_misc_features",
     "test_genre",
     "test_vocalness_model",
+    "test_augment",
 )
 FIDELITY_TESTS = {
     "test_tonal_batch",
