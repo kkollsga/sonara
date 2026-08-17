@@ -158,13 +158,19 @@ def _as_embedding(x):
     return [float(v) for v in x], None
 
 
-def similarity(a, b):
+def similarity(a, b, *, profile="default"):
     """Similarity of two tracks in ``[0, 1]`` (higher = more similar).
 
     Accepts two ``TrackAnalysis`` results (analyzed with
     ``features=['embedding']``) or two raw embedding vectors (lists / numpy
     arrays). Uses a weighted, normalized Euclidean metric over the hand-crafted
     similarity vector; identical inputs return ``1.0``.
+
+    ``profile`` selects the distance-time weight table: ``"default"`` (the
+    historical balanced metric) or ``"timbre"`` (spectral texture dominates;
+    tempo/energy demoted, so neighbors share sonic style). Profiles never
+    change the stored vector — see ``sonara.SIMILARITY_PROFILES`` for the
+    name → weight-table-version map. Unknown names raise ``ValueError``.
 
     Raises ``ValueError`` if two dict inputs carry different
     ``embedding_version`` values (their vectors are not comparable).
@@ -176,4 +182,4 @@ def similarity(a, b):
             f"embedding_version mismatch ({ver_a} != {ver_b}); "
             "vectors from different layout versions are not comparable"
         )
-    return _similarity(va, vb)
+    return _similarity(va, vb, profile=profile)

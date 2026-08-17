@@ -72,6 +72,9 @@ FUSED_ANALYZER_CONTRACT = {
     "can_augment": (("cached", "feature"), set(), "bool"),
     "augment_blocker": (("cached", "feature"), set(), "Optional[str]"),
     "feature_dependencies": ((), set(), "List[Dict[str, Union[str, bool, List[str]]]]"),
+    # --- similarity profiles ---
+    "similarity": (("a", "b"), {"profile"}, "float"),
+    "embedding_distance": (("a", "b"), {"profile"}, "float"),
 }
 
 
@@ -252,6 +255,8 @@ def augment_analysis(cached: Dict, features=None, *, audio_path=None, bpm_min=No
 def can_augment(cached: Dict, feature: str) -> bool: ...
 def augment_blocker(cached: Dict, feature: str) -> Optional[str]: ...
 def feature_dependencies() -> List[Dict[str, Union[str, bool, List[str]]]]: ...
+def similarity(a: Union[Dict, List[float]], b: Union[Dict, List[float]], *, profile: str = \"default\") -> float: ...
+def embedding_distance(a: List[float], b: List[float], *, profile: str = \"default\") -> float: ...
 """.lstrip(),
                 encoding="utf-8",
             )
@@ -286,6 +291,19 @@ def feature_dependencies() -> List[Dict[str, Union[str, bool, List[str]]]]: ...
             stub_text=valid_stub.replace(
                 "def can_augment(cached: Dict, feature: str)",
                 "def can_augment(cached: Dict)",
+            )
+        )
+        # Dropping the similarity profile kwarg must fail the contract.
+        expect_failure(
+            stub_text=valid_stub.replace(
+                'def similarity(a: Union[Dict, List[float]], b: Union[Dict, List[float]], *, profile: str = "default") -> float: ...',
+                "def similarity(a: Union[Dict, List[float]], b: Union[Dict, List[float]]) -> float: ...",
+            )
+        )
+        expect_failure(
+            stub_text=valid_stub.replace(
+                'def embedding_distance(a: List[float], b: List[float], *, profile: str = "default") -> float: ...',
+                "def embedding_distance(a: List[float], b: List[float]) -> float: ...",
             )
         )
 

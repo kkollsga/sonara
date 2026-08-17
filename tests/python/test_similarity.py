@@ -149,6 +149,67 @@ def t_missing_embedding_raises():
     raise AssertionError("expected ValueError when embedding absent")
 
 
+# ------------------------------------------------------------
+# Similarity profiles (distance-time weight tables)
+# ------------------------------------------------------------
+def _crafted_pair():
+    """Deterministic 48-dim vectors differing on both timbre and vibe dims, so
+    default and timbre weightings cannot agree on the distance."""
+    a = [0.5] * sonara.EMBEDDING_DIM
+    b = list(a)
+    for i in (35, 39, 40, 46, 47):  # bpm_fold, lufs, dynamic_range, energy, valence
+        b[i] = 0.9
+    for i in range(13):  # MFCC block
+        b[i] = 0.62
+    return a, b
+
+
+def t_profile_kwarg_accepted():
+    s = sonara.similarity(r_emb, r_emb2, profile="default")
+    assert 0.0 <= s <= 1.0
+    s = sonara.similarity(r_emb, r_emb2, profile="timbre")
+    assert 0.0 <= s <= 1.0
+
+
+def t_default_profile_equals_no_kwarg():
+    # The crafted pair differs under default vs timbre weighting, so this
+    # equality proves the no-kwarg path really runs the default profile.
+    a, b = _crafted_pair()
+    assert sonara.similarity(a, b, profile="default") == sonara.similarity(a, b)
+    assert sonara.embedding_distance(a, b, profile="default") == sonara.embedding_distance(a, b)
+    assert sonara.similarity(r_emb, r_emb2, profile="default") == sonara.similarity(r_emb, r_emb2)
+
+
+def t_timbre_changes_value():
+    a, b = _crafted_pair()
+    d_def = sonara.embedding_distance(a, b)
+    d_tim = sonara.embedding_distance(a, b, profile="timbre")
+    assert d_def != d_tim, f"timbre profile must reweight the distance: {d_def} == {d_tim}"
+    s_def = sonara.similarity(a, b)
+    s_tim = sonara.similarity(a, b, profile="timbre")
+    assert s_def != s_tim, f"timbre profile must reweight similarity: {s_def} == {s_tim}"
+
+
+def t_unknown_profile_raises():
+    a, b = _crafted_pair()
+    for fn in (sonara.similarity, sonara.embedding_distance):
+        try:
+            fn(a, b, profile="acoustic")
+        except ValueError as e:
+            assert "acoustic" in str(e) and "timbre" in str(e) and "default" in str(e), (
+                f"error must name the bad profile and the valid set, got: {e}"
+            )
+            continue
+        raise AssertionError(f"{fn.__name__} accepted unknown profile 'acoustic'")
+
+
+def t_profiles_surface_exposed():
+    profiles = sonara.SIMILARITY_PROFILES
+    assert profiles == {"default": sonara.SIMILARITY_VERSION, "timbre": 1}, (
+        f"unexpected SIMILARITY_PROFILES: {profiles}"
+    )
+
+
 test("embedding present when features=['embedding']", t_present_when_requested)
 test("embedding has correct length", t_right_length)
 test("embedding absent in compact mode", t_absent_in_compact)
@@ -161,6 +222,11 @@ test("similarity works on numpy arrays", t_numpy_arrays_work)
 test("similarity is in [0,1]", t_in_unit_interval)
 test("version mismatch raises ValueError", t_version_mismatch_raises)
 test("missing embedding raises ValueError", t_missing_embedding_raises)
+test("profile kwarg accepted", t_profile_kwarg_accepted)
+test("profile='default' equals no-kwarg result", t_default_profile_equals_no_kwarg)
+test("profile='timbre' changes the value", t_timbre_changes_value)
+test("unknown profile raises ValueError naming the valid set", t_unknown_profile_raises)
+test("SIMILARITY_PROFILES surface exposed", t_profiles_surface_exposed)
 
 print("=" * 70)
 print(f"  {passed} passed, {failed} failed")

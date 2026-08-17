@@ -27,9 +27,15 @@
 //! [`SIMILARITY_VERSION`] identifies the exact layout + normalization constants.
 //! **Bump rule:** ANY change that alters the meaning of a stored vector — adding,
 //! removing or reordering a dimension, changing a normalization constant, or
-//! changing the weight vector used by [`distance`] — REQUIRES incrementing
-//! [`SIMILARITY_VERSION`]. Vectors carrying different versions are not
-//! comparable and callers should refuse to compare them.
+//! changing the **default profile's** weight table ([`WEIGHTS`]) used by
+//! [`distance`] — REQUIRES incrementing [`SIMILARITY_VERSION`]. Vectors
+//! carrying different versions are not comparable and callers should refuse to
+//! compare them.
+//!
+//! Weight tables for *named non-default profiles* (see [`SimilarityProfile`])
+//! are versioned independently: changing [`WEIGHTS_TIMBRE`] bumps
+//! [`SIMILARITY_PROFILE_TIMBRE_VERSION`] only, never [`SIMILARITY_VERSION`] —
+//! stored vectors stay valid because profiles are applied at distance time.
 //!
 //! ## Distance metric
 //!
@@ -100,7 +106,10 @@ pub const EMBEDDING_DIM: usize = 48;
 /// - `[41..46]`  tonal              (5)
 /// - `[46..48]`  perceptual         (2)
 ///
-/// Changing any weight REQUIRES bumping [`SIMILARITY_VERSION`].
+/// This is the **default profile's** table: changing any weight here REQUIRES
+/// bumping [`SIMILARITY_VERSION`] (the default profile's version aliases it).
+/// Non-default profile tables (e.g. [`WEIGHTS_TIMBRE`]) are governed by their
+/// own version constants instead — see the module docs.
 pub const WEIGHTS: [Float; EMBEDDING_DIM] = [
     // MFCC timbre (0..13): coeff 0 (log-energy-ish) low weight, shape coeffs high
     0.4, 1.0, 1.0, 1.0, 1.0, 1.0, 0.8, 0.8, 0.8, 0.6, 0.6, 0.6, 0.6,
@@ -117,6 +126,135 @@ pub const WEIGHTS: [Float; EMBEDDING_DIM] = [
     0.6, 0.6, 1.0, 1.0, 0.5, // Perceptual: energy, valence (46..48)
     1.0, 0.7,
 ];
+
+/// Version of the **default** profile's weight table. Aliases
+/// [`SIMILARITY_VERSION`]: the default profile is the historical metric, so its
+/// weights are part of what `SIMILARITY_VERSION` has always identified, and a
+/// change to [`WEIGHTS`] bumps `SIMILARITY_VERSION` itself. Profile versions
+/// are otherwise independent — a change to a non-default profile's table bumps
+/// THAT profile's version only (stored vectors are unaffected because profile
+/// weights are applied at distance time, not at embed time).
+pub const SIMILARITY_PROFILE_DEFAULT_VERSION: u32 = SIMILARITY_VERSION;
+
+/// Version of the timbre profile's weight table ([`WEIGHTS_TIMBRE`]). Bump on
+/// any change to that table. Independent of [`SIMILARITY_VERSION`]: timbre
+/// weights only exist at distance time, so stored vectors never carry them.
+pub const SIMILARITY_PROFILE_TIMBRE_VERSION: u32 = 1;
+
+/// Per-dimension weights for the **timbre** profile — same layout as
+/// [`WEIGHTS`], different emphasis.
+///
+/// Motivation: with the default table the largest single weight is `bpm_fold`
+/// (2.0) and the vibe scalars (energy, valence, dynamics) carry full weight, so
+/// nearest neighbors are structure-coherent (same tempo/energy) but can mix
+/// style character across genres. This profile makes *what the track sounds
+/// like* — spectral texture — dominate the metric, so neighbors share sonic
+/// style even when tempo or energy differ.
+///
+/// Per-block rationale (v1 — an interpretable first cut, validated by the
+/// labeled neighbor-quality gate; retune there, not by feel):
+/// - **MFCC timbre `[0..13]`** — the primary style-character signal; raised to
+///   dominate. c0 stays low (0.6): it tracks overall log-energy, which is
+///   gain-adjacent, not texture. Low-order shape coeffs (c1-c5, broad spectral
+///   envelope) get 2.0; mid (c6-c8) 1.6; high-order (c9-c12, fine/noisy
+///   detail) 1.2.
+/// - **Chroma harmony `[13..25]`** — kept moderate (0.5): harmony correlates
+///   with style but is what the default profile already captures well; it must
+///   not outvote texture here.
+/// - **Spectral contrast `[25..31]`** — raised to 1.6: peak-to-valley band
+///   structure separates dense/compressed textures from sparse/acoustic ones,
+///   exactly the "vibe-mixed neighbor" failure reported.
+/// - **Spectral scalars `[31..35]`** — brightness/spread/rolloff/flatness are
+///   timbre-adjacent; kept near default (1.2, 1.0, 1.0, 1.0) so gross spectral
+///   placement still counts.
+/// - **Rhythm `[35..39]`** — demoted hard (bpm_fold 2.0 → 0.3; onset density
+///   0.4; danceability 0.3; grid regularity 0.3): tempo/groove is the main
+///   cross-genre puller in the default metric.
+/// - **Dynamics `[39..41]`** — lufs 0.1 (gain-dependent), dynamic range 0.3.
+/// - **Tonal `[41..46]`** — dissonance keeps 0.6 (it is a texture quality);
+///   chord-change rate 0.4; key circle-of-fifths 0.4/0.4 and mode 0.3 (key is
+///   irrelevant to sonic character).
+/// - **Perceptual `[46..48]`** — energy 0.3, valence 0.2: these are the
+///   vibe summaries whose dominance the profile exists to remove.
+///
+/// Resulting mass: timbre blocks (MFCC + contrast + spectral scalars) carry
+/// ~77% of the total weight vs ~48% in the default table.
+pub const WEIGHTS_TIMBRE: [Float; EMBEDDING_DIM] = [
+    // MFCC timbre (0..13): c0 low (log-energy-ish), shape coeffs dominant
+    0.6, 2.0, 2.0, 2.0, 2.0, 2.0, 1.6, 1.6, 1.6, 1.2, 1.2, 1.2, 1.2,
+    // Chroma harmony (13..25): moderate
+    0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5,
+    // Spectral contrast bands (25..31): raised
+    1.6, 1.6, 1.6, 1.6, 1.6, 1.6,
+    // Spectral scalars: centroid, bandwidth, rolloff, flatness (31..35)
+    1.2, 1.0, 1.0, 1.0,
+    // Rhythm: bpm_fold, onset_density, danceability, grid_regularity (35..39)
+    0.3, 0.4, 0.3, 0.3, // Dynamics: lufs, dynamic_range (39..41)
+    0.1, 0.3,
+    // Tonal: dissonance, chord_change_rate, key_cof_sin, key_cof_cos, key_mode (41..46)
+    0.6, 0.4, 0.4, 0.4, 0.3, // Perceptual: energy, valence (46..48)
+    0.3, 0.2,
+];
+
+/// A named per-dimension weighting applied by [`distance_with_profile`] /
+/// [`similarity_with_profile`] at comparison time.
+///
+/// Profiles never change the stored vector — the same
+/// [`SIMILARITY_VERSION`]-stamped embedding serves every profile — they only
+/// change which weight table the distance uses. Each profile's table carries
+/// its own version constant (see the module docs for the bump rules).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SimilarityProfile {
+    /// The historical metric: [`WEIGHTS`], balanced across timbre, harmony and
+    /// rhythm with tempo weighted highest.
+    #[default]
+    Default,
+    /// Timbre-dominant metric: [`WEIGHTS_TIMBRE`], spectral texture dominates
+    /// while tempo/energy/valence are demoted.
+    Timbre,
+}
+
+impl SimilarityProfile {
+    /// Parse a profile name (case-insensitive): `"default"` / `"timbre"`.
+    /// Unknown names return `None` — callers must reject them explicitly, never
+    /// fall back silently.
+    pub fn from_name(name: &str) -> Option<Self> {
+        if name.eq_ignore_ascii_case("default") {
+            Some(Self::Default)
+        } else if name.eq_ignore_ascii_case("timbre") {
+            Some(Self::Timbre)
+        } else {
+            None
+        }
+    }
+
+    /// The canonical (lowercase) profile name.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Default => "default",
+            Self::Timbre => "timbre",
+        }
+    }
+
+    /// The version of this profile's weight table.
+    pub fn version(self) -> u32 {
+        match self {
+            Self::Default => SIMILARITY_PROFILE_DEFAULT_VERSION,
+            Self::Timbre => SIMILARITY_PROFILE_TIMBRE_VERSION,
+        }
+    }
+
+    /// This profile's weight table.
+    pub fn weights(self) -> &'static [Float; EMBEDDING_DIM] {
+        match self {
+            Self::Default => &WEIGHTS,
+            Self::Timbre => &WEIGHTS_TIMBRE,
+        }
+    }
+
+    /// All selectable profiles, in canonical order.
+    pub const ALL: [SimilarityProfile; 2] = [Self::Default, Self::Timbre];
+}
 
 // ============================================================
 // Normalization helpers — all outputs guaranteed finite & in [0, 1]
@@ -345,16 +483,29 @@ pub fn embed(a: &TrackAnalysis) -> Vec<Float> {
 /// shared prefix is used (so mismatched/legacy lengths degrade gracefully rather
 /// than panicking). Empty / fully-mismatched input yields `1.0`.
 pub fn distance(a: &[Float], b: &[Float]) -> Float {
+    distance_with_profile(a, b, SimilarityProfile::Default)
+}
+
+/// [`distance`] under a named weighting profile.
+///
+/// Identical structure to [`distance`] — a weighted, normalized Euclidean
+/// distance in `[0, 1]` — with the profile's weight table in place of the
+/// default [`WEIGHTS`]. `SimilarityProfile::Default` is bit-identical to
+/// [`distance`]. The uniform-weight fallback for non-canonical vector lengths
+/// applies to every profile (it degrades on *length*, never on profile name —
+/// unknown profile names must be rejected before reaching this function).
+pub fn distance_with_profile(a: &[Float], b: &[Float], profile: SimilarityProfile) -> Float {
     let n = a.len().min(b.len());
     if n == 0 {
         return 1.0;
     }
     let use_weights = a.len() == EMBEDDING_DIM && b.len() == EMBEDDING_DIM;
+    let weights = profile.weights();
 
     let mut wsum = 0.0f32;
     let mut acc = 0.0f32;
     for i in 0..n {
-        let w = if use_weights { WEIGHTS[i] } else { 1.0 };
+        let w = if use_weights { weights[i] } else { 1.0 };
         let d = finite_or(a[i], 0.0) - finite_or(b[i], 0.0);
         acc += w * d * d;
         wsum += w;
@@ -373,7 +524,22 @@ pub fn distance(a: &[Float], b: &[Float]) -> Float {
 /// so scores spread usefully over real music instead of clustering near 0.85
 /// (see the module docs). Monotone in [`distance`], so rankings are unchanged.
 pub fn similarity(a: &[Float], b: &[Float]) -> Float {
-    (1.0 - distance(a, b) / SIMILARITY_SCALE).clamp(0.0, 1.0)
+    similarity_with_profile(a, b, SimilarityProfile::Default)
+}
+
+/// [`similarity`] under a named weighting profile.
+///
+/// Applies the same calibrated stretch as [`similarity`],
+/// `1 - distance / SIMILARITY_SCALE` (clamped to `[0, 1]`). The distance is
+/// weight-normalized under every profile, so it stays in `[0, 1]` regardless
+/// of a table's total mass and [`SIMILARITY_SCALE`] is reused as-is for the
+/// timbre profile; if the labeled neighbor-quality gate shows the timbre
+/// distance distribution sits far from the default's ~0.19 random-pair median,
+/// a per-profile scale is the follow-up — bumping that profile's version, not
+/// [`SIMILARITY_VERSION`]. Monotone in [`distance_with_profile`], so rankings
+/// under a profile are the same whether sorted by distance or similarity.
+pub fn similarity_with_profile(a: &[Float], b: &[Float], profile: SimilarityProfile) -> Float {
+    (1.0 - distance_with_profile(a, b, profile) / SIMILARITY_SCALE).clamp(0.0, 1.0)
 }
 
 // ============================================================
@@ -528,6 +694,149 @@ mod tests {
         assert!((dab - dba).abs() < 1e-6, "distance must be symmetric");
         assert!((0.0..=1.0).contains(&dab), "distance in [0,1], got {dab}");
         assert!((0.0..=1.0).contains(&similarity(&a, &b)));
+    }
+
+    // ---- Similarity profiles ----
+
+    /// Deterministic synthetic 48-dim vectors (no audio needed).
+    fn pin_vec_a() -> Vec<Float> {
+        (0..EMBEDDING_DIM)
+            .map(|i| ((i * 37) % 97) as Float / 96.0)
+            .collect()
+    }
+
+    fn pin_vec_b() -> Vec<Float> {
+        (0..EMBEDDING_DIM)
+            .map(|i| ((i * 53 + 11) % 89) as Float / 88.0)
+            .collect()
+    }
+
+    /// pin_vec_a with a small deterministic perturbation (a "close" pair, so
+    /// the similarity pin is not just exercising the clamp at 0).
+    fn pin_vec_a_close() -> Vec<Float> {
+        (0..EMBEDDING_DIM)
+            .map(|i| (((i * 37) % 97) as Float / 96.0 + ((i % 5) as Float) * 0.03).min(1.0))
+            .collect()
+    }
+
+    #[test]
+    fn test_profile_versions_pinned() {
+        assert_eq!(SIMILARITY_PROFILE_DEFAULT_VERSION, SIMILARITY_VERSION);
+        assert_eq!(SIMILARITY_PROFILE_DEFAULT_VERSION, 2);
+        assert_eq!(SIMILARITY_PROFILE_TIMBRE_VERSION, 1);
+        assert_eq!(WEIGHTS_TIMBRE.len(), EMBEDDING_DIM);
+        assert_eq!(SimilarityProfile::Default.version(), 2);
+        assert_eq!(SimilarityProfile::Timbre.version(), 1);
+    }
+
+    /// No-movement proof: the default profile (and the plain `distance` /
+    /// `similarity` functions that delegate to it) must reproduce the exact
+    /// pre-profile results. Expected bits were computed from the code BEFORE
+    /// `SimilarityProfile` existed (commit e723241) on these same vectors.
+    #[test]
+    fn test_default_profile_bit_identical_to_pre_profile_code() {
+        let a = pin_vec_a();
+        let b = pin_vec_b();
+        let ac = pin_vec_a_close();
+        // Pre-change pins: d(a,b)=0.44799155, s(a,b)=0.0 (clamped),
+        // d(a,ac)=0.06737465, s(a,ac)=0.8226983.
+        assert_eq!(distance(&a, &b).to_bits(), 0x3ee55f26);
+        assert_eq!(similarity(&a, &b).to_bits(), 0x00000000);
+        assert_eq!(distance(&a, &ac).to_bits(), 0x3d89fbb8);
+        assert_eq!(similarity(&a, &ac).to_bits(), 0x3f529c5b);
+        // The explicit-profile route is the same computation.
+        assert_eq!(
+            distance_with_profile(&a, &b, SimilarityProfile::Default).to_bits(),
+            distance(&a, &b).to_bits()
+        );
+        assert_eq!(
+            similarity_with_profile(&a, &ac, SimilarityProfile::Default).to_bits(),
+            similarity(&a, &ac).to_bits()
+        );
+    }
+
+    /// Designed triple: B shares A's timbre dims (MFCC + contrast) but moves
+    /// the rhythm/dynamics/perceptual "vibe" dims; C is the reverse. The
+    /// timbre profile must rank B closer to A than C; the default profile must
+    /// rank C closer or equal (it is tempo/energy-dominated).
+    #[test]
+    fn test_timbre_profile_reorders_designed_triple() {
+        let a = vec![0.5; EMBEDDING_DIM];
+        // B: timbre identical, vibe dims moved by 0.4
+        // (bpm_fold 35, lufs 39, dynamic_range 40, energy 46, valence 47).
+        let mut b = a.clone();
+        for i in [35, 39, 40, 46, 47] {
+            b[i] = 0.9;
+        }
+        // C: vibe identical, all MFCC [0..13] + contrast [25..31] moved by 0.15.
+        let mut c = a.clone();
+        for v in c.iter_mut().take(13) {
+            *v = 0.65;
+        }
+        for v in c.iter_mut().take(31).skip(25) {
+            *v = 0.65;
+        }
+
+        let d_ab_def = distance(&a, &b);
+        let d_ac_def = distance(&a, &c);
+        let d_ab_tim = distance_with_profile(&a, &b, SimilarityProfile::Timbre);
+        let d_ac_tim = distance_with_profile(&a, &c, SimilarityProfile::Timbre);
+        assert!(
+            d_ac_def <= d_ab_def,
+            "default must rank the same-timbre/different-vibe pair farther: d(A,C)={d_ac_def} vs d(A,B)={d_ab_def}"
+        );
+        assert!(
+            d_ab_tim < d_ac_tim,
+            "timbre must rank the same-timbre pair closer: d(A,B)={d_ab_tim} vs d(A,C)={d_ac_tim}"
+        );
+    }
+
+    #[test]
+    fn test_profile_from_name() {
+        assert_eq!(
+            SimilarityProfile::from_name("default"),
+            Some(SimilarityProfile::Default)
+        );
+        assert_eq!(
+            SimilarityProfile::from_name("Timbre"),
+            Some(SimilarityProfile::Timbre)
+        );
+        assert_eq!(
+            SimilarityProfile::from_name("TIMBRE"),
+            Some(SimilarityProfile::Timbre)
+        );
+        assert_eq!(SimilarityProfile::from_name("acoustic"), None);
+        assert_eq!(SimilarityProfile::from_name(""), None);
+        for p in SimilarityProfile::ALL {
+            assert_eq!(SimilarityProfile::from_name(p.name()), Some(p));
+        }
+    }
+
+    #[test]
+    fn test_timbre_symmetric_self_zero_bounded() {
+        let a = pin_vec_a();
+        let b = pin_vec_b();
+        let dab = distance_with_profile(&a, &b, SimilarityProfile::Timbre);
+        let dba = distance_with_profile(&b, &a, SimilarityProfile::Timbre);
+        assert_eq!(
+            distance_with_profile(&a, &a, SimilarityProfile::Timbre),
+            0.0,
+            "identical → timbre distance 0"
+        );
+        assert_eq!(
+            similarity_with_profile(&a, &a, SimilarityProfile::Timbre),
+            1.0,
+            "identical → timbre similarity 1"
+        );
+        assert!(
+            (dab - dba).abs() < 1e-6,
+            "timbre distance must be symmetric"
+        );
+        assert!(
+            (0.0..=1.0).contains(&dab),
+            "timbre distance in [0,1]: {dab}"
+        );
+        assert!((0.0..=1.0).contains(&similarity_with_profile(&a, &b, SimilarityProfile::Timbre)));
     }
 
     #[test]

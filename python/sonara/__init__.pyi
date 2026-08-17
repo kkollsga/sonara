@@ -378,6 +378,12 @@ def fingerprint_match(a: Union[str, Dict], b: Union[str, Dict]) -> float: ...
 
 SIMILARITY_VERSION: int
 EMBEDDING_DIM: int
+# Selectable distance-time weighting profiles for similarity/embedding_distance:
+# profile name -> weight-table version. Profiles are applied at comparison time
+# and never change the stored vector; the "default" profile's version aliases
+# SIMILARITY_VERSION, while other profiles (e.g. "timbre") version their weight
+# tables independently.
+SIMILARITY_PROFILES: Dict[str, int]
 AGGRESSION_MODEL_VERSION: int
 AGGRESSION_SAMPLE_RATE: int
 AGGRESSION_EMBEDDING_VERSION: int
@@ -393,8 +399,8 @@ class AggressionAnalysis(TypedDict):
     aggression_rhythm: float
     aggression_model_id: str
 
-def similarity(a: Union[Dict, List[float], NDArray[np.float32]], b: Union[Dict, List[float], NDArray[np.float32]]) -> float: ...
-def embedding_distance(a: List[float], b: List[float]) -> float: ...
+def similarity(a: Union[Dict, List[float], NDArray[np.float32]], b: Union[Dict, List[float], NDArray[np.float32]], *, profile: str = "default") -> float: ...
+def embedding_distance(a: List[float], b: List[float], *, profile: str = "default") -> float: ...
 # Retained legacy-v1 scorer for stored 48D similarity embeddings.
 def aggression_score(embedding: List[float], *, embedding_version: int = AGGRESSION_EMBEDDING_VERSION) -> float: ...
 def analyze_aggression_file(path: str, *, sr: int = 22050) -> AggressionAnalysis: ...
